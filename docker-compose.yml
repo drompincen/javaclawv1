@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: javaclaw-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    healthcheck:
+      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}) }" | mongosh --quiet
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  gateway:
+    build: .
+    container_name: javaclaw-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/javaclaw?replicaSet=rs0
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+volumes:
+  mongo-data:

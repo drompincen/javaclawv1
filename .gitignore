@@ -1,0 +1,14 @@
+target/
+*.class
+*.jar
+*.war
+*.log
+.idea/
+*.iml
+.DS_Store
+.settings/
+.project
+.classpath
+node_modules/
+.env
+.claude/settings.local.json

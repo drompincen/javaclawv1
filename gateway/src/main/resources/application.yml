@@ -1,0 +1,34 @@
+javaclaw:
+  llm:
+    provider: ${JAVACLAW_LLM_PROVIDER:fake}
+  runtime:
+    mode: ${JAVACLAW_RUNTIME_MODE:inprocess}
+
+spring:
+  application:
+    name: javaclaw
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:sk-ant-placeholder-set-real-key-via-ctrl-k}
+      chat:
+        options:
+          model: claude-sonnet-4-5-20250929
+      enabled: true
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-placeholder-set-real-key-via-ctrl-k}
+      chat:
+        options:
+          model: gpt-4o
+  data:
+    mongodb:
+      uri: ${JAVACLAW_MONGO_URI:mongodb://localhost:27017/javaclaw?replicaSet=rs0}
+      database: javaclaw
+
+server:
+  port: 8080
+
+logging:
+  level:
+    io.github.drompincen.javaclawv1: DEBUG
+    org.springframework.data.mongodb: INFO
+    org.springframework.ai: INFO
