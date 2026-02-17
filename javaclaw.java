@@ -1030,20 +1030,30 @@ public class javaclaw implements WebSocketConfigurer {
 
                 Thread.sleep(200);
 
-                // === Step 3 — Reviewer ===
+                // === Step 3 — Reviewer (uses real LLM when available) ===
                 if (Thread.currentThread().isInterrupted()) { updateStatus(sessionId, isThread, SessionStatus.PAUSED); return; }
                 stepStart = System.currentTimeMillis();
                 lockService.renew(sessionId, owner);
                 eventService.emit(sessionId, EventType.AGENT_STEP_STARTED,
                         Map.of("step", 3, "agentId", "reviewer"));
-                String reviewerResp = "**Review: PASS** — Response is comprehensive and addresses the user's request.";
+
+                String reviewerResp;
+                boolean reviewerUsedLlm = false;
+                if (llmClient != null && llmClient.isAvailable()) {
+                    reviewerResp = runLlmReviewer(lastUserMessage, specialistResp, delegate, sessionId);
+                    reviewerUsedLlm = true;
+                } else {
+                    reviewerResp = "**Review: PASS** — Response addresses the user's request.\n\n"
+                            + "---\n*Reviewer is using **mock mode** — configure an API key for real quality checks.*";
+                }
                 streamTokens(sessionId, reviewerResp);
                 long reviewerDuration = System.currentTimeMillis() - stepStart;
+                String reviewerApi = reviewerUsedLlm ? llmClient.getProvider() : "mock";
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
                         Map.of("step", 3, "agentId", "reviewer", "done", true, "durationMs", reviewerDuration,
-                                "apiProvider", "mock", "mocked", true));
-                System.out.printf("  [AgentLoop] step=3 agent=reviewer api=mock PASS (%dms)%n",
-                        reviewerDuration);
+                                "apiProvider", reviewerApi, "mocked", !reviewerUsedLlm));
+                System.out.printf("  [AgentLoop] step=3 agent=reviewer api=%s %s (%dms)%n",
+                        reviewerApi, reviewerResp.contains("PASS") ? "PASS" : "REVIEW", reviewerDuration);
 
                 // Checkpoint
                 cpService.create(sessionId, 3, Map.of("stepNo", 3, "messageCount", messages.size() + 1));
@@ -1062,6 +1072,40 @@ public class javaclaw implements WebSocketConfigurer {
                 lockService.release(sessionId, owner);
                 running.remove(sessionId);
             }
+        }
+
+        /** Run the reviewer using real LLM — returns PASS, FAIL, or OPTIONS with choices */
+        private String runLlmReviewer(String userRequest, String agentResponse, String delegate, String sessionId) {
+            try {
+                String systemPrompt = AGENT_SYSTEM_PROMPTS.getOrDefault("reviewer",
+                        "Review the response for completeness.");
+
+                // Build review context: user request + agent response
+                var reviewMessages = new java.util.ArrayList<Map<String, String>>();
+                reviewMessages.add(Map.of("role", "user", "content",
+                        "User's original request: " + userRequest
+                        + "\n\nAgent (" + delegate + ") response:\n" + agentResponse
+                        + "\n\nDid the agent fully address the user's request? "
+                        + "Reply PASS if complete, FAIL with explanation if wrong, "
+                        + "or OPTIONS with numbered choices if the response was partial "
+                        + "(e.g., listed a directory but didn't read files the user wanted)."));
+
+                String review = llmClient.chat(systemPrompt, reviewMessages);
+                if (review != null && !review.isBlank()) {
+                    // Prefix with **Review:** for consistent UI display
+                    if (review.toUpperCase().contains("PASS")) {
+                        return "**Review: PASS** — " + review.replaceAll("(?i)^\\s*PASS[:\\s]*", "").trim();
+                    } else if (review.toUpperCase().contains("OPTIONS")) {
+                        return "**Review: OPTIONS** — " + review.replaceAll("(?i)^\\s*OPTIONS[:\\s]*", "").trim();
+                    } else if (review.toUpperCase().contains("FAIL")) {
+                        return "**Review: NEEDS MORE** — " + review.replaceAll("(?i)^\\s*FAIL[:\\s]*", "").trim();
+                    }
+                    return "**Review:** " + review;
+                }
+            } catch (Exception e) {
+                System.err.println("  [Reviewer] LLM call failed: " + e.getMessage());
+            }
+            return "**Review: PASS** — (reviewer LLM call failed, defaulting to pass)";
         }
 
         private void updateStatus(String sessionId, boolean isThread, SessionStatus status) {
@@ -1469,7 +1513,11 @@ public class javaclaw implements WebSocketConfigurer {
                     || lower.contains("contents of") || lower.contains("open ") || lower.contains("view ")
                     || lower.contains("list dir") || lower.contains("list folder") || lower.contains("ls ")
                     || lower.contains("what's in") || lower.contains("inspect ");
-            return hasPath && hasFileVerb;
+            // Also detect context references like "read those files", "read that file", "open it"
+            boolean isContextRef = (lower.contains("read") || lower.contains("open") || lower.contains("show"))
+                    && (lower.contains("those file") || lower.contains("that file") || lower.contains("the file")
+                    || lower.contains("those dir") || lower.contains("that dir"));
+            return (hasPath && hasFileVerb) || isContextRef;
         }
 
         /** Extract file paths from user message */
@@ -1485,9 +1533,17 @@ public class javaclaw implements WebSocketConfigurer {
         }
 
         /** Execute a file tool and return the result */
-        private String executeFileTool(String userMessage) {
+        private String executeFileTool(String userMessage, String sessionId) {
             var paths = extractPaths(userMessage);
             String lower = userMessage.toLowerCase();
+
+            // Context-aware: if no paths in current message, check recent session messages
+            if (paths.isEmpty()) {
+                var recentMsgs = messageRepo.findBySessionIdOrderBySeqAsc(sessionId);
+                for (int i = recentMsgs.size() - 1; i >= 0 && paths.isEmpty(); i--) {
+                    paths = extractPaths(recentMsgs.get(i).content);
+                }
+            }
             var sb = new StringBuilder();
 
             if (lower.contains("list dir") || lower.contains("list folder") || lower.contains("ls ")) {
@@ -1530,22 +1586,57 @@ public class javaclaw implements WebSocketConfigurer {
                         continue;
                     }
                     if (java.nio.file.Files.isDirectory(filePath)) {
-                        // Auto-list directory contents instead of telling user to do it manually
+                        // Auto-list AND auto-read small text files in the directory
                         sb.append("**Directory listing of** `").append(path).append("`:\n\n");
                         sb.append("| Name | Type | Size |\n|------|------|------|\n");
+                        var readableFiles = new java.util.ArrayList<java.nio.file.Path>();
                         try (var dirStream = java.nio.file.Files.list(filePath)) {
                             dirStream.sorted().forEach(p2 -> {
                                 boolean d = java.nio.file.Files.isDirectory(p2);
                                 String sz = "-";
-                                if (!d) { try { sz = java.nio.file.Files.size(p2) + " B"; } catch (Exception ignored) {} }
+                                if (!d) {
+                                    try { sz = java.nio.file.Files.size(p2) + " B"; } catch (Exception ignored) {}
+                                    // Collect readable text files (< 50KB, text-like extensions)
+                                    String fname = p2.getFileName().toString().toLowerCase();
+                                    if (fname.matches(".*\\.(txt|md|json|csv|xml|yaml|yml|properties|cfg|conf|ini|log|java|py|js|ts|html|css|sh|bat|sql)$")) {
+                                        try { if (java.nio.file.Files.size(p2) < 50_000) readableFiles.add(p2); }
+                                        catch (Exception ignored) {}
+                                    }
+                                }
                                 sb.append("| ").append(p2.getFileName()).append(" | ")
                                   .append(d ? "DIR" : "FILE").append(" | ").append(sz).append(" |\n");
                             });
                         } catch (Exception de) {
                             sb.append("Error listing: ").append(de.getMessage()).append("\n");
                         }
+
+                        // If user asked to "read" files (not just list), auto-read them
+                        boolean wantsRead = lower.contains("read") || lower.contains("show") || lower.contains("contents")
+                                || lower.contains("open") || lower.contains("what");
+                        if (wantsRead && !readableFiles.isEmpty()) {
+                            sb.append("\n---\n**Reading ").append(readableFiles.size()).append(" text file(s):**\n\n");
+                            for (var rf : readableFiles) {
+                                try {
+                                    String fc = java.nio.file.Files.readString(rf);
+                                    if (fc.length() > 5_000) fc = fc.substring(0, 5_000) + "\n... [truncated]";
+                                    String ext2 = rf.getFileName().toString();
+                                    ext2 = ext2.contains(".") ? ext2.substring(ext2.lastIndexOf('.') + 1) : "";
+                                    sb.append("**").append(rf.getFileName()).append(":**\n");
+                                    sb.append("```").append(ext2).append("\n").append(fc).append("\n```\n\n");
+                                    System.out.printf("  [FileTool] auto-read %s%n", rf);
+                                } catch (Exception re) {
+                                    sb.append("Error reading ").append(rf.getFileName()).append(": ").append(re.getMessage()).append("\n\n");
+                                }
+                            }
+                        } else if (!wantsRead && !readableFiles.isEmpty()) {
+                            sb.append("\n**").append(readableFiles.size()).append(" readable file(s) found.** ")
+                              .append("Options:\n1. **Read files** — say \"read the files\"\n")
+                              .append("2. **Do nothing** — continue chatting\n")
+                              .append("3. **Let's chat** — ask me about something else\n");
+                        }
                         sb.append("\n");
-                        System.out.printf("  [FileTool] auto-list directory path=%s%n", path);
+                        System.out.printf("  [FileTool] auto-list directory path=%s files=%d readable=%d%n",
+                                path, readableFiles.size(), readableFiles.size());
                         continue;
                     }
                     long size = java.nio.file.Files.size(filePath);
@@ -1562,65 +1653,82 @@ public class javaclaw implements WebSocketConfigurer {
                     sb.append("**Error reading** `").append(path).append("`: ").append(e.getMessage()).append("\n\n");
                 }
             }
-            return sb.toString();
+
+            // If the user's message has an intent beyond just reading (e.g., "tell me about reminders",
+            // "what should I do", "summarize"), pass the file contents to the LLM for analysis
+            String fileContent = sb.toString();
+            boolean hasAnalysisIntent = lower.contains("tell me") || lower.contains("about")
+                    || lower.contains("remind") || lower.contains("summarize") || lower.contains("analyze")
+                    || lower.contains("suggest") || lower.contains("what should") || lower.contains("help me")
+                    || lower.contains("extract") || lower.contains("find");
+            if (hasAnalysisIntent && llmClient != null && llmClient.isAvailable() && !fileContent.isBlank()) {
+                // Save file content as context, then let the LLM analyze it
+                long seq = messageRepo.countBySessionId(sessionId) + 1;
+                MessageDoc fileCtxMsg = new MessageDoc();
+                fileCtxMsg.messageId = UUID.randomUUID().toString();
+                fileCtxMsg.sessionId = sessionId;
+                fileCtxMsg.seq = seq;
+                fileCtxMsg.role = "assistant";
+                fileCtxMsg.content = "[File Tool Results]\n" + fileContent;
+                fileCtxMsg.timestamp = Instant.now();
+                fileCtxMsg.agentId = "file_tool";
+                fileCtxMsg.mocked = false;
+                messageRepo.save(fileCtxMsg);
+
+                // Now call the LLM with the generalist prompt + full context
+                String llmAnalysis = callRealLlm("generalist", userMessage, sessionId);
+                return fileContent + "\n---\n**Analysis:**\n\n" + llmAnalysis;
+            }
+
+            return fileContent;
         }
 
-        /** Execute a reminder request — uses LLM to parse, then stores in DB */
+        /** Execute a reminder request — uses LLM with FULL session context to identify reminders */
         private String executeReminder(String userMessage, String sessionId) {
-            // If LLM is available, let it parse the reminder details
+            // Use callRealLlm which loads the full conversation history — this lets the reminder
+            // agent see previous file listings, directory contents, etc. and extract reminders from context
             if (llmClient != null && llmClient.isAvailable()) {
-                String parsePrompt = """
-                    You are a reminder assistant. The user wants to set a reminder.
-                    Extract: 1) what to remind them about, 2) when (date/time or relative like "tomorrow 9am"),
-                    3) whether it's recurring (daily, weekly, etc.).
-                    Respond in this exact format:
-                    MESSAGE: <the reminder text>
-                    WHEN: <the time description>
-                    RECURRING: <yes/no — if yes, include interval like "daily", "weekly">
-                    Then add a friendly confirmation message after a blank line.""";
-                var msgs = List.of(Map.of("role", "user", "content", userMessage));
-                String parsed = llmClient.chat(parsePrompt, msgs);
-                if (parsed != null && !parsed.isBlank()) {
-                    // Extract fields from LLM response
-                    String reminderMsg = userMessage;
-                    String triggerAt = "unspecified";
-                    boolean recurring = false;
-                    long intervalMs = 0;
-                    for (String line : parsed.split("\n")) {
-                        line = line.trim();
-                        if (line.startsWith("MESSAGE:")) reminderMsg = line.substring(8).trim();
-                        else if (line.startsWith("WHEN:")) triggerAt = line.substring(5).trim();
-                        else if (line.startsWith("RECURRING:")) {
-                            String val = line.substring(10).trim().toLowerCase();
-                            recurring = val.startsWith("yes");
-                            if (val.contains("daily")) intervalMs = 86_400_000L;
-                            else if (val.contains("weekly")) intervalMs = 604_800_000L;
-                            else if (val.contains("hourly")) intervalMs = 3_600_000L;
+                String response = callRealLlm("reminder", userMessage, sessionId);
+
+                // Parse REMINDER lines from the response and save to DB
+                int savedCount = 0;
+                for (String line : response.split("\n")) {
+                    line = line.trim();
+                    if (line.startsWith("REMINDER:") || line.contains("| WHEN:")) {
+                        var doc = new ReminderDoc();
+                        doc.reminderId = UUID.randomUUID().toString();
+                        doc.sessionId = sessionId;
+                        doc.createdAt = Instant.now();
+
+                        // Parse "REMINDER: what | WHEN: time | RECURRING: yes/no"
+                        String[] parts = line.split("\\|");
+                        doc.message = parts[0].replaceAll("(?i)^\\s*REMINDER:\\s*", "").trim();
+                        doc.triggerAt = "unspecified";
+                        doc.recurring = false;
+                        for (String part : parts) {
+                            part = part.trim();
+                            if (part.toUpperCase().startsWith("WHEN:"))
+                                doc.triggerAt = part.substring(5).trim();
+                            else if (part.toUpperCase().startsWith("RECURRING:")) {
+                                String val = part.substring(10).trim().toLowerCase();
+                                doc.recurring = val.startsWith("yes");
+                                if (val.contains("daily")) doc.intervalMs = 86_400_000L;
+                                else if (val.contains("weekly")) doc.intervalMs = 604_800_000L;
+                                else if (val.contains("hourly")) doc.intervalMs = 3_600_000L;
+                            }
+                        }
+                        if (!doc.message.isBlank()) {
+                            reminderRepo.save(doc);
+                            savedCount++;
+                            System.out.printf("  [Reminder] created id=%s msg=%s when=%s%n",
+                                    doc.reminderId.substring(0, 8), truncate(doc.message, 50), doc.triggerAt);
                         }
                     }
-
-                    // Save to DB
-                    var doc = new ReminderDoc();
-                    doc.reminderId = UUID.randomUUID().toString();
-                    doc.sessionId = sessionId;
-                    doc.message = reminderMsg;
-                    doc.triggerAt = triggerAt;
-                    doc.recurring = recurring;
-                    doc.intervalMs = recurring ? intervalMs : null;
-                    doc.createdAt = Instant.now();
-                    reminderRepo.save(doc);
-                    System.out.printf("  [Reminder] created id=%s trigger=%s recurring=%s%n",
-                            doc.reminderId.substring(0, 8), triggerAt, recurring);
-
-                    // Return the LLM's friendly confirmation (everything after the parsed fields)
-                    int blankLine = parsed.indexOf("\n\n");
-                    String confirmation = blankLine > 0 ? parsed.substring(blankLine + 2).trim() : "";
-                    if (confirmation.isBlank()) {
-                        confirmation = "Reminder set: **" + reminderMsg + "** — " + triggerAt
-                                + (recurring ? " (recurring)" : "");
-                    }
-                    return confirmation;
                 }
+                if (savedCount > 0) {
+                    System.out.printf("  [Reminder] saved %d reminders from LLM response%n", savedCount);
+                }
+                return response;
             }
 
             // Fallback: basic reminder without LLM
@@ -1650,6 +1758,8 @@ public class javaclaw implements WebSocketConfigurer {
                     - Code review and refactoring suggestions
                     - Explaining technical concepts clearly
                     - Reading and analyzing files when provided as context
+                    You have access to a FILE TOOL that can read files and list directories on the user's system.
+                    If the user references a file path, the system will read it for you automatically.
                     Be concise and provide working code examples. Use markdown formatting.""",
                 "pm", """
                     You are a project manager and assistant. Your skills include:
@@ -1658,6 +1768,7 @@ public class javaclaw implements WebSocketConfigurer {
                     - Resource allocation and deadline tracking
                     - Roadmap planning and stakeholder communication
                     - Retrospective facilitation and team workflow optimization
+                    You have access to the session and thread history for context.
                     Be practical, clear, and focused on outcomes. Use markdown formatting.""",
                 "generalist", """
                     You are a helpful, knowledgeable AI assistant. Your skills include:
@@ -1666,24 +1777,31 @@ public class javaclaw implements WebSocketConfigurer {
                     - Brainstorming ideas and creative problem-solving
                     - Summarizing information and explaining complex topics simply
                     - Helping with writing, communication, and decision-making
+                    You have access to the full conversation history for context.
                     Be friendly, concise, and helpful. Use markdown formatting.""",
                 "reminder", """
                     You are a scheduling and reminder assistant. Your skills include:
                     - Creating reminders for tasks, events, and deadlines
+                    - Reading files or previous conversation context to identify things the user should be reminded about
                     - Suggesting optimal times based on the user's described schedule
                     - Organizing recurring reminders (daily, weekly, etc.)
                     - Prioritizing tasks by urgency and importance
-                    When the user asks for a reminder, confirm what you've scheduled.
-                    Format times clearly. Use markdown formatting.""",
+                    You have access to the full conversation history. If files were read or listed earlier in the conversation,
+                    use that content to identify reminders. When you identify reminders, list each one clearly with:
+                    REMINDER: <what> | WHEN: <time> | RECURRING: <yes/no interval>
+                    Then provide a friendly summary after. Use markdown formatting.""",
                 "controller", """
                     You are a routing controller that delegates tasks to specialist agents.
                     You decide which agent should handle each user request.""",
                 "reviewer", """
-                    You are a quality reviewer. Your skills include:
-                    - Reviewing responses for accuracy, completeness, and helpfulness
-                    - Checking code for bugs, security issues, and best practices
-                    - Ensuring responses address the user's actual question
-                    Be thorough but concise. Use markdown formatting."""
+                    You are a quality reviewer. Review the specialist agent's response and decide:
+                    - PASS: The response fully addresses the user's request
+                    - FAIL: The response is incomplete, wrong, or misses the point
+                    - OPTIONS: The response was partial (e.g., listed files but didn't read them). Offer the user numbered options.
+                    When reviewing, consider the FULL user request, not just the literal response.
+                    For example, if the user asked to read files and the agent only listed a directory, that's incomplete — suggest reading the files.
+                    Respond with one of: PASS, FAIL, or OPTIONS followed by numbered choices.
+                    Use markdown formatting."""
         ));
 
         /** Agent descriptions used by the LLM controller to decide routing */
@@ -1699,7 +1817,7 @@ public class javaclaw implements WebSocketConfigurer {
             return switch (delegate) {
                 case "jira_import" -> executeJiraImport(userMessage, threadId);
                 case "web_search" -> executeWebSearch(userMessage, threadId);
-                case "file_tool" -> executeFileTool(userMessage);
+                case "file_tool" -> executeFileTool(userMessage, threadId);
                 case "reminder" -> executeReminder(userMessage, threadId);
                 default -> {
                     // Try real LLM for ANY agent (pm, coder, generalist, etc.)
@@ -2858,12 +2976,33 @@ public class javaclaw implements WebSocketConfigurer {
     @RequestMapping("/api/search")
     static class SearchController {
         private final EventService eventService;
-        SearchController(EventService eventService) { this.eventService = eventService; }
+        private final MessageRepo messageRepo;
+        private final AgentLoop agentLoop;
+
+        SearchController(EventService eventService, MessageRepo messageRepo, AgentLoop agentLoop) {
+            this.eventService = eventService; this.messageRepo = messageRepo; this.agentLoop = agentLoop;
+        }
 
         @PostMapping("/response") ResponseEntity<?> submitResponse(@RequestBody SubmitSearchResponseRequest req) {
-            eventService.emit(req.sessionId(), EventType.APPROVAL_RESPONDED,
-                    Map.of("requestId", req.requestId(), "content", req.content()));
-            return ResponseEntity.ok(Map.of("status", "accepted"));
+            // 1. Save search results as a user message in the session
+            long seq = messageRepo.countBySessionId(req.sessionId()) + 1;
+            MessageDoc msg = new MessageDoc();
+            msg.messageId = UUID.randomUUID().toString();
+            msg.sessionId = req.sessionId();
+            msg.seq = seq;
+            msg.role = "user";
+            msg.content = "[Search Results]\n\n" + req.content();
+            msg.timestamp = Instant.now();
+            messageRepo.save(msg);
+
+            // 2. Emit event for UI
+            eventService.emit(req.sessionId(), EventType.SEARCH_RESPONSE_SUBMITTED,
+                    Map.of("requestId", req.requestId(), "contentLength", req.content().length()));
+
+            // 3. Re-run the agent loop so it can process the search results
+            agentLoop.startAsync(req.sessionId());
+
+            return ResponseEntity.ok(Map.of("status", "accepted", "messageId", msg.messageId));
         }
     }
 
