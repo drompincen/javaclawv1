@@ -851,6 +851,7 @@ public class javaclaw implements WebSocketConfigurer {
 
         private DistillerService distillerService;
         private JiraImportService jiraImportService;
+        private LlmClient llmClient;
 
         AgentLoop(SessionRepo sessionRepo, ThreadRepo threadRepo, ProjectRepo projectRepo,
                   MessageRepo messageRepo, EventService eventService, CheckpointService cpService,
@@ -868,6 +869,11 @@ public class javaclaw implements WebSocketConfigurer {
         @org.springframework.beans.factory.annotation.Autowired
         void setJiraImportService(JiraImportService jiraImportService) {
             this.jiraImportService = jiraImportService;
+        }
+
+        @org.springframework.beans.factory.annotation.Autowired
+        void setLlmClient(LlmClient llmClient) {
+            this.llmClient = llmClient;
         }
 
         void startAsync(String sessionId) {
@@ -978,12 +984,15 @@ public class javaclaw implements WebSocketConfigurer {
                         Map.of("step", 2, "agentId", delegate));
                 String specialistResp = generateSpecialistResponse(delegate, lastUserMessage, sessionId);
                 long specialistDuration = System.currentTimeMillis() - stepStart;
+                boolean usedRealLlm = llmClient != null && llmClient.isAvailable()
+                        && !"jira_import".equals(delegate) && !"web_search".equals(delegate) && !"file_tool".equals(delegate);
+                String apiProvider = usedRealLlm ? llmClient.getProvider() : "mock";
                 streamTokens(sessionId, specialistResp);
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
                         Map.of("step", 2, "agentId", delegate, "durationMs", specialistDuration,
-                                "apiProvider", "mock", "mocked", true));
-                System.out.printf("  [AgentLoop] step=2 agent=%s api=mock response=%d chars (%dms)%n",
-                        delegate, specialistResp.length(), specialistDuration);
+                                "apiProvider", apiProvider, "mocked", !usedRealLlm));
+                System.out.printf("  [AgentLoop] step=2 agent=%s api=%s response=%d chars (%dms)%n",
+                        delegate, apiProvider, specialistResp.length(), specialistDuration);
 
                 // Save specialist response as assistant message with metadata
                 long seq = messageRepo.countBySessionId(sessionId) + 1;
@@ -995,9 +1004,9 @@ public class javaclaw implements WebSocketConfigurer {
                 assistantMsg.content = specialistResp;
                 assistantMsg.timestamp = Instant.now();
                 assistantMsg.agentId = delegate;
-                assistantMsg.apiProvider = "mock"; // Will be "anthropic" or "openai" when using real LLM
+                assistantMsg.apiProvider = apiProvider;
                 assistantMsg.durationMs = specialistDuration;
-                assistantMsg.mocked = true; // Flag: currently all responses are simulated
+                assistantMsg.mocked = !usedRealLlm;
                 messageRepo.save(assistantMsg);
 
                 Thread.sleep(200);
@@ -1463,15 +1472,88 @@ public class javaclaw implements WebSocketConfigurer {
             return sb.toString();
         }
 
+        /** System prompts per agent role */
+        private static final Map<String, String> AGENT_SYSTEM_PROMPTS = Map.of(
+                "coder", "You are a senior software engineer. Help the user with coding tasks: writing code, fixing bugs, reviewing code, and explaining technical concepts. Be concise and provide working code examples when relevant. Use markdown formatting.",
+                "pm", "You are a project manager and assistant. Help the user plan projects, organize tasks, make decisions, and provide actionable recommendations. Be practical, clear, and focused on outcomes. Use markdown formatting.",
+                "controller", "You are a helpful AI assistant. Answer the user's question directly and concisely. Use markdown formatting."
+        );
+
         private String generateSpecialistResponse(String delegate, String userMessage, String threadId) {
             if (userMessage == null) userMessage = "";
-            String lower = userMessage.toLowerCase();
             return switch (delegate) {
                 case "jira_import" -> executeJiraImport(userMessage, threadId);
                 case "web_search" -> executeWebSearch(userMessage, threadId);
                 case "file_tool" -> executeFileTool(userMessage);
+                default -> {
+                    // Try real LLM first
+                    if (llmClient != null && llmClient.isAvailable()) {
+                        yield callRealLlm(delegate, userMessage, threadId);
+                    }
+                    // Fall back to mock with clear warning
+                    yield generateMockResponse(delegate, userMessage, threadId);
+                }
+            };
+        }
+
+        /** Call the real LLM (OpenAI or Anthropic) */
+        private String callRealLlm(String delegate, String userMessage, String threadId) {
+            String systemPrompt = AGENT_SYSTEM_PROMPTS.getOrDefault(delegate,
+                    AGENT_SYSTEM_PROMPTS.get("controller"));
+
+            // Build context: include project info if available
+            String projectId = resolveProjectId(threadId);
+            if (projectId != null) {
+                var project = projectRepo.findById(projectId).orElse(null);
+                if (project != null) {
+                    systemPrompt += "\n\nCurrent project: " + project.name
+                            + (project.description != null ? " — " + project.description : "");
+                }
+            }
+
+            // Build conversation history from messages
+            var messages = messageRepo.findBySessionIdOrderBySeqAsc(threadId);
+            var llmMessages = new java.util.ArrayList<Map<String, String>>();
+            for (var msg : messages) {
+                llmMessages.add(Map.of("role", msg.role, "content", msg.content));
+            }
+
+            // If coder and files referenced, add file context
+            if ("coder".equals(delegate)) {
+                var referencedPaths = extractPaths(userMessage);
+                for (String path : referencedPaths) {
+                    try {
+                        var p = java.nio.file.Path.of(path);
+                        if (java.nio.file.Files.isRegularFile(p)) {
+                            String content = java.nio.file.Files.readString(p);
+                            if (content.length() > 5_000) content = content.substring(0, 5_000) + "\n... [truncated]";
+                            llmMessages.add(Map.of("role", "user",
+                                    "content", "[File context: " + path + "]\n" + content));
+                            System.out.printf("  [FileTool] read_file for coder context path=%s%n", path);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            System.out.printf("  [LLM] calling %s for agent=%s messages=%d%n",
+                    llmClient.getProvider(), delegate, llmMessages.size());
+            String response = llmClient.chat(systemPrompt, llmMessages);
+            if (response != null && !response.isBlank()) {
+                return response;
+            }
+            // LLM call failed — fall back to mock
+            System.err.println("  [LLM] Call failed, falling back to mock");
+            return generateMockResponse(delegate, userMessage, threadId);
+        }
+
+        /** Generate a canned mock response with a clear warning */
+        private String generateMockResponse(String delegate, String userMessage, String threadId) {
+            String mockWarning = "\n\n---\n*This is a **canned mock response** — no LLM API key is configured. "
+                    + "Press **Ctrl+K** to add your OpenAI or Anthropic API key for real AI responses.*";
+
+            String lower = userMessage.toLowerCase();
+            String base = switch (delegate) {
                 case "coder" -> {
-                    // If the user references files, pre-read them and include as context
                     var referencedPaths = extractPaths(userMessage);
                     var fileContext = new StringBuilder();
                     for (String path : referencedPaths) {
@@ -1482,70 +1564,19 @@ public class javaclaw implements WebSocketConfigurer {
                                 if (content.length() > 5_000) content = content.substring(0, 5_000) + "\n... [truncated]";
                                 fileContext.append("\n**File context** `").append(path).append("`:\n```\n")
                                         .append(content).append("\n```\n");
-                                System.out.printf("  [FileTool] read_file for coder context path=%s%n", path);
                             }
                         } catch (Exception ignored) {}
                     }
-                    yield """
-                        I've analyzed the coding request: "%s"
-
-                        **Approach:**
-                        1. Reviewed existing codebase structure
-                        2. Identified the relevant files and dependencies
-                        3. Implemented the requested changes
-
-                        **Changes Made:**
-                        - Modified the target files according to requirements
-                        - Added appropriate error handling
-                        - Ensured backward compatibility
-
-                        **Testing:**
-                        - All existing tests continue to pass
-                        - Added unit tests for new functionality
-
-                        The implementation is complete. Let me know if you need any adjustments.%s"""
-                        .formatted(truncate(userMessage, 100),
-                                fileContext.length() > 0 ? "\n\n---\n" + fileContext : "");
+                    yield "I've analyzed the coding request: \"%s\"\n\n(Mock coder response — configure an API key for real analysis)%s"
+                            .formatted(truncate(userMessage, 100),
+                                    fileContext.length() > 0 ? "\n\n---\n" + fileContext : "");
                 }
-                case "pm" -> {
-                    if (lower.contains("sprint") || lower.contains("plan")) {
-                        yield """
-                                **Sprint Planning Summary:**
-
-                                Based on the current project state, here's my recommendation:
-
-                                **Sprint Goal:** Establish project foundations and first deliverable
-                                **Duration:** 2 weeks
-                                **Capacity:** TBD (please add team members)
-
-                                **Proposed Tickets:**
-                                1. [HIGH] Set up project repository and CI/CD pipeline
-                                2. [HIGH] Define core data model and API contracts
-                                3. [MEDIUM] Implement authentication and authorization
-                                4. [MEDIUM] Create initial UI wireframes
-                                5. [LOW] Write project README and developer onboarding guide
-
-                                Would you like me to create these as tickets?""";
-                    }
-                    yield """
-                            I've analyzed your request: "%s"
-
-                            **Findings:**
-                            - The project is currently in ACTIVE status
-                            - No blocking issues identified
-                            - Team capacity and timeline need to be established
-
-                            **Recommendations:**
-                            1. Clarify the project scope and deliverables
-                            2. Set up tracking milestones
-                            3. Assign ownership for key workstreams
-
-                            Let me know how you'd like to proceed!"""
-                            .formatted(truncate(userMessage, 100));
-                }
-                default -> "I've processed your request: \"%s\"\n\nTask completed successfully."
+                case "pm" -> "I've received your request: \"%s\"\n\n(Mock PM response — configure an API key for real project management advice)"
+                        .formatted(truncate(userMessage, 100));
+                default -> "I've processed your request: \"%s\"\n\n(Mock response)"
                         .formatted(truncate(userMessage, 100));
             };
+            return base + mockWarning;
         }
 
         private void streamTokens(String sessionId, String response) throws InterruptedException {
@@ -1657,6 +1688,131 @@ public class javaclaw implements WebSocketConfigurer {
         private String truncate(String s, int maxLen) {
             if (s == null) return "";
             return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
+        }
+    }
+
+    // =======================================================================
+    // LLM CLIENT — Direct HTTP calls to OpenAI / Anthropic APIs
+    // =======================================================================
+
+    @Component
+    static class LlmClient {
+        private final ObjectMapper mapper;
+        private final java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(30))
+                .build();
+
+        LlmClient(ObjectMapper mapper) { this.mapper = mapper; }
+
+        /** Check if a real LLM key is available */
+        boolean isAvailable() {
+            return getOpenAiKey() != null || getAnthropicKey() != null;
+        }
+
+        String getProvider() {
+            if (getOpenAiKey() != null) return "openai";
+            if (getAnthropicKey() != null) return "anthropic";
+            return "mock";
+        }
+
+        private String getOpenAiKey() {
+            String key = ConfigController.openaiKey;
+            if (key == null || key.isBlank()) key = System.getenv("OPENAI_API_KEY");
+            return (key != null && !key.isBlank()) ? key : null;
+        }
+
+        private String getAnthropicKey() {
+            String key = ConfigController.anthropicKey;
+            if (key == null || key.isBlank()) key = System.getenv("ANTHROPIC_API_KEY");
+            return (key != null && !key.isBlank()) ? key : null;
+        }
+
+        /** Call the LLM with a system prompt and user message, return the response text */
+        String chat(String systemPrompt, List<Map<String, String>> messages) {
+            String openaiKey = getOpenAiKey();
+            if (openaiKey != null) return callOpenAi(openaiKey, systemPrompt, messages);
+            String anthropicKey = getAnthropicKey();
+            if (anthropicKey != null) return callAnthropic(anthropicKey, systemPrompt, messages);
+            return null; // No key available
+        }
+
+        private String callOpenAi(String apiKey, String systemPrompt, List<Map<String, String>> messages) {
+            try {
+                var body = mapper.createObjectNode();
+                body.put("model", "gpt-4o");
+                body.put("max_tokens", 2048);
+
+                var msgsArray = body.putArray("messages");
+                if (systemPrompt != null) {
+                    var sysMsg = msgsArray.addObject();
+                    sysMsg.put("role", "system");
+                    sysMsg.put("content", systemPrompt);
+                }
+                for (var msg : messages) {
+                    var m = msgsArray.addObject();
+                    m.put("role", msg.getOrDefault("role", "user"));
+                    m.put("content", msg.getOrDefault("content", ""));
+                }
+
+                var request = java.net.http.HttpRequest.newBuilder()
+                        .uri(URI.create("https://api.openai.com/v1/chat/completions"))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer " + apiKey)
+                        .timeout(java.time.Duration.ofSeconds(60))
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                        .build();
+
+                var response = httpClient.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() != 200) {
+                    System.err.printf("  [LLM] OpenAI error %d: %s%n", response.statusCode(),
+                            response.body().substring(0, Math.min(200, response.body().length())));
+                    return null;
+                }
+
+                JsonNode json = mapper.readTree(response.body());
+                return json.path("choices").path(0).path("message").path("content").asText(null);
+            } catch (Exception e) {
+                System.err.println("  [LLM] OpenAI call failed: " + e.getMessage());
+                return null;
+            }
+        }
+
+        private String callAnthropic(String apiKey, String systemPrompt, List<Map<String, String>> messages) {
+            try {
+                var body = mapper.createObjectNode();
+                body.put("model", "claude-sonnet-4-20250514");
+                body.put("max_tokens", 2048);
+                if (systemPrompt != null) body.put("system", systemPrompt);
+
+                var msgsArray = body.putArray("messages");
+                for (var msg : messages) {
+                    var m = msgsArray.addObject();
+                    m.put("role", msg.getOrDefault("role", "user"));
+                    m.put("content", msg.getOrDefault("content", ""));
+                }
+
+                var request = java.net.http.HttpRequest.newBuilder()
+                        .uri(URI.create("https://api.anthropic.com/v1/messages"))
+                        .header("Content-Type", "application/json")
+                        .header("x-api-key", apiKey)
+                        .header("anthropic-version", "2023-06-01")
+                        .timeout(java.time.Duration.ofSeconds(60))
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                        .build();
+
+                var response = httpClient.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() != 200) {
+                    System.err.printf("  [LLM] Anthropic error %d: %s%n", response.statusCode(),
+                            response.body().substring(0, Math.min(200, response.body().length())));
+                    return null;
+                }
+
+                JsonNode json = mapper.readTree(response.body());
+                return json.path("content").path(0).path("text").asText(null);
+            } catch (Exception e) {
+                System.err.println("  [LLM] Anthropic call failed: " + e.getMessage());
+                return null;
+            }
         }
     }
 
@@ -2368,8 +2524,8 @@ public class javaclaw implements WebSocketConfigurer {
     @RequestMapping("/api/config")
     static class ConfigController {
         private static int fontSize = 13;
-        private static String anthropicKey;
-        private static String openaiKey;
+        static String anthropicKey = System.getenv("ANTHROPIC_API_KEY");
+        static String openaiKey = System.getenv("OPENAI_API_KEY");
 
         @GetMapping("/font-size") Map<String, Object> getFontSize() {
             return Map.of("fontSize", fontSize);
