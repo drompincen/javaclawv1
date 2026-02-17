@@ -233,7 +233,12 @@ Select a thread or session, or just type and press Enter — a session is auto-c
 - `F9` — Attach files to your message
 - `Ctrl+V` — Paste images from clipboard
 
-Agent responses stream in real-time via WebSocket.
+**Context commands** — type these directly in the chat input:
+- `use project <name>` — Attach the session to a project (creates a thread if needed)
+- `use thread <name>` — Switch to or create a thread within the current project
+- `whereami` — Show current project, thread, and session info
+
+Agent responses stream in real-time via WebSocket. Each response shows which agent produced it, the API used (mock/anthropic/openai), and the response time.
 
 **Step 4: Tools & Agents**
 
@@ -404,6 +409,33 @@ From the UI's perspective, when the user selects a thread, `ChatPanel` stores bo
    - Saves **checkpoints** after each step
    - Sets session status to `COMPLETED` or `FAILED`
    - Releases the lock
+
+### Context Commands
+
+The agent loop recognizes built-in context commands that let users navigate between projects and threads from the chat input:
+
+| Command | Description |
+|---------|-------------|
+| `use project <name>` | Attach the current session/thread to a project by name. If the session is standalone, a thread is auto-created in the project. |
+| `use thread <name>` | Switch to (or create) a named thread within the current project. Requires a project to be selected first. |
+| `whereami` | Show the current context: project name, thread title, session ID, and message count. |
+
+**Examples:**
+```
+> use project MyApp
+  Attached to project: MyApp
+
+> use thread Sprint 3
+  Created and switched to thread: Sprint 3
+
+> whereami
+  Current Context
+  - Thread: Sprint 3 (abc12345...)
+  - Project: MyApp (def67890...)
+  - Messages: 4
+```
+
+These commands are intercepted by the controller agent before any delegation occurs. They modify the session/thread/project associations in the database and return an immediate response.
 
 ### Event Sourcing
 
@@ -803,46 +835,16 @@ jbang javaclawui.java --url http://localhost:8080
 
 ## Roadmap
 
-### Next Up
+### Recently Completed
 
-These features are actively planned and will be implemented soon:
-
-#### Context Menus (Right-Click Actions)
-Right-click on projects and threads in the navigator tree to access quick actions:
-- **Projects** — Rename, delete (with confirmation warning), add/manage resources, create thread, view scorecard
-- **Threads** — Delete, archive, move to another project, copy thread ID
-- Eliminates the need to navigate through menus or remember keyboard shortcuts for common operations
-
-#### Agent Observability & Response Fix
-Currently agent responses appear blank regardless of whether an API key is configured. This needs to be fixed alongside better observability:
-- **Fix blank responses** — Ensure the agent loop produces visible output with both fake and real LLM providers
-- **Call logging** — Log which agent is active, what task it's working on, and how long each call takes
-- **Duration tracking** — Display elapsed time per agent step in the agent pane
-- **Status visibility** — Show "Coder is analyzing your request..." style messages in the UI during agent work
-
-#### Project & Thread Management
-Full lifecycle management from the UI:
-- **Delete projects** — With a confirmation warning dialog ("This will permanently delete the project and all its threads, tickets, ideas, and designs")
-- **Delete threads** — Remove threads from a project with confirmation
-- **Add resources to projects** — Assign team members (engineers, designers, PMs, QA) to projects directly from the navigator context menu
-- **Resource capacity view** — See who is assigned where and at what allocation percentage
-
-#### File Tool Verification
-Validate that the file tools (read_file, write_file, list_directory, search_files) work end-to-end from the UI:
-- Test creating files via the agent
-- Test listing local directories
-- Ensure WSL path translation works correctly for all file operations
-- Surface tool results clearly in the chat panel
-
-#### Jira Excel Import via Agent
-Ask the agent to read an Excel or CSV file exported from Jira and automatically create tickets in a project:
-- **Attach the export** — Use F9 or drag-and-drop to attach a `.xlsx` / `.csv` file
-- **Agent reads it** — The agent uses the `excel` tool to parse rows and columns (story title, description, priority, status, assignee)
-- **Auto-creates tickets** — Each row becomes a ticket in the current project via `create_ticket`
-- **Resource mapping** — Match assignee names to existing resources in the system
-- **Summary report** — Agent provides a summary of how many tickets were imported and any rows that couldn't be parsed
-
-This enables rapid project bootstrapping from existing Jira boards without manual re-entry.
+- **Context Menus** — Right-click on projects (new thread, add resource, view resources, delete) and threads/sessions (open, delete) with confirmation dialogs
+- **Agent Observability** — Fixed blank agent responses (token key mismatch). Each response shows agent name, API provider (mock/anthropic/openai), call duration, and mock flag. Full per-step logging in server console.
+- **Project & Thread Management** — Delete projects/threads from UI with warning dialogs, add/view resources via context menu, REST endpoints for all CRUD operations
+- **File Tools in Agent Loop** — Controller reads files and lists directories when asked (e.g., "show me /path/to/file"). Coder agent auto-reads referenced files as context.
+- **Jira Excel/CSV Import** — `use project X` then "import tickets from /path/to/jira-export.csv". Parses CSV and .xlsx with column mapping (Summary, Priority, Status, Issue Key). REST endpoint: `POST /api/projects/{id}/tickets/import`
+- **Context Commands** — `use project <name>`, `use thread <name>`, `whereami` — navigate between projects and threads directly from chat input
+- **Message History** — Switching sessions/threads now loads past messages with agent metadata
+- **Response Metadata** — MessageDoc stores agentId, apiProvider, durationMs, mocked flag for every assistant response
 
 ### Future Vision
 

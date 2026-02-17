@@ -573,10 +573,12 @@ public class javaclaw implements WebSocketConfigurer {
 
     interface ProjectRepo extends MongoRepository<ProjectDoc, String> {
         List<ProjectDoc> findAllByOrderByUpdatedAtDesc();
+        Optional<ProjectDoc> findByNameIgnoreCase(String name);
     }
 
     interface ThreadRepo extends MongoRepository<ThreadDoc, String> {
         List<ThreadDoc> findByProjectIdsOrderByUpdatedAtDesc(String projectId);
+        Optional<ThreadDoc> findByTitleIgnoreCaseAndProjectIdsContaining(String title, String projectId);
     }
 
     interface AgentRepo extends MongoRepository<AgentDoc, String> {}
@@ -834,6 +836,7 @@ public class javaclaw implements WebSocketConfigurer {
     static class AgentLoop {
         private final SessionRepo sessionRepo;
         private final ThreadRepo threadRepo;
+        private final ProjectRepo projectRepo;
         private final MessageRepo messageRepo;
         private final EventService eventService;
         private final CheckpointService cpService;
@@ -847,10 +850,10 @@ public class javaclaw implements WebSocketConfigurer {
         private DistillerService distillerService;
         private JiraImportService jiraImportService;
 
-        AgentLoop(SessionRepo sessionRepo, ThreadRepo threadRepo, MessageRepo messageRepo,
-                  EventService eventService, CheckpointService cpService,
+        AgentLoop(SessionRepo sessionRepo, ThreadRepo threadRepo, ProjectRepo projectRepo,
+                  MessageRepo messageRepo, EventService eventService, CheckpointService cpService,
                   LockService lockService, ObjectMapper mapper) {
-            this.sessionRepo = sessionRepo; this.threadRepo = threadRepo;
+            this.sessionRepo = sessionRepo; this.threadRepo = threadRepo; this.projectRepo = projectRepo;
             this.messageRepo = messageRepo; this.eventService = eventService;
             this.cpService = cpService; this.lockService = lockService; this.mapper = mapper;
         }
@@ -911,6 +914,37 @@ public class javaclaw implements WebSocketConfigurer {
                 System.out.printf("  [AgentLoop] session=%s type=%s messages=%d user=\"%s\"%n",
                         sessionId.substring(0, 8), isThread ? "thread" : "session", messages.size(),
                         truncate(lastUserMessage, 80));
+
+                // === Check for context commands (use project, use thread, whereami) ===
+                String cmdResponse = handleContextCommand(lastUserMessage.trim(), sessionId, isThread);
+                if (cmdResponse != null) {
+                    long cmdStart = System.currentTimeMillis();
+                    eventService.emit(sessionId, EventType.AGENT_STEP_STARTED,
+                            Map.of("step", 1, "agentId", "controller"));
+                    streamTokens(sessionId, cmdResponse);
+                    long cmdDuration = System.currentTimeMillis() - cmdStart;
+                    eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
+                            Map.of("step", 1, "agentId", "controller", "durationMs", cmdDuration,
+                                    "apiProvider", "mock", "mocked", true));
+                    // Save as assistant message
+                    long cmdSeq = messageRepo.countBySessionId(sessionId) + 1;
+                    MessageDoc cmdMsg = new MessageDoc();
+                    cmdMsg.messageId = UUID.randomUUID().toString();
+                    cmdMsg.sessionId = sessionId;
+                    cmdMsg.seq = cmdSeq;
+                    cmdMsg.role = "assistant";
+                    cmdMsg.content = cmdResponse;
+                    cmdMsg.timestamp = Instant.now();
+                    cmdMsg.agentId = "controller";
+                    cmdMsg.apiProvider = "mock";
+                    cmdMsg.durationMs = cmdDuration;
+                    cmdMsg.mocked = true;
+                    messageRepo.save(cmdMsg);
+                    updateStatus(sessionId, isThread, SessionStatus.COMPLETED);
+                    System.out.printf("  [AgentLoop] COMMAND handled session=%s total=%dms%n",
+                            sessionId.substring(0, 8), System.currentTimeMillis() - loopStart);
+                    return; // Short-circuit — no delegation needed
+                }
 
                 // === Step 1 — Controller ===
                 long stepStart = System.currentTimeMillis();
@@ -1094,6 +1128,209 @@ public class javaclaw implements WebSocketConfigurer {
                 }
             }
             return null;
+        }
+
+        /**
+         * Handle context commands: use project, use thread, whereami.
+         * Returns a response string if a command was handled, or null if not a command.
+         */
+        private String handleContextCommand(String msg, String sessionId, boolean isThread) {
+            String lower = msg.toLowerCase();
+
+            // --- whereami ---
+            if (lower.equals("whereami") || lower.equals("where am i") || lower.equals("where am i?")) {
+                return buildWhereAmI(sessionId, isThread);
+            }
+
+            // --- use project [name] ---
+            if (lower.startsWith("use project ")) {
+                String projectName = msg.substring("use project ".length()).trim();
+                return handleUseProject(projectName, sessionId, isThread);
+            }
+
+            // --- use thread [name] ---
+            if (lower.startsWith("use thread ")) {
+                String threadName = msg.substring("use thread ".length()).trim();
+                return handleUseThread(threadName, sessionId, isThread);
+            }
+
+            return null; // Not a command
+        }
+
+        private String buildWhereAmI(String sessionId, boolean isThread) {
+            var sb = new StringBuilder("**Current Context**\n\n");
+
+            if (isThread) {
+                var thread = threadRepo.findById(sessionId).orElse(null);
+                if (thread != null) {
+                    sb.append("- **Thread:** ").append(thread.title).append(" (`").append(thread.threadId, 0, 8).append("...`)\n");
+                    var pids = thread.getEffectiveProjectIds();
+                    if (!pids.isEmpty()) {
+                        for (String pid : pids) {
+                            var proj = projectRepo.findById(pid).orElse(null);
+                            sb.append("- **Project:** ").append(proj != null ? proj.name : "unknown")
+                              .append(" (`").append(pid, 0, Math.min(8, pid.length())).append("...`)\n");
+                        }
+                    } else {
+                        sb.append("- **Project:** none attached\n");
+                    }
+                } else {
+                    sb.append("- **Thread:** not found\n");
+                }
+            } else {
+                var session = sessionRepo.findById(sessionId).orElse(null);
+                if (session != null) {
+                    sb.append("- **Session:** `").append(sessionId, 0, 8).append("...`\n");
+                    if (session.threadId != null) {
+                        var thread = threadRepo.findById(session.threadId).orElse(null);
+                        sb.append("- **Thread:** ").append(thread != null ? thread.title : session.threadId).append("\n");
+                        if (thread != null) {
+                            var pids = thread.getEffectiveProjectIds();
+                            for (String pid : pids) {
+                                var proj = projectRepo.findById(pid).orElse(null);
+                                sb.append("- **Project:** ").append(proj != null ? proj.name : pid).append("\n");
+                            }
+                        }
+                    } else {
+                        sb.append("- **Thread:** none (standalone session)\n");
+                        sb.append("- **Project:** none\n");
+                        sb.append("\nUse `use project <name>` to attach this session to a project.");
+                    }
+                }
+            }
+
+            // Show message count
+            long msgCount = messageRepo.countBySessionId(sessionId);
+            sb.append("- **Messages:** ").append(msgCount).append("\n");
+            return sb.toString();
+        }
+
+        private String handleUseProject(String projectName, String sessionId, boolean isThread) {
+            // Find project by name (case-insensitive)
+            var project = projectRepo.findByNameIgnoreCase(projectName).orElse(null);
+            if (project == null) {
+                // List available projects
+                var all = projectRepo.findAllByOrderByUpdatedAtDesc();
+                var sb = new StringBuilder("**Project not found:** `" + projectName + "`\n\n");
+                if (all.isEmpty()) {
+                    sb.append("No projects exist yet. Create one first.");
+                } else {
+                    sb.append("**Available projects:**\n");
+                    for (var p : all) sb.append("- ").append(p.name).append("\n");
+                }
+                return sb.toString();
+            }
+
+            if (isThread) {
+                // Thread: add project to projectIds
+                var thread = threadRepo.findById(sessionId).orElse(null);
+                if (thread != null) {
+                    var pids = thread.projectIds != null ? new java.util.ArrayList<>(thread.projectIds) : new java.util.ArrayList<String>();
+                    if (!pids.contains(project.projectId)) {
+                        pids.add(project.projectId);
+                        thread.projectIds = pids;
+                        thread.updatedAt = Instant.now();
+                        threadRepo.save(thread);
+                    }
+                    return "**Attached to project:** " + project.name + "\n\n"
+                            + "Thread `" + thread.title + "` is now linked to project **" + project.name + "**.\n"
+                            + "You can now import tickets, manage resources, and work within this project context.";
+                }
+            } else {
+                // Standalone session: create or find a thread in this project and link
+                var session = sessionRepo.findById(sessionId).orElse(null);
+                if (session != null) {
+                    if (session.threadId == null) {
+                        // Create a new thread in the project for this session
+                        ThreadDoc newThread = new ThreadDoc();
+                        newThread.threadId = UUID.randomUUID().toString();
+                        newThread.projectIds = List.of(project.projectId);
+                        newThread.title = "Session " + sessionId.substring(0, 8);
+                        newThread.status = SessionStatus.IDLE;
+                        newThread.createdAt = Instant.now();
+                        newThread.updatedAt = Instant.now();
+                        threadRepo.save(newThread);
+                        session.threadId = newThread.threadId;
+                    } else {
+                        // Update existing thread
+                        var thread = threadRepo.findById(session.threadId).orElse(null);
+                        if (thread != null) {
+                            var pids = thread.projectIds != null ? new java.util.ArrayList<>(thread.projectIds) : new java.util.ArrayList<String>();
+                            if (!pids.contains(project.projectId)) {
+                                pids.add(project.projectId);
+                                thread.projectIds = pids;
+                                thread.updatedAt = Instant.now();
+                                threadRepo.save(thread);
+                            }
+                        }
+                    }
+                    session.updatedAt = Instant.now();
+                    sessionRepo.save(session);
+                    return "**Attached to project:** " + project.name + "\n\n"
+                            + "Session is now linked to project **" + project.name + "**.\n"
+                            + "You can now use project features like tickets, resources, and imports.";
+                }
+            }
+            return "**Error:** Could not attach to project.";
+        }
+
+        private String handleUseThread(String threadName, String sessionId, boolean isThread) {
+            // First resolve the project context
+            String projectId = resolveProjectId(sessionId);
+
+            if (projectId == null) {
+                return "**No project selected.** Use `use project <name>` first, then `use thread <name>`.";
+            }
+
+            // Find thread by title within the project
+            var thread = threadRepo.findByTitleIgnoreCaseAndProjectIdsContaining(threadName, projectId).orElse(null);
+
+            if (thread == null) {
+                // Create a new thread
+                ThreadDoc newThread = new ThreadDoc();
+                newThread.threadId = UUID.randomUUID().toString();
+                newThread.projectIds = List.of(projectId);
+                newThread.title = threadName;
+                newThread.status = SessionStatus.IDLE;
+                newThread.createdAt = Instant.now();
+                newThread.updatedAt = Instant.now();
+                threadRepo.save(newThread);
+
+                var project = projectRepo.findById(projectId).orElse(null);
+                String projectName = project != null ? project.name : projectId;
+
+                // If this is a session, link it to the new thread
+                if (!isThread) {
+                    var session = sessionRepo.findById(sessionId).orElse(null);
+                    if (session != null) {
+                        session.threadId = newThread.threadId;
+                        session.updatedAt = Instant.now();
+                        sessionRepo.save(session);
+                    }
+                }
+
+                return "**Created and switched to thread:** " + threadName + "\n\n"
+                        + "New thread `" + threadName + "` created in project **" + projectName + "**.";
+            }
+
+            // Thread exists — link session to it
+            if (!isThread) {
+                var session = sessionRepo.findById(sessionId).orElse(null);
+                if (session != null) {
+                    session.threadId = thread.threadId;
+                    session.updatedAt = Instant.now();
+                    sessionRepo.save(session);
+                }
+            }
+
+            var project = projectRepo.findById(projectId).orElse(null);
+            String projectName = project != null ? project.name : projectId;
+            long threadMsgCount = messageRepo.countBySessionId(thread.threadId);
+
+            return "**Switched to thread:** " + thread.title + "\n\n"
+                    + "- **Project:** " + projectName + "\n"
+                    + "- **Thread:** " + thread.title + " (`" + thread.threadId.substring(0, 8) + "...`)\n"
+                    + "- **Messages in thread:** " + threadMsgCount + "\n";
         }
 
         /** Detect requests to read/inspect/list files */
