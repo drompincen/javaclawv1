@@ -313,7 +313,9 @@ public class javaclaw implements WebSocketConfigurer {
         CHECKPOINT_CREATED, SESSION_STATUS_CHANGED, ERROR,
         TICKET_CREATED, TICKET_UPDATED, IDEA_PROMOTED,
         REMINDER_TRIGGERED, APPROVAL_REQUESTED, APPROVAL_RESPONDED,
-        RESOURCE_ASSIGNED, MEMORY_STORED, MEMORY_RECALLED, MEMORY_DISTILLED
+        RESOURCE_ASSIGNED, MEMORY_STORED, MEMORY_RECALLED, MEMORY_DISTILLED,
+        SEARCH_REQUESTED, SEARCH_RESPONSE_SUBMITTED, AGENT_DELEGATED, AGENT_SWITCHED,
+        AGENT_CHECK_REQUESTED, AGENT_CHECK_PASSED, AGENT_CHECK_FAILED, AGENT_RESPONSE
     }
 
     enum ToolRiskProfile { READ_ONLY, WRITE_FILES, EXEC_SHELL, BROWSER_CONTROL, NETWORK_CALLS }
@@ -955,6 +957,7 @@ public class javaclaw implements WebSocketConfigurer {
                 String controllerResp = switch (delegate) {
                     case "file_tool" -> "Using **file tools** to handle: " + truncate(lastUserMessage, 100);
                     case "jira_import" -> "Importing tickets from **Jira export**: " + truncate(lastUserMessage, 100);
+                    case "web_search" -> "Requesting **web search** for: " + truncate(lastUserMessage, 100);
                     default -> "Delegating to **" + delegate + "**: " + truncate(lastUserMessage, 100);
                 };
                 streamTokens(sessionId, controllerResp);
@@ -1051,6 +1054,8 @@ public class javaclaw implements WebSocketConfigurer {
             String lower = userMessage.toLowerCase();
             // Jira/Excel import requests
             if (isImportRequest(lower)) return "jira_import";
+            // Web search requests (weather, news, current events, etc.)
+            if (isSearchRequest(lower)) return "web_search";
             // File inspection requests → controller handles directly with file tools
             if (isFileRequest(lower)) return "file_tool";
             if (lower.contains("code") || lower.contains("bug") || lower.contains("fix")
@@ -1069,6 +1074,40 @@ public class javaclaw implements WebSocketConfigurer {
                     || lower.contains(".xls") || lower.contains(".csv") || lower.contains("spreadsheet")
                     || lower.contains("ticket") && (lower.contains("file") || lower.contains("dump") || lower.contains("export"));
             return hasImportVerb && hasImportContext;
+        }
+
+        /** Detect web search requests (weather, news, real-time info) */
+        private boolean isSearchRequest(String lower) {
+            boolean hasSearchTopic = lower.contains("weather") || lower.contains("news") || lower.contains("stock")
+                    || lower.contains("price of") || lower.contains("latest") || lower.contains("current")
+                    || lower.contains("today") || lower.contains("score") || lower.contains("result of")
+                    || lower.contains("who won") || lower.contains("when is") || lower.contains("how much")
+                    || lower.contains("what time") || lower.contains("search for") || lower.contains("google")
+                    || lower.contains("look up") || lower.contains("find out");
+            boolean hasSearchContext = lower.contains("weather") || lower.contains("in ") || lower.contains("for ")
+                    || lower.contains("about ") || lower.contains("of ");
+            return hasSearchTopic && hasSearchContext;
+        }
+
+        /** Emit a SEARCH_REQUESTED event and return a placeholder response */
+        private String executeWebSearch(String userMessage, String sessionId) {
+            // Build a Google search URL from the user's query
+            String query = userMessage.replaceAll("(?i)(what is|what's|tell me|show me|search for|look up|find out|google)\\s*", "").trim();
+            String encoded = java.net.URLEncoder.encode(query, java.nio.charset.StandardCharsets.UTF_8);
+            String searchUrl = "https://www.google.com/search?q=" + encoded;
+            String requestId = UUID.randomUUID().toString();
+
+            // Emit the search request event — the UI will open the search pane
+            eventService.emit(sessionId, EventType.SEARCH_REQUESTED,
+                    Map.of("requestId", requestId, "query", query, "searchUrl", searchUrl));
+
+            System.out.printf("  [WebSearch] query=\"%s\" requestId=%s%n", query, requestId.substring(0, 8));
+
+            return "**Web Search Requested**\n\n"
+                    + "I need to search the web for: **" + query + "**\n\n"
+                    + "The search pane should open automatically with a Google search. "
+                    + "Please paste the relevant results there and click **Submit**.\n\n"
+                    + "Once I receive the search results, send another message and I'll incorporate the information.";
         }
 
         /** Execute Jira import from a file into a project */
@@ -1429,6 +1468,7 @@ public class javaclaw implements WebSocketConfigurer {
             String lower = userMessage.toLowerCase();
             return switch (delegate) {
                 case "jira_import" -> executeJiraImport(userMessage, threadId);
+                case "web_search" -> executeWebSearch(userMessage, threadId);
                 case "file_tool" -> executeFileTool(userMessage);
                 case "coder" -> {
                     // If the user references files, pre-read them and include as context
