@@ -786,7 +786,7 @@ public class javaclaw implements WebSocketConfigurer {
             if (count > 0) {
                 List<String> ids = agentRepo.findAll().stream().map(a -> a.agentId).toList();
                 System.out.println("  Agents already seeded (" + count + " found), checking for missing agents");
-                seedIfMissing(ids, "controller", AgentRole.CONTROLLER, "Routes tasks to specialist agents",
+                seedIfMissing(ids, "controller", AgentRole.CONTROLLER, "Routes tasks to specialist agents using LLM",
                         List.of("delegation", "routing", "task_analysis"));
                 seedIfMissing(ids, "coder", AgentRole.SPECIALIST, "Handles coding tasks: implementation, debugging, testing",
                         List.of("code_analysis", "code_generation", "debugging", "testing"));
@@ -796,10 +796,14 @@ public class javaclaw implements WebSocketConfigurer {
                         List.of("project_management", "sprint_planning", "ticket_management", "resource_planning"));
                 seedIfMissing(ids, "distiller", AgentRole.SPECIALIST, "Distills completed sessions into persistent memories",
                         List.of("memory_extraction", "summarization", "knowledge_distillation"));
+                seedIfMissing(ids, "generalist", AgentRole.SPECIALIST, "Handles general questions, life advice, brainstorming",
+                        List.of("general_knowledge", "advice", "brainstorming", "writing_help"));
+                seedIfMissing(ids, "reminder", AgentRole.SPECIALIST, "Schedules reminders and manages recurring tasks",
+                        List.of("reminders", "scheduling", "time_management"));
                 return;
             }
             System.out.println("  Seeding default agents...");
-            seed("controller", AgentRole.CONTROLLER, "Routes tasks to specialist agents",
+            seed("controller", AgentRole.CONTROLLER, "Routes tasks to specialist agents using LLM",
                     List.of("delegation", "routing", "task_analysis"));
             seed("coder", AgentRole.SPECIALIST, "Handles coding tasks: implementation, debugging, testing",
                     List.of("code_analysis", "code_generation", "debugging", "testing"));
@@ -809,6 +813,10 @@ public class javaclaw implements WebSocketConfigurer {
                     List.of("project_management", "sprint_planning", "ticket_management", "resource_planning"));
             seed("distiller", AgentRole.SPECIALIST, "Distills completed sessions into persistent memories",
                     List.of("memory_extraction", "summarization", "knowledge_distillation"));
+            seed("generalist", AgentRole.SPECIALIST, "Handles general questions, life advice, brainstorming",
+                    List.of("general_knowledge", "advice", "brainstorming", "writing_help"));
+            seed("reminder", AgentRole.SPECIALIST, "Schedules reminders and manages recurring tasks",
+                    List.of("reminders", "scheduling", "time_management"));
         }
 
         private void seedIfMissing(List<String> ids, String agentId, AgentRole role, String desc, List<String> skills) {
@@ -852,6 +860,7 @@ public class javaclaw implements WebSocketConfigurer {
         private DistillerService distillerService;
         private JiraImportService jiraImportService;
         private LlmClient llmClient;
+        private ReminderRepo reminderRepo;
 
         AgentLoop(SessionRepo sessionRepo, ThreadRepo threadRepo, ProjectRepo projectRepo,
                   MessageRepo messageRepo, EventService eventService, CheckpointService cpService,
@@ -874,6 +883,11 @@ public class javaclaw implements WebSocketConfigurer {
         @org.springframework.beans.factory.annotation.Autowired
         void setLlmClient(LlmClient llmClient) {
             this.llmClient = llmClient;
+        }
+
+        @org.springframework.beans.factory.annotation.Autowired
+        void setReminderRepo(ReminderRepo reminderRepo) {
+            this.reminderRepo = reminderRepo;
         }
 
         void startAsync(String sessionId) {
@@ -959,7 +973,11 @@ public class javaclaw implements WebSocketConfigurer {
                 lockService.renew(sessionId, owner);
                 eventService.emit(sessionId, EventType.AGENT_STEP_STARTED,
                         Map.of("step", 1, "agentId", "controller"));
-                String delegate = determineDelegate(lastUserMessage);
+                String delegate = determineDelegate(lastUserMessage, sessionId);
+                boolean controllerUsedLlm = llmClient != null && llmClient.isAvailable()
+                        && !"jira_import".equals(delegate) && !"web_search".equals(delegate)
+                        && !"file_tool".equals(delegate);
+                String controllerApi = controllerUsedLlm ? llmClient.getProvider() : "mock";
                 String controllerResp = switch (delegate) {
                     case "file_tool" -> "Using **file tools** to handle: " + truncate(lastUserMessage, 100);
                     case "jira_import" -> "Importing tickets from **Jira export**: " + truncate(lastUserMessage, 100);
@@ -970,9 +988,9 @@ public class javaclaw implements WebSocketConfigurer {
                 long controllerDuration = System.currentTimeMillis() - stepStart;
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
                         Map.of("step", 1, "agentId", "controller", "durationMs", controllerDuration,
-                                "apiProvider", "mock", "mocked", true));
-                System.out.printf("  [AgentLoop] step=1 agent=controller api=mock -> delegate=%s (%dms)%n",
-                        delegate, controllerDuration);
+                                "apiProvider", controllerApi, "mocked", !controllerUsedLlm));
+                System.out.printf("  [AgentLoop] step=1 agent=controller api=%s -> delegate=%s (%dms)%n",
+                        controllerApi, delegate, controllerDuration);
 
                 Thread.sleep(200);
 
@@ -985,7 +1003,8 @@ public class javaclaw implements WebSocketConfigurer {
                 String specialistResp = generateSpecialistResponse(delegate, lastUserMessage, sessionId);
                 long specialistDuration = System.currentTimeMillis() - stepStart;
                 boolean usedRealLlm = llmClient != null && llmClient.isAvailable()
-                        && !"jira_import".equals(delegate) && !"web_search".equals(delegate) && !"file_tool".equals(delegate);
+                        && !"jira_import".equals(delegate) && !"web_search".equals(delegate)
+                        && !"file_tool".equals(delegate);
                 String apiProvider = usedRealLlm ? llmClient.getProvider() : "mock";
                 streamTokens(sessionId, specialistResp);
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
@@ -1058,21 +1077,80 @@ public class javaclaw implements WebSocketConfigurer {
             eventService.emit(sessionId, EventType.SESSION_STATUS_CHANGED, Map.of("status", status.name()));
         }
 
-        private String determineDelegate(String userMessage) {
-            if (userMessage == null || userMessage.isBlank()) return "pm";
+        private String determineDelegate(String userMessage, String sessionId) {
+            if (userMessage == null || userMessage.isBlank()) return "generalist";
             String lower = userMessage.toLowerCase();
-            // Jira/Excel import requests
+            // Tool-level routing — these have dedicated handlers, not LLM agents
             if (isImportRequest(lower)) return "jira_import";
-            // Web search requests (weather, news, current events, etc.)
             if (isSearchRequest(lower)) return "web_search";
-            // File inspection requests → controller handles directly with file tools
-            if (isFileRequest(lower)) return "file_tool";
+            if (isFileRequest(lower) || containsFilePath(userMessage)) return "file_tool";
+
+            // === LLM-based routing: ask the controller LLM which agent should handle this ===
+            if (llmClient != null && llmClient.isAvailable()) {
+                String llmDelegate = llmDetermineDelegate(userMessage, sessionId);
+                if (llmDelegate != null) return llmDelegate;
+            }
+
+            // === Fallback: keyword-based routing when no LLM is available ===
+            return keywordFallbackDelegate(lower);
+        }
+
+        /** Ask the LLM to pick the best agent for this message */
+        private String llmDetermineDelegate(String userMessage, String sessionId) {
+            try {
+                var sb = new StringBuilder();
+                sb.append("You are a routing controller. Given the user's message, decide which specialist agent should handle it.\n\n");
+                sb.append("Available agents:\n");
+                for (var entry : AGENT_DESCRIPTIONS.entrySet()) {
+                    sb.append("- **").append(entry.getKey()).append("**: ").append(entry.getValue()).append("\n");
+                }
+                sb.append("\nRespond with ONLY the agent name (one of: ")
+                  .append(String.join(", ", AGENT_DESCRIPTIONS.keySet()))
+                  .append("). Nothing else — no explanation, no punctuation, just the agent name.");
+
+                var messages = List.of(Map.of("role", "user", "content", userMessage));
+                String response = llmClient.chat(sb.toString(), messages);
+                if (response != null) {
+                    String cleaned = response.strip().toLowerCase().replaceAll("[^a-z_]", "");
+                    if (AGENT_DESCRIPTIONS.containsKey(cleaned)) {
+                        System.out.printf("  [Controller] LLM routed to: %s%n", cleaned);
+                        return cleaned;
+                    }
+                    System.err.printf("  [Controller] LLM returned unknown agent: '%s', falling back%n", response.strip());
+                }
+            } catch (Exception e) {
+                System.err.println("  [Controller] LLM routing failed: " + e.getMessage());
+            }
+            return null; // fall back to keyword
+        }
+
+        /** Keyword-based fallback when no LLM is available */
+        private String keywordFallbackDelegate(String lower) {
             if (lower.contains("code") || lower.contains("bug") || lower.contains("fix")
-                    || lower.contains("implement") || lower.contains("write") || lower.contains("debug")
-                    || lower.contains("function") || lower.contains("class") || lower.contains("test")) {
+                    || lower.contains("implement") || lower.contains("debug")
+                    || lower.contains("function") || lower.contains("class") || lower.contains("refactor")
+                    || lower.contains("compile") || lower.contains("syntax") || lower.contains("error in")) {
                 return "coder";
             }
-            return "pm";
+            if (lower.contains("sprint") || lower.contains("plan") || lower.contains("ticket")
+                    || lower.contains("milestone") || lower.contains("deadline") || lower.contains("roadmap")
+                    || lower.contains("backlog") || lower.contains("standup") || lower.contains("retro")
+                    || lower.contains("assign") || lower.contains("prioriti") || lower.contains("estimate")) {
+                return "pm";
+            }
+            if (lower.contains("remind") || lower.contains("schedule") || lower.contains("alarm")
+                    || lower.contains("timer") || lower.contains("at ") && lower.contains("pm")
+                    || lower.contains("tomorrow") || lower.contains("every day")
+                    || lower.contains("recurring") || lower.contains("don't forget")) {
+                return "reminder";
+            }
+            return "generalist";
+        }
+
+        /** Check if the message contains file/directory paths */
+        private boolean containsFilePath(String msg) {
+            return msg.matches(".*(/[\\w.\\-]+){2,}.*")           // Unix absolute path
+                    || msg.matches(".*[A-Za-z]:\\\\[\\w.\\\\\\-]+.*"); // Windows path
         }
 
         /** Detect Jira/Excel/CSV import requests */
@@ -1452,7 +1530,22 @@ public class javaclaw implements WebSocketConfigurer {
                         continue;
                     }
                     if (java.nio.file.Files.isDirectory(filePath)) {
-                        sb.append("**`").append(path).append("`** is a directory. Use 'list directory' to view contents.\n\n");
+                        // Auto-list directory contents instead of telling user to do it manually
+                        sb.append("**Directory listing of** `").append(path).append("`:\n\n");
+                        sb.append("| Name | Type | Size |\n|------|------|------|\n");
+                        try (var dirStream = java.nio.file.Files.list(filePath)) {
+                            dirStream.sorted().forEach(p2 -> {
+                                boolean d = java.nio.file.Files.isDirectory(p2);
+                                String sz = "-";
+                                if (!d) { try { sz = java.nio.file.Files.size(p2) + " B"; } catch (Exception ignored) {} }
+                                sb.append("| ").append(p2.getFileName()).append(" | ")
+                                  .append(d ? "DIR" : "FILE").append(" | ").append(sz).append(" |\n");
+                            });
+                        } catch (Exception de) {
+                            sb.append("Error listing: ").append(de.getMessage()).append("\n");
+                        }
+                        sb.append("\n");
+                        System.out.printf("  [FileTool] auto-list directory path=%s%n", path);
                         continue;
                     }
                     long size = java.nio.file.Files.size(filePath);
@@ -1472,11 +1565,133 @@ public class javaclaw implements WebSocketConfigurer {
             return sb.toString();
         }
 
-        /** System prompts per agent role */
-        private static final Map<String, String> AGENT_SYSTEM_PROMPTS = Map.of(
-                "coder", "You are a senior software engineer. Help the user with coding tasks: writing code, fixing bugs, reviewing code, and explaining technical concepts. Be concise and provide working code examples when relevant. Use markdown formatting.",
-                "pm", "You are a project manager and assistant. Help the user plan projects, organize tasks, make decisions, and provide actionable recommendations. Be practical, clear, and focused on outcomes. Use markdown formatting.",
-                "controller", "You are a helpful AI assistant. Answer the user's question directly and concisely. Use markdown formatting."
+        /** Execute a reminder request — uses LLM to parse, then stores in DB */
+        private String executeReminder(String userMessage, String sessionId) {
+            // If LLM is available, let it parse the reminder details
+            if (llmClient != null && llmClient.isAvailable()) {
+                String parsePrompt = """
+                    You are a reminder assistant. The user wants to set a reminder.
+                    Extract: 1) what to remind them about, 2) when (date/time or relative like "tomorrow 9am"),
+                    3) whether it's recurring (daily, weekly, etc.).
+                    Respond in this exact format:
+                    MESSAGE: <the reminder text>
+                    WHEN: <the time description>
+                    RECURRING: <yes/no — if yes, include interval like "daily", "weekly">
+                    Then add a friendly confirmation message after a blank line.""";
+                var msgs = List.of(Map.of("role", "user", "content", userMessage));
+                String parsed = llmClient.chat(parsePrompt, msgs);
+                if (parsed != null && !parsed.isBlank()) {
+                    // Extract fields from LLM response
+                    String reminderMsg = userMessage;
+                    String triggerAt = "unspecified";
+                    boolean recurring = false;
+                    long intervalMs = 0;
+                    for (String line : parsed.split("\n")) {
+                        line = line.trim();
+                        if (line.startsWith("MESSAGE:")) reminderMsg = line.substring(8).trim();
+                        else if (line.startsWith("WHEN:")) triggerAt = line.substring(5).trim();
+                        else if (line.startsWith("RECURRING:")) {
+                            String val = line.substring(10).trim().toLowerCase();
+                            recurring = val.startsWith("yes");
+                            if (val.contains("daily")) intervalMs = 86_400_000L;
+                            else if (val.contains("weekly")) intervalMs = 604_800_000L;
+                            else if (val.contains("hourly")) intervalMs = 3_600_000L;
+                        }
+                    }
+
+                    // Save to DB
+                    var doc = new ReminderDoc();
+                    doc.reminderId = UUID.randomUUID().toString();
+                    doc.sessionId = sessionId;
+                    doc.message = reminderMsg;
+                    doc.triggerAt = triggerAt;
+                    doc.recurring = recurring;
+                    doc.intervalMs = recurring ? intervalMs : null;
+                    doc.createdAt = Instant.now();
+                    reminderRepo.save(doc);
+                    System.out.printf("  [Reminder] created id=%s trigger=%s recurring=%s%n",
+                            doc.reminderId.substring(0, 8), triggerAt, recurring);
+
+                    // Return the LLM's friendly confirmation (everything after the parsed fields)
+                    int blankLine = parsed.indexOf("\n\n");
+                    String confirmation = blankLine > 0 ? parsed.substring(blankLine + 2).trim() : "";
+                    if (confirmation.isBlank()) {
+                        confirmation = "Reminder set: **" + reminderMsg + "** — " + triggerAt
+                                + (recurring ? " (recurring)" : "");
+                    }
+                    return confirmation;
+                }
+            }
+
+            // Fallback: basic reminder without LLM
+            var doc = new ReminderDoc();
+            doc.reminderId = UUID.randomUUID().toString();
+            doc.sessionId = sessionId;
+            doc.message = userMessage;
+            doc.triggerAt = "unspecified";
+            doc.recurring = false;
+            doc.createdAt = Instant.now();
+            reminderRepo.save(doc);
+            System.out.printf("  [Reminder] created (mock) id=%s%n", doc.reminderId.substring(0, 8));
+
+            String mockWarning = "\n\n---\n*This is a **basic reminder** — no LLM API key is configured. "
+                    + "Press **Ctrl+K** to add your API key for smarter scheduling.*";
+            return "Reminder saved: **" + truncate(userMessage, 200) + "**\n\n"
+                    + "I've stored this reminder but can't parse specific timing without an LLM. "
+                    + "Once an API key is configured, I'll be able to understand natural language scheduling." + mockWarning;
+        }
+
+        /** Rich system prompts per agent role — each includes skills the agent can use */
+        private static final Map<String, String> AGENT_SYSTEM_PROMPTS = new java.util.HashMap<>(Map.of(
+                "coder", """
+                    You are a senior software engineer. Your skills include:
+                    - Writing code in Java, Python, JavaScript, and other languages
+                    - Debugging, fixing bugs, and analyzing stack traces
+                    - Code review and refactoring suggestions
+                    - Explaining technical concepts clearly
+                    - Reading and analyzing files when provided as context
+                    Be concise and provide working code examples. Use markdown formatting.""",
+                "pm", """
+                    You are a project manager and assistant. Your skills include:
+                    - Sprint planning, backlog grooming, and task estimation
+                    - Creating and organizing tickets and milestones
+                    - Resource allocation and deadline tracking
+                    - Roadmap planning and stakeholder communication
+                    - Retrospective facilitation and team workflow optimization
+                    Be practical, clear, and focused on outcomes. Use markdown formatting.""",
+                "generalist", """
+                    You are a helpful, knowledgeable AI assistant. Your skills include:
+                    - Answering general knowledge questions on any topic
+                    - Giving life advice, wellness tips, and personal productivity suggestions
+                    - Brainstorming ideas and creative problem-solving
+                    - Summarizing information and explaining complex topics simply
+                    - Helping with writing, communication, and decision-making
+                    Be friendly, concise, and helpful. Use markdown formatting.""",
+                "reminder", """
+                    You are a scheduling and reminder assistant. Your skills include:
+                    - Creating reminders for tasks, events, and deadlines
+                    - Suggesting optimal times based on the user's described schedule
+                    - Organizing recurring reminders (daily, weekly, etc.)
+                    - Prioritizing tasks by urgency and importance
+                    When the user asks for a reminder, confirm what you've scheduled.
+                    Format times clearly. Use markdown formatting.""",
+                "controller", """
+                    You are a routing controller that delegates tasks to specialist agents.
+                    You decide which agent should handle each user request.""",
+                "reviewer", """
+                    You are a quality reviewer. Your skills include:
+                    - Reviewing responses for accuracy, completeness, and helpfulness
+                    - Checking code for bugs, security issues, and best practices
+                    - Ensuring responses address the user's actual question
+                    Be thorough but concise. Use markdown formatting."""
+        ));
+
+        /** Agent descriptions used by the LLM controller to decide routing */
+        private static final Map<String, String> AGENT_DESCRIPTIONS = Map.of(
+                "coder", "Handles coding tasks: writing code, debugging, code review, technical explanations, file analysis",
+                "pm", "Handles project management: sprint planning, tickets, milestones, backlog, resource allocation, deadlines",
+                "generalist", "Handles general questions: life advice, brainstorming, knowledge questions, writing help, anything that doesn't fit other agents",
+                "reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization"
         );
 
         private String generateSpecialistResponse(String delegate, String userMessage, String threadId) {
@@ -1485,8 +1700,9 @@ public class javaclaw implements WebSocketConfigurer {
                 case "jira_import" -> executeJiraImport(userMessage, threadId);
                 case "web_search" -> executeWebSearch(userMessage, threadId);
                 case "file_tool" -> executeFileTool(userMessage);
+                case "reminder" -> executeReminder(userMessage, threadId);
                 default -> {
-                    // Try real LLM first
+                    // Try real LLM for ANY agent (pm, coder, generalist, etc.)
                     if (llmClient != null && llmClient.isAvailable()) {
                         yield callRealLlm(delegate, userMessage, threadId);
                     }
@@ -1573,8 +1789,10 @@ public class javaclaw implements WebSocketConfigurer {
                 }
                 case "pm" -> "I've received your request: \"%s\"\n\n(Mock PM response — configure an API key for real project management advice)"
                         .formatted(truncate(userMessage, 100));
-                default -> "I've processed your request: \"%s\"\n\n(Mock response)"
+                case "generalist" -> "I've received your question: \"%s\"\n\n(Mock generalist response — configure an API key for real answers)"
                         .formatted(truncate(userMessage, 100));
+                default -> "I've processed your request: \"%s\"\n\n(Mock %s response)"
+                        .formatted(truncate(userMessage, 100), delegate);
             };
             return base + mockWarning;
         }

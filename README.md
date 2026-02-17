@@ -242,12 +242,16 @@ Agent responses stream in real-time via WebSocket. Each response shows which age
 
 **Step 4: Tools & Agents**
 
-JavaClaw agents can use tools to help you:
-- Read/Write files (WSL + Windows paths supported)
-- Run JBang and Python scripts
-- Search the web (human-in-the-loop)
-- Read Excel spreadsheets
-- Manage persistent memory
+JavaClaw routes your messages to the best agent automatically using the LLM:
+- **Coder** — coding, debugging, code review, file analysis
+- **PM** — sprint planning, tickets, milestones, backlog
+- **Generalist** — life advice, brainstorming, general knowledge
+- **Reminder** — "remind me to work out tomorrow at 7am" — saves to DB with parsed timing
+- **File tools** — reads files and auto-lists directories from paths you mention
+- **Web search** — weather, stocks, news (human-in-the-loop Google search)
+- **Jira import** — imports tickets from Excel/CSV exports
+
+When no API key is set, routing falls back to keyword matching and responses are mocked. Press `Ctrl+K` to add your OpenAI or Anthropic key.
 
 Shortcuts: `F5` (view tools), `F10` (toggle agent pane), `F11` (toggle search pane).
 
@@ -401,8 +405,8 @@ From the UI's perspective, when the user selects a thread, `ChatPanel` stores bo
    - Loads the latest **checkpoint** (or starts fresh)
    - Loads **relevant memories** (GLOBAL + PROJECT scope) into agent context
    - Enters the **multi-agent orchestration loop**:
-     - **Controller** analyzes the task and delegates (or answers directly)
-     - **Specialist** executes using tools (max 50 steps)
+     - **Controller** uses the LLM to pick the best agent from: `coder`, `pm`, `generalist`, `reminder` (falls back to keyword matching without an API key)
+     - **Specialist** executes using tools and LLM (max 50 steps)
      - **Checker** validates the result
      - If checker rejects → loops back to controller (max 3 retries)
    - Emits events at every step (tokens, tool calls, agent switches)
@@ -845,6 +849,11 @@ jbang javaclawui.java --url http://localhost:8080
 - **Context Commands** — `use project <name>`, `use thread <name>`, `whereami` — navigate between projects and threads directly from chat input
 - **Message History** — Switching sessions/threads now loads past messages with agent metadata
 - **Response Metadata** — MessageDoc stores agentId, apiProvider, durationMs, mocked flag for every assistant response
+- **LLM-Based Agent Routing** — Controller uses the LLM to decide which agent handles each request (falls back to keyword matching when no API key). Agents: coder, pm, generalist, reminder, reviewer, distiller
+- **Generalist Agent** — Handles general questions, life advice, brainstorming, and anything that doesn't fit other specialists
+- **Reminder Agent** — Set reminders via natural language ("remind me to work out tomorrow at 7am"). LLM parses timing and recurrence, stores in MongoDB
+- **Rich Agent Prompts** — Each agent has a detailed system prompt with listed skills, used for both routing and response generation
+- **Real LLM Integration** — All agents (PM, coder, generalist, etc.) use OpenAI/Anthropic APIs when keys are configured. Ctrl+K to add keys
 
 ### Future Vision
 
