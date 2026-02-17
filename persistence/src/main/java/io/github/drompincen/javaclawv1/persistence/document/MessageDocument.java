@@ -19,6 +19,11 @@ public class MessageDocument {
     private String content;
     private List<ContentPart> parts;
     private Instant timestamp;
+    // Response metadata — populated for assistant messages
+    private String agentId;          // which agent produced this (controller, coder, pm, file_tool, etc.)
+    private String apiProvider;      // "anthropic", "openai", or "mock"
+    private Long durationMs;         // how long the agent call took
+    private boolean mocked;          // true if this was a mock/simulated response
 
     public MessageDocument() {}
 
@@ -63,4 +68,16 @@ public class MessageDocument {
 
     public Instant getTimestamp() { return timestamp; }
     public void setTimestamp(Instant timestamp) { this.timestamp = timestamp; }
+
+    public String getAgentId() { return agentId; }
+    public void setAgentId(String agentId) { this.agentId = agentId; }
+
+    public String getApiProvider() { return apiProvider; }
+    public void setApiProvider(String apiProvider) { this.apiProvider = apiProvider; }
+
+    public Long getDurationMs() { return durationMs; }
+    public void setDurationMs(Long durationMs) { this.durationMs = durationMs; }
+
+    public boolean isMocked() { return mocked; }
+    public void setMocked(boolean mocked) { this.mocked = mocked; }
 }

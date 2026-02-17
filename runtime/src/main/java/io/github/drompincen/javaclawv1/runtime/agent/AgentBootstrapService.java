@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AgentBootstrapService {
@@ -17,6 +18,14 @@ public class AgentBootstrapService {
     private static final Logger log = LoggerFactory.getLogger(AgentBootstrapService.class);
 
     private final AgentRepository agentRepository;
+
+    /** Agent descriptions used by the LLM controller to decide routing */
+    public static final Map<String, String> AGENT_DESCRIPTIONS = Map.of(
+            "coder", "Handles coding tasks: writing code, running/executing code via jbang or python, debugging, code review, 'run it' requests, creating tools/scripts/programs",
+            "pm", "Handles project management: sprint planning, tickets, milestones, backlog, resource allocation, deadlines",
+            "generalist", "Handles general questions: life advice, brainstorming, knowledge questions, writing help, anything that doesn't fit other agents",
+            "reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization"
+    );
 
     public AgentBootstrapService(AgentRepository agentRepository) {
         this.agentRepository = agentRepository;
@@ -27,142 +36,219 @@ public class AgentBootstrapService {
         long count = agentRepository.count();
         if (count > 0) {
             log.info("Agents already seeded ({} found), checking for missing agents", count);
-            ensurePmAgent();
+            ensureMissingAgents();
             return;
         }
 
         log.info("Seeding default agents...");
-
-        AgentDocument controller = new AgentDocument();
-        controller.setAgentId("controller");
-        controller.setName("Controller");
-        controller.setDescription("Routing agent that analyzes tasks and delegates to specialists");
-        controller.setSystemPrompt("""
-                You are a controller agent. Your job is to analyze the user's task and decide \
-                which specialist agent should handle it.
-
-                Available specialist agents will be listed in the conversation. Respond with JSON:
-                {"delegate": "agentId", "subTask": "description of what the specialist should do"}
-
-                If the task is simple enough that you can answer directly, respond with:
-                {"respond": "your direct answer here"}
-
-                Always pick the most appropriate specialist for the task.""");
-        controller.setSkills(List.of("task analysis", "delegation", "routing"));
-        controller.setAllowedTools(List.of("*"));
-        controller.setRole(AgentRole.CONTROLLER);
-        controller.setEnabled(true);
-        controller.setCreatedAt(Instant.now());
-        controller.setUpdatedAt(Instant.now());
-        agentRepository.save(controller);
-
-        AgentDocument coder = new AgentDocument();
-        coder.setAgentId("coder");
-        coder.setName("Coder");
-        coder.setDescription("Code specialist that writes, edits, and executes code");
-        coder.setSystemPrompt("""
-                You are a coding specialist agent. You write, edit, debug, and execute code. \
-                You have access to file tools, shell execution, git operations, and JBang for \
-                running Java code. Be thorough and write clean, working code.
-
-                When you are done with your task, provide a summary of what you did.""");
-        coder.setSkills(List.of("coding", "debugging", "testing", "file editing", "shell commands"));
-        coder.setAllowedTools(List.of("*"));
-        coder.setRole(AgentRole.SPECIALIST);
-        coder.setEnabled(true);
-        coder.setCreatedAt(Instant.now());
-        coder.setUpdatedAt(Instant.now());
-        agentRepository.save(coder);
-
-        AgentDocument reviewer = new AgentDocument();
-        reviewer.setAgentId("reviewer");
-        reviewer.setName("Reviewer");
-        reviewer.setDescription("Quality checker that validates task completion and correctness");
-        reviewer.setSystemPrompt("""
-                You are a reviewer/checker agent. Your job is to verify that a task was completed \
-                correctly and satisfactorily. Review the work done by the specialist agent.
-
-                You can read files, search code, list directories, and run shell commands to verify.
-
-                Respond with JSON:
-                {"pass": true, "summary": "brief summary of what was checked and why it passes"}
-                or
-                {"pass": false, "feedback": "what needs to be fixed and why"}""");
-        reviewer.setSkills(List.of("code review", "testing", "validation"));
-        reviewer.setAllowedTools(List.of("read_file", "search_files", "list_directory", "shell_exec", "jbang_exec", "python_exec", "excel", "memory"));
-        reviewer.setRole(AgentRole.CHECKER);
-        reviewer.setEnabled(true);
-        reviewer.setCreatedAt(Instant.now());
-        reviewer.setUpdatedAt(Instant.now());
-        agentRepository.save(reviewer);
-
+        seedController();
+        seedCoder();
+        seedReviewer();
         seedPmAgent();
+        seedGeneralistAgent();
+        seedReminderAgent();
         seedDistillerAgent();
-
-        log.info("Seeded 5 default agents: controller, coder, reviewer, pm, distiller");
+        log.info("Seeded 7 default agents: controller, coder, reviewer, pm, generalist, reminder, distiller");
     }
 
-    private void ensurePmAgent() {
-        if (agentRepository.findById("pm").isEmpty()) {
-            seedPmAgent();
-            log.info("Seeded missing PM agent");
-        }
-        if (agentRepository.findById("distiller").isEmpty()) {
-            seedDistillerAgent();
-            log.info("Seeded missing distiller agent");
-        }
+    private void ensureMissingAgents() {
+        if (agentRepository.findById("pm").isEmpty()) { seedPmAgent(); log.info("Seeded missing PM agent"); }
+        if (agentRepository.findById("distiller").isEmpty()) { seedDistillerAgent(); log.info("Seeded missing distiller agent"); }
+        if (agentRepository.findById("generalist").isEmpty()) { seedGeneralistAgent(); log.info("Seeded missing generalist agent"); }
+        if (agentRepository.findById("reminder").isEmpty()) { seedReminderAgent(); log.info("Seeded missing reminder agent"); }
+        // Update existing agents with rich prompts if they have short prompts
+        updateIfNeeded("controller", CONTROLLER_PROMPT);
+        updateIfNeeded("coder", CODER_PROMPT);
+        updateIfNeeded("reviewer", REVIEWER_PROMPT);
+    }
+
+    private void updateIfNeeded(String agentId, String richPrompt) {
+        agentRepository.findById(agentId).ifPresent(agent -> {
+            if (agent.getSystemPrompt() != null && agent.getSystemPrompt().length() < richPrompt.length()) {
+                agent.setSystemPrompt(richPrompt);
+                agent.setUpdatedAt(Instant.now());
+                agentRepository.save(agent);
+                log.info("Updated {} agent with rich system prompt", agentId);
+            }
+        });
+    }
+
+    // --- Rich system prompts matching javaclaw.java AGENT_SYSTEM_PROMPTS ---
+
+    private static final String CONTROLLER_PROMPT = """
+            You are a routing controller that delegates tasks to specialist agents.
+            You decide which agent should handle each user request.""";
+
+    private static final String CODER_PROMPT = """
+            You are a senior software engineer with the ability to WRITE FILES and EXECUTE CODE on the user's system.
+            Your skills include:
+            - Writing code in Java, Python, JavaScript, and other languages
+            - Debugging, fixing bugs, and analyzing stack traces
+            - Code review and refactoring suggestions
+            - Explaining technical concepts clearly
+            - Reading and analyzing files when provided as context
+            You have access to these TOOLS:
+            - FILE TOOL: read files and list directories on the user's system
+            - EXEC TOOL: execute shell commands, run code via jbang/python/node
+            - WRITE TOOL: save code to files on the user's system
+            When the user asks you to create AND run code, include the code in a ```java (or ```python etc.) block,
+            then add a TOOL CALL block to save and run it:
+            $$WRITE_FILE: /tmp/ToolName.java$$
+            $$EXEC: jbang /tmp/ToolName.java$$
+            When the user says "run it" or "execute it", look at previous messages for code you generated and run it.
+            Be concise and provide working code. Use markdown formatting.""";
+
+    private static final String REVIEWER_PROMPT = """
+            You are a quality reviewer. Review the specialist agent's response and decide:
+            - PASS: The response fully addresses the user's request
+            - FAIL: The response is incomplete, wrong, or misses the point
+            - OPTIONS: The response was partial (e.g., listed files but didn't read them). Offer the user numbered options.
+            When reviewing, consider the FULL user request, not just the literal response.
+            For example, if the user asked to read files and the agent only listed a directory, that's incomplete — suggest reading the files.
+            Respond with one of: PASS, FAIL, or OPTIONS followed by numbered choices.
+            Use markdown formatting.""";
+
+    private static final String PM_PROMPT = """
+            You are a project manager and assistant. Your skills include:
+            - Sprint planning, backlog grooming, and task estimation
+            - Creating and organizing tickets and milestones
+            - Resource allocation and deadline tracking
+            - Roadmap planning and stakeholder communication
+            - Retrospective facilitation and team workflow optimization
+            You have access to the session and thread history for context.
+            Be practical, clear, and focused on outcomes. Use markdown formatting.""";
+
+    private static final String GENERALIST_PROMPT = """
+            You are a helpful, knowledgeable AI assistant. Your skills include:
+            - Answering general knowledge questions on any topic
+            - Giving life advice, wellness tips, and personal productivity suggestions
+            - Brainstorming ideas and creative problem-solving
+            - Summarizing information and explaining complex topics simply
+            - Helping with writing, communication, and decision-making
+            You have access to the full conversation history for context.
+            Be friendly, concise, and helpful. Use markdown formatting.""";
+
+    private static final String REMINDER_PROMPT = """
+            You are a scheduling and reminder assistant. Your skills include:
+            - Creating reminders for tasks, events, and deadlines
+            - Reading files or previous conversation context to identify things the user should be reminded about
+            - Suggesting optimal times based on the user's described schedule
+            - Organizing recurring reminders (daily, weekly, etc.)
+            - Prioritizing tasks by urgency and importance
+            You have access to the full conversation history. If files were read or listed earlier in the conversation,
+            use that content to identify reminders. When you identify reminders, list each one clearly with:
+            REMINDER: <what> | WHEN: <time> | RECURRING: <yes/no interval>
+            Then provide a friendly summary after. Use markdown formatting.""";
+
+    private void seedController() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("controller");
+        agent.setName("Controller");
+        agent.setDescription("Routing agent that analyzes tasks and delegates to specialists");
+        agent.setSystemPrompt(CONTROLLER_PROMPT);
+        agent.setSkills(List.of("task analysis", "delegation", "routing"));
+        agent.setAllowedTools(List.of("*"));
+        agent.setRole(AgentRole.CONTROLLER);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedCoder() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("coder");
+        agent.setName("Coder");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("coder"));
+        agent.setSystemPrompt(CODER_PROMPT);
+        agent.setSkills(List.of("coding", "debugging", "testing", "file editing", "shell commands", "jbang", "python"));
+        agent.setAllowedTools(List.of("*"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedReviewer() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("reviewer");
+        agent.setName("Reviewer");
+        agent.setDescription("Quality checker that validates task completion and correctness");
+        agent.setSystemPrompt(REVIEWER_PROMPT);
+        agent.setSkills(List.of("code review", "testing", "validation"));
+        agent.setAllowedTools(List.of("read_file", "search_files", "list_directory", "shell_exec", "jbang_exec", "python_exec", "excel", "memory"));
+        agent.setRole(AgentRole.CHECKER);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
     }
 
     private void seedPmAgent() {
-        AgentDocument pm = new AgentDocument();
-        pm.setAgentId("pm");
-        pm.setName("PM");
-        pm.setDescription("Project management specialist for planning, tracking, and stakeholder coordination");
-        pm.setSystemPrompt("""
-                You are a project management specialist agent. You help engineering managers with:
-
-                - Understanding project purpose, goals, and scope
-                - Sprint planning and milestone tracking
-                - Ticket creation and prioritization
-                - Resource planning and allocation
-                - Stakeholder identification and communication
-                - Risk assessment and mitigation
-                - Rendering help and services to the team
-
-                You can create tickets, ideas, and read project files to understand context. \
-                When asked about project status, check existing tickets, plans, and milestones. \
-                Always provide actionable recommendations with clear next steps.
-
-                When you are done with your task, provide a structured summary of findings \
-                and recommended actions.""");
-        pm.setSkills(List.of("project management", "sprint planning", "ticket management",
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("pm");
+        agent.setName("PM");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("pm"));
+        agent.setSystemPrompt(PM_PROMPT);
+        agent.setSkills(List.of("project management", "sprint planning", "ticket management",
                 "resource planning", "stakeholder tracking", "risk assessment"));
-        pm.setAllowedTools(List.of("create_ticket", "create_idea", "memory", "excel",
+        agent.setAllowedTools(List.of("create_ticket", "create_idea", "memory", "excel",
                 "read_file", "list_directory", "search_files"));
-        pm.setRole(AgentRole.SPECIALIST);
-        pm.setEnabled(true);
-        pm.setCreatedAt(Instant.now());
-        pm.setUpdatedAt(Instant.now());
-        agentRepository.save(pm);
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedGeneralistAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("generalist");
+        agent.setName("Generalist");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("generalist"));
+        agent.setSystemPrompt(GENERALIST_PROMPT);
+        agent.setSkills(List.of("general knowledge", "brainstorming", "writing", "advice"));
+        agent.setAllowedTools(List.of("memory", "read_file"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedReminderAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("reminder");
+        agent.setName("Reminder");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("reminder"));
+        agent.setSystemPrompt(REMINDER_PROMPT);
+        agent.setSkills(List.of("scheduling", "reminders", "time management"));
+        agent.setAllowedTools(List.of("memory", "read_file"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
     }
 
     private void seedDistillerAgent() {
-        AgentDocument distiller = new AgentDocument();
-        distiller.setAgentId("distiller");
-        distiller.setName("Distiller");
-        distiller.setDescription("Distills completed sessions into persistent memories");
-        distiller.setSystemPrompt("""
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("distiller");
+        agent.setName("Distiller");
+        agent.setDescription("Distills completed sessions into persistent memories");
+        agent.setSystemPrompt("""
                 You are a distiller agent. Your job is to analyze completed sessions and extract \
                 key knowledge, decisions, and outcomes into persistent memories. You summarize \
                 conversations and store important findings for future reference.
 
                 When you are done with your task, provide a summary of what was distilled.""");
-        distiller.setSkills(List.of("memory_extraction", "summarization", "knowledge_distillation"));
-        distiller.setAllowedTools(List.of("memory"));
-        distiller.setRole(AgentRole.SPECIALIST);
-        distiller.setEnabled(true);
-        distiller.setCreatedAt(Instant.now());
-        distiller.setUpdatedAt(Instant.now());
-        agentRepository.save(distiller);
+        agent.setSkills(List.of("memory_extraction", "summarization", "knowledge_distillation"));
+        agent.setAllowedTools(List.of("memory"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
     }
 }
