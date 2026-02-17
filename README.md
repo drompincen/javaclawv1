@@ -854,6 +854,10 @@ jbang javaclawui.java --url http://localhost:8080
 - **Reminder Agent** — Set reminders via natural language ("remind me to work out tomorrow at 7am"). LLM parses timing and recurrence, stores in MongoDB
 - **Rich Agent Prompts** — Each agent has a detailed system prompt with listed skills, used for both routing and response generation
 - **Real LLM Integration** — All agents (PM, coder, generalist, etc.) use OpenAI/Anthropic APIs when keys are configured. Ctrl+K to add keys
+- **Coder Execution** — Coder agent writes files and executes code via `jbang` (Java) or `python`. Say "create a java tool and run it" — code is written to `/tmp`, executed, output returned. "run it" re-runs previous code from session context. Jbang location saved to global memory.
+- **Real Reviewer** — Reviewer uses LLM to check if responses actually address the user's request. Returns PASS, FAIL, or OPTIONS with next steps for partial responses.
+- **Search Results Flow** — Pasted search results are saved as session messages and the agent re-runs to incorporate them.
+- **Context-Aware File Tool** — "read those files" after a listing resolves paths from previous messages. Directory listings auto-read text files or offer options.
 
 ### Future Vision
 

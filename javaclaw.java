@@ -1173,7 +1173,12 @@ public class javaclaw implements WebSocketConfigurer {
             if (lower.contains("code") || lower.contains("bug") || lower.contains("fix")
                     || lower.contains("implement") || lower.contains("debug")
                     || lower.contains("function") || lower.contains("class") || lower.contains("refactor")
-                    || lower.contains("compile") || lower.contains("syntax") || lower.contains("error in")) {
+                    || lower.contains("compile") || lower.contains("syntax") || lower.contains("error in")
+                    || lower.contains("java ") || lower.contains("python ") || lower.contains("javascript")
+                    || lower.contains("jbang") || lower.contains("script") || lower.contains("program")
+                    || lower.matches("^(run|execute|start|launch)\\s+(it|that|this|the).*$")
+                    || lower.contains("create a") && (lower.contains("tool") || lower.contains("app")
+                    || lower.contains("program") || lower.contains("script"))) {
                 return "coder";
             }
             if (lower.contains("sprint") || lower.contains("plan") || lower.contains("ticket")
@@ -1532,6 +1537,297 @@ public class javaclaw implements WebSocketConfigurer {
             return paths;
         }
 
+        /** Coder agent with tool execution: generates code, writes files, runs commands */
+        private String executeCoderWithTools(String userMessage, String sessionId) {
+            String lower = userMessage.toLowerCase().trim();
+
+            // Detect "run it" / "execute it" — find code from previous session messages and re-run
+            boolean isRunRequest = lower.matches("^(run|execute|start|launch)\\s+(it|that|this|the code|the program|the script).*$")
+                    || lower.equals("run it") || lower.equals("execute it");
+
+            if (isRunRequest) {
+                return rerunPreviousCode(sessionId);
+            }
+
+            // Get LLM response (or mock)
+            String response;
+            if (llmClient != null && llmClient.isAvailable()) {
+                response = callRealLlm("coder", userMessage, sessionId);
+            } else {
+                response = generateMockResponse("coder", userMessage, sessionId);
+            }
+
+            // Parse tool calls from the response: $$WRITE_FILE: path$$ and $$EXEC: cmd$$
+            boolean wantsRun = lower.contains("run") || lower.contains("execute") || lower.contains("launch")
+                    || lower.contains("try it") || lower.contains("and run");
+            String toolOutput = processCoderToolCalls(response, wantsRun, sessionId);
+            if (toolOutput != null) {
+                return response + "\n\n---\n" + toolOutput;
+            }
+
+            // If user asked to run and LLM didn't include $$EXEC$$ tags, try to extract code and run it
+            if (wantsRun) {
+                String autoExec = autoExtractAndRun(response, sessionId);
+                if (autoExec != null) {
+                    return response + "\n\n---\n" + autoExec;
+                }
+            }
+
+            return response;
+        }
+
+        /** Process $$WRITE_FILE$$ and $$EXEC$$ tool calls embedded in LLM response */
+        private String processCoderToolCalls(String response, boolean autoRun, String sessionId) {
+            var sb = new StringBuilder();
+            boolean hasOutput = false;
+            String lastWrittenFile = null;
+
+            // Process $$WRITE_FILE: path$$ blocks
+            var writePattern = java.util.regex.Pattern.compile("\\$\\$WRITE_FILE:\\s*(.+?)\\$\\$");
+            var writeMatcher = writePattern.matcher(response);
+            while (writeMatcher.find()) {
+                String filePath = writeMatcher.group(1).trim();
+                // Find the nearest code block before this marker
+                String code = extractCodeBlockBefore(response, writeMatcher.start());
+                if (code != null) {
+                    try {
+                        java.nio.file.Files.writeString(java.nio.file.Path.of(filePath), code);
+                        sb.append("**Wrote file:** `").append(filePath).append("` (").append(code.length()).append(" bytes)\n\n");
+                        lastWrittenFile = filePath;
+                        hasOutput = true;
+                        System.out.printf("  [Coder] wrote file: %s (%d bytes)%n", filePath, code.length());
+                    } catch (Exception e) {
+                        sb.append("**Error writing** `").append(filePath).append("`: ").append(e.getMessage()).append("\n\n");
+                        hasOutput = true;
+                    }
+                }
+            }
+
+            // Process $$EXEC: command$$ blocks
+            var execPattern = java.util.regex.Pattern.compile("\\$\\$EXEC:\\s*(.+?)\\$\\$");
+            var execMatcher = execPattern.matcher(response);
+            while (execMatcher.find()) {
+                String cmd = execMatcher.group(1).trim();
+                String result = executeShellCommand(cmd);
+                sb.append("**Executed:** `").append(cmd).append("`\n\n");
+                sb.append("```\n").append(result).append("\n```\n\n");
+                hasOutput = true;
+            }
+
+            return hasOutput ? sb.toString() : null;
+        }
+
+        /** Auto-extract code from a response and run it (when LLM didn't use $$EXEC$$ tags) */
+        private String autoExtractAndRun(String response, String sessionId) {
+            // Find ```java ... ``` blocks
+            var codeBlocks = extractCodeBlocks(response);
+            for (var block : codeBlocks) {
+                String lang = block.getKey();
+                String code = block.getValue();
+                if ("java".equals(lang) && code.contains("class ") && code.contains("main(")) {
+                    return writeAndRunJava(code, sessionId);
+                }
+                if ("python".equals(lang) || "py".equals(lang)) {
+                    return writeAndRunPython(code, sessionId);
+                }
+            }
+            return null;
+        }
+
+        /** Re-run code from a previous message in this session */
+        private String rerunPreviousCode(String sessionId) {
+            var messages = messageRepo.findBySessionIdOrderBySeqAsc(sessionId);
+            // Search backwards for assistant messages with code blocks
+            for (int i = messages.size() - 1; i >= 0; i--) {
+                MessageDoc msg = messages.get(i);
+                if (!"assistant".equals(msg.role)) continue;
+                var codeBlocks = extractCodeBlocks(msg.content);
+                for (var block : codeBlocks) {
+                    String lang = block.getKey();
+                    String code = block.getValue();
+                    if ("java".equals(lang) && code.contains("class ") && code.contains("main(")) {
+                        return writeAndRunJava(code, sessionId);
+                    }
+                    if ("python".equals(lang) || "py".equals(lang)) {
+                        return writeAndRunPython(code, sessionId);
+                    }
+                }
+            }
+            return "I couldn't find any runnable code in the previous messages. Please share the code you'd like me to run.";
+        }
+
+        /** Write Java code to temp file and run via jbang */
+        private String writeAndRunJava(String code, String sessionId) {
+            try {
+                // Extract class name from code
+                var classMatch = java.util.regex.Pattern.compile("(?:public\\s+)?class\\s+(\\w+)").matcher(code);
+                String className = classMatch.find() ? classMatch.group(1) : "Tool";
+                String filePath = "/tmp/" + className + ".java";
+
+                java.nio.file.Files.writeString(java.nio.file.Path.of(filePath), code);
+                System.out.printf("  [Coder] wrote %s (%d bytes)%n", filePath, code.length());
+
+                // Find jbang
+                String jbangPath = findJbang();
+                if (jbangPath == null) {
+                    return "**Wrote file:** `" + filePath + "`\n\n"
+                            + "**Error:** Could not find `jbang` on this system. "
+                            + "Install it with: `curl -Ls https://sh.jbang.dev | bash -s - app setup`\n\n"
+                            + "Then run: `jbang " + filePath + "`";
+                }
+
+                // Execute
+                String result = executeShellCommand(jbangPath + " " + filePath);
+                var sb = new StringBuilder();
+                sb.append("**Wrote file:** `").append(filePath).append("`\n\n");
+                sb.append("**Executed:** `jbang ").append(filePath).append("`\n\n");
+                sb.append("**Output:**\n```\n").append(result).append("\n```\n");
+                System.out.printf("  [Coder] executed jbang %s -> %d chars output%n", filePath, result.length());
+                return sb.toString();
+            } catch (Exception e) {
+                return "**Error running Java code:** " + e.getMessage();
+            }
+        }
+
+        /** Write Python code to temp file and run */
+        private String writeAndRunPython(String code, String sessionId) {
+            try {
+                String filePath = "/tmp/tool_" + System.currentTimeMillis() + ".py";
+                java.nio.file.Files.writeString(java.nio.file.Path.of(filePath), code);
+                System.out.printf("  [Coder] wrote %s (%d bytes)%n", filePath, code.length());
+
+                String pythonPath = findPython();
+                if (pythonPath == null) {
+                    return "**Wrote file:** `" + filePath + "`\n\n"
+                            + "**Error:** Could not find `python3` or `python` on this system.";
+                }
+
+                String result = executeShellCommand(pythonPath + " " + filePath);
+                var sb = new StringBuilder();
+                sb.append("**Wrote file:** `").append(filePath).append("`\n\n");
+                sb.append("**Executed:** `").append(pythonPath).append(" ").append(filePath).append("`\n\n");
+                sb.append("**Output:**\n```\n").append(result).append("\n```\n");
+                System.out.printf("  [Coder] executed python %s -> %d chars output%n", filePath, result.length());
+                return sb.toString();
+            } catch (Exception e) {
+                return "**Error running Python code:** " + e.getMessage();
+            }
+        }
+
+        /** Find jbang binary — check memory, then PATH, then common locations */
+        private String findJbang() {
+            // Check thread memory for previously found jbang location
+            var mem = memoryRepo.findByScopeAndKey(MemoryScope.GLOBAL, "jbang_path");
+            if (mem.isPresent()) {
+                String path = mem.get().content;
+                if (java.nio.file.Files.isExecutable(java.nio.file.Path.of(path))) return path;
+            }
+            // Check PATH
+            if (isCommandAvailable("jbang")) {
+                saveToolLocation("jbang_path", "jbang");
+                return "jbang";
+            }
+            // Check common locations
+            for (String loc : List.of("/root/.jbang/bin/jbang", "/usr/local/bin/jbang",
+                    System.getProperty("user.home") + "/.jbang/bin/jbang",
+                    System.getProperty("user.home") + "/.sdkman/candidates/jbang/current/bin/jbang")) {
+                if (java.nio.file.Files.isExecutable(java.nio.file.Path.of(loc))) {
+                    saveToolLocation("jbang_path", loc);
+                    return loc;
+                }
+            }
+            return null;
+        }
+
+        /** Find python binary */
+        private String findPython() {
+            if (isCommandAvailable("python3")) return "python3";
+            if (isCommandAvailable("python")) return "python";
+            return null;
+        }
+
+        /** Save a tool location to global memory */
+        private void saveToolLocation(String key, String path) {
+            var existing = memoryRepo.findByScopeAndKey(MemoryScope.GLOBAL, key);
+            if (existing.isPresent()) {
+                existing.get().content = path;
+                existing.get().updatedAt = Instant.now();
+                memoryRepo.save(existing.get());
+            } else {
+                var mem = new MemoryDoc();
+                mem.memoryId = UUID.randomUUID().toString();
+                mem.scope = MemoryScope.GLOBAL;
+                mem.key = key;
+                mem.content = path;
+                mem.createdBy = "coder";
+                mem.createdAt = Instant.now();
+                mem.updatedAt = Instant.now();
+                memoryRepo.save(mem);
+            }
+            System.out.printf("  [Coder] saved tool location: %s = %s%n", key, path);
+        }
+
+        /** Execute a shell command and return stdout+stderr, with timeout */
+        private String executeShellCommand(String command) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder("bash", "-c", command)
+                        .redirectErrorStream(true);
+                pb.environment().put("PATH", System.getenv("PATH") + ":/root/.jbang/bin:/usr/local/bin");
+                Process proc = pb.start();
+                var output = new StringBuilder();
+                try (var reader = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        output.append(line).append("\n");
+                        if (output.length() > 10_000) {
+                            output.append("... [output truncated]\n");
+                            break;
+                        }
+                    }
+                }
+                boolean finished = proc.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
+                if (!finished) {
+                    proc.destroyForcibly();
+                    output.append("\n[TIMEOUT after 30 seconds]");
+                }
+                int exitCode = finished ? proc.exitValue() : -1;
+                if (exitCode != 0) {
+                    output.append("\n[Exit code: ").append(exitCode).append("]");
+                }
+                System.out.printf("  [Exec] command='%s' exit=%d output=%d chars%n",
+                        truncate(command, 80), exitCode, output.length());
+                return output.toString().trim();
+            } catch (Exception e) {
+                return "Error executing command: " + e.getMessage();
+            }
+        }
+
+        /** Extract code blocks from markdown response: returns list of (language, code) pairs */
+        private List<Map.Entry<String, String>> extractCodeBlocks(String text) {
+            var blocks = new java.util.ArrayList<Map.Entry<String, String>>();
+            var pattern = java.util.regex.Pattern.compile("```(\\w*)\\n(.*?)```", java.util.regex.Pattern.DOTALL);
+            var matcher = pattern.matcher(text);
+            while (matcher.find()) {
+                String lang = matcher.group(1).toLowerCase();
+                String code = matcher.group(2).trim();
+                blocks.add(Map.entry(lang.isEmpty() ? "text" : lang, code));
+            }
+            return blocks;
+        }
+
+        /** Extract the code block closest before a given position in the text */
+        private String extractCodeBlockBefore(String text, int beforePos) {
+            var pattern = java.util.regex.Pattern.compile("```\\w*\\n(.*?)```", java.util.regex.Pattern.DOTALL);
+            var matcher = pattern.matcher(text);
+            String lastCode = null;
+            while (matcher.find() && matcher.start() < beforePos) {
+                lastCode = matcher.group(1).trim();
+            }
+            return lastCode;
+        }
+
+        @org.springframework.beans.factory.annotation.Autowired MemoryRepo memoryRepo;
+
         /** Execute a file tool and return the result */
         private String executeFileTool(String userMessage, String sessionId) {
             var paths = extractPaths(userMessage);
@@ -1752,15 +2048,23 @@ public class javaclaw implements WebSocketConfigurer {
         /** Rich system prompts per agent role — each includes skills the agent can use */
         private static final Map<String, String> AGENT_SYSTEM_PROMPTS = new java.util.HashMap<>(Map.of(
                 "coder", """
-                    You are a senior software engineer. Your skills include:
+                    You are a senior software engineer with the ability to WRITE FILES and EXECUTE CODE on the user's system.
+                    Your skills include:
                     - Writing code in Java, Python, JavaScript, and other languages
                     - Debugging, fixing bugs, and analyzing stack traces
                     - Code review and refactoring suggestions
                     - Explaining technical concepts clearly
                     - Reading and analyzing files when provided as context
-                    You have access to a FILE TOOL that can read files and list directories on the user's system.
-                    If the user references a file path, the system will read it for you automatically.
-                    Be concise and provide working code examples. Use markdown formatting.""",
+                    You have access to these TOOLS:
+                    - FILE TOOL: read files and list directories on the user's system
+                    - EXEC TOOL: execute shell commands, run code via jbang/python/node
+                    - WRITE TOOL: save code to files on the user's system
+                    When the user asks you to create AND run code, include the code in a ```java (or ```python etc.) block,
+                    then add a TOOL CALL block to save and run it:
+                    $$WRITE_FILE: /tmp/ToolName.java$$
+                    $$EXEC: jbang /tmp/ToolName.java$$
+                    When the user says "run it" or "execute it", look at previous messages for code you generated and run it.
+                    Be concise and provide working code. Use markdown formatting.""",
                 "pm", """
                     You are a project manager and assistant. Your skills include:
                     - Sprint planning, backlog grooming, and task estimation
@@ -1806,7 +2110,7 @@ public class javaclaw implements WebSocketConfigurer {
 
         /** Agent descriptions used by the LLM controller to decide routing */
         private static final Map<String, String> AGENT_DESCRIPTIONS = Map.of(
-                "coder", "Handles coding tasks: writing code, debugging, code review, technical explanations, file analysis",
+                "coder", "Handles coding tasks: writing code, running/executing code via jbang or python, debugging, code review, 'run it' requests, creating tools/scripts/programs",
                 "pm", "Handles project management: sprint planning, tickets, milestones, backlog, resource allocation, deadlines",
                 "generalist", "Handles general questions: life advice, brainstorming, knowledge questions, writing help, anything that doesn't fit other agents",
                 "reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization"
@@ -1819,6 +2123,7 @@ public class javaclaw implements WebSocketConfigurer {
                 case "web_search" -> executeWebSearch(userMessage, threadId);
                 case "file_tool" -> executeFileTool(userMessage, threadId);
                 case "reminder" -> executeReminder(userMessage, threadId);
+                case "coder" -> executeCoderWithTools(userMessage, threadId);
                 default -> {
                     // Try real LLM for ANY agent (pm, coder, generalist, etc.)
                     if (llmClient != null && llmClient.isAvailable()) {
