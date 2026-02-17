@@ -924,10 +924,12 @@ public class javaclaw implements WebSocketConfigurer {
                     default -> "Delegating to **" + delegate + "**: " + truncate(lastUserMessage, 100);
                 };
                 streamTokens(sessionId, controllerResp);
+                long controllerDuration = System.currentTimeMillis() - stepStart;
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
-                        Map.of("step", 1, "agentId", "controller"));
+                        Map.of("step", 1, "agentId", "controller", "durationMs", controllerDuration,
+                                "apiProvider", "mock", "mocked", true));
                 System.out.printf("  [AgentLoop] step=1 agent=controller api=mock -> delegate=%s (%dms)%n",
-                        delegate, System.currentTimeMillis() - stepStart);
+                        delegate, controllerDuration);
 
                 Thread.sleep(200);
 
@@ -971,10 +973,12 @@ public class javaclaw implements WebSocketConfigurer {
                         Map.of("step", 3, "agentId", "reviewer"));
                 String reviewerResp = "**Review: PASS** — Response is comprehensive and addresses the user's request.";
                 streamTokens(sessionId, reviewerResp);
+                long reviewerDuration = System.currentTimeMillis() - stepStart;
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
-                        Map.of("step", 3, "agentId", "reviewer", "done", true));
+                        Map.of("step", 3, "agentId", "reviewer", "done", true, "durationMs", reviewerDuration,
+                                "apiProvider", "mock", "mocked", true));
                 System.out.printf("  [AgentLoop] step=3 agent=reviewer api=mock PASS (%dms)%n",
-                        System.currentTimeMillis() - stepStart);
+                        reviewerDuration);
 
                 // Checkpoint
                 cpService.create(sessionId, 3, Map.of("stepNo", 3, "messageCount", messages.size() + 1));

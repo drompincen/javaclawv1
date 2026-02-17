@@ -398,8 +398,19 @@ public class javaclawui {
                             String token = payload.path("payload").path("token").asText(payload.path("payload").asText());
                             chatPanel.appendToken(token);
                         }
-                        case "AGENT_STEP_STARTED" -> agentPane.onStepStarted(agentId);
-                        case "AGENT_STEP_COMPLETED" -> { chatPanel.finishAssistantMessage(); agentPane.onStepCompleted(agentId); }
+                        case "AGENT_STEP_STARTED" -> {
+                            chatPanel.setCurrentAgent(agentId);
+                            agentPane.onStepStarted(agentId);
+                        }
+                        case "AGENT_STEP_COMPLETED" -> {
+                            chatPanel.finishAssistantMessage();
+                            // Show metadata if available
+                            String api = payload.path("payload").path("apiProvider").asText("unknown");
+                            long dur = payload.path("payload").path("durationMs").asLong(0);
+                            boolean mocked = payload.path("payload").path("mocked").asBoolean(false);
+                            if (agentId != null) chatPanel.showAgentMeta(agentId, api, dur, mocked);
+                            agentPane.onStepCompleted(agentId);
+                        }
                         case "TOOL_CALL_PROPOSED", "TOOL_CALL_STARTED" -> {
                             String tool = payload.path("payload").path("tool").asText(payload.path("payload").asText());
                             chatPanel.appendSystem("Tool: " + tool);
@@ -1026,9 +1037,13 @@ public class javaclawui {
                 try {
                     var skills = java.util.Arrays.stream(skillsField.getText().split(","))
                             .map(String::trim).filter(s -> !s.isEmpty()).toList();
-                    var body = Map.of("name", nameField.getText(), "email", emailField.getText(),
-                            "role", roleBox.getSelectedItem(), "skills", skills,
-                            "projectId", projectId);
+                    ObjectNode body = mapper.createObjectNode();
+                    body.put("name", nameField.getText());
+                    body.put("email", emailField.getText());
+                    body.put("role", (String) roleBox.getSelectedItem());
+                    body.put("projectId", projectId);
+                    var skillsArr = body.putArray("skills");
+                    skills.forEach(skillsArr::add);
                     api.post("/api/resources", body);
                     SwingUtilities.invokeLater(() -> chatPanel.appendSystem("Resource added: " + nameField.getText()));
                 } catch (Exception ex) {
@@ -1684,6 +1699,7 @@ public class javaclawui {
             try { doc.remove(0, doc.getLength()); } catch (BadLocationException ignored) {}
             appendSystem("Session: " + sessionId);
             inputField.setEnabled(true);
+            loadMessageHistory(sessionId);
         }
 
         void setThreadSession(String threadId, String projectId, String displayName) {
@@ -1696,6 +1712,37 @@ public class javaclawui {
             try { doc.remove(0, doc.getLength()); } catch (BadLocationException ignored) {}
             appendSystem("Thread: " + displayName + " [project:" + projectId.substring(0, Math.min(8, projectId.length())) + "]");
             inputField.setEnabled(true);
+            loadMessageHistory(threadId);
+        }
+
+        /** Load past messages with metadata when switching sessions */
+        void loadMessageHistory(String sessionId) {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    JsonNode msgs = api.get("/api/sessions/" + sessionId + "/messages");
+                    if (!msgs.isArray() || msgs.isEmpty()) return;
+                    SwingUtilities.invokeLater(() -> {
+                        for (JsonNode m : msgs) {
+                            String role = m.path("role").asText();
+                            String content = m.path("content").asText();
+                            if ("user".equals(role)) {
+                                appendLabel("You");
+                                appendText(content + "\n", userStyle);
+                            } else if ("assistant".equals(role)) {
+                                String agent = m.path("agentId").asText(null);
+                                String label = agent != null ? "Agent [" + agent + "]" : "Agent";
+                                appendLabel(label);
+                                appendText(content + "\n", assistantStyle);
+                                // Show metadata line
+                                String apiProv = m.path("apiProvider").asText(null);
+                                long dur = m.path("durationMs").asLong(0);
+                                boolean mock = m.path("mocked").asBoolean(false);
+                                if (apiProv != null) showAgentMeta(agent != null ? agent : "unknown", apiProv, dur, mock);
+                            }
+                        }
+                    });
+                } catch (Exception ignored) {}
+            });
         }
 
         void sendMessage() {
@@ -1845,12 +1892,26 @@ public class javaclawui {
 
         void clearDisplay() { try { doc.remove(0, doc.getLength()); } catch (BadLocationException ignored) {} }
 
+        String currentAgentId = null;
+
+        void setCurrentAgent(String agentId) { this.currentAgentId = agentId; }
+
         void appendToken(String token) {
-            if (!receivingTokens) { receivingTokens = true; appendLabel("Agent"); }
+            if (!receivingTokens) {
+                receivingTokens = true;
+                String label = currentAgentId != null ? "Agent [" + currentAgentId + "]" : "Agent";
+                appendLabel(label);
+            }
             appendText(token, assistantStyle);
         }
 
         void finishAssistantMessage() { if (receivingTokens) { appendText("\n", assistantStyle); receivingTokens = false; } }
+
+        void showAgentMeta(String agentId, String apiProvider, long durationMs, boolean mocked) {
+            String tag = mocked ? " MOCK" : " LIVE";
+            String meta = String.format("  [%s | api=%s | %dms%s]", agentId, apiProvider, durationMs, tag);
+            appendText(meta + "\n", systemStyle);
+        }
         void appendSystem(String text) { finishAssistantMessage(); appendText(text + "\n", systemStyle); }
         void appendError(String text) { finishAssistantMessage(); appendText(text + "\n", errorStyle); }
         void appendLabel(String label) { appendText("\n" + label + ": ", labelStyle); }
