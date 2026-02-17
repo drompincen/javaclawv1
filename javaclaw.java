@@ -8,6 +8,7 @@
 //DEPS org.springframework.boot:spring-boot-starter-data-mongodb-reactive:3.2.5
 //DEPS com.fasterxml.jackson.core:jackson-databind:2.17.0
 //DEPS com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.0
+//DEPS org.apache.poi:poi-ooxml:5.2.5
 
 package javaclaw;
 
@@ -375,6 +376,11 @@ public class javaclaw implements WebSocketConfigurer {
         String role;
         String content;
         Instant timestamp;
+        // Response metadata — populated for assistant messages
+        String agentId;          // which agent produced this (controller, coder, pm, file_tool, etc.)
+        String apiProvider;      // "anthropic", "openai", or "mock"
+        Long durationMs;         // how long the agent call took
+        boolean mocked;          // true if this was a mock/simulated response
     }
 
     @Document(collection = "events")
@@ -516,6 +522,19 @@ public class javaclaw implements WebSocketConfigurer {
         Instant updatedAt;
     }
 
+    @Document(collection = "resources")
+    static class ResourceDoc {
+        @Id String resourceId;
+        String name;
+        String email;
+        String role; // ENGINEER, DESIGNER, PM, QA
+        List<String> skills;
+        double availability; // 0.0 to 1.0
+        @Indexed String projectId; // optional: link to a project
+        Instant createdAt;
+        Instant updatedAt;
+    }
+
     // =======================================================================
     // REPOSITORIES
     // =======================================================================
@@ -529,6 +548,7 @@ public class javaclaw implements WebSocketConfigurer {
     interface MessageRepo extends MongoRepository<MessageDoc, String> {
         List<MessageDoc> findBySessionIdOrderBySeqAsc(String sessionId);
         long countBySessionId(String sessionId);
+        void deleteBySessionId(String sessionId);
     }
 
     interface EventRepo extends MongoRepository<EventDoc, String> {
@@ -586,6 +606,10 @@ public class javaclaw implements WebSocketConfigurer {
         Optional<MemoryDoc> findByScopeAndThreadIdAndKey(MemoryScope scope, String threadId, String key);
         @org.springframework.data.mongodb.repository.Query("{'content': {$regex: ?0, $options: 'i'}}")
         List<MemoryDoc> searchContent(String query);
+    }
+
+    interface ResourceRepo extends MongoRepository<ResourceDoc, String> {
+        List<ResourceDoc> findByProjectId(String projectId);
     }
 
     // =======================================================================
@@ -821,6 +845,7 @@ public class javaclaw implements WebSocketConfigurer {
         private final ConcurrentHashMap<String, Future<?>> running = new ConcurrentHashMap<>();
 
         private DistillerService distillerService;
+        private JiraImportService jiraImportService;
 
         AgentLoop(SessionRepo sessionRepo, ThreadRepo threadRepo, MessageRepo messageRepo,
                   EventService eventService, CheckpointService cpService,
@@ -833,6 +858,11 @@ public class javaclaw implements WebSocketConfigurer {
         @org.springframework.beans.factory.annotation.Autowired
         void setDistillerService(DistillerService distillerService) {
             this.distillerService = distillerService;
+        }
+
+        @org.springframework.beans.factory.annotation.Autowired
+        void setJiraImportService(JiraImportService jiraImportService) {
+            this.jiraImportService = jiraImportService;
         }
 
         void startAsync(String sessionId) {
@@ -849,6 +879,7 @@ public class javaclaw implements WebSocketConfigurer {
             var lockOwner = lockService.tryAcquire(sessionId);
             if (lockOwner.isEmpty()) return;
             String owner = lockOwner.get();
+            long loopStart = System.currentTimeMillis();
             try {
                 // Dual lookup: session first, then thread
                 boolean isThread = false;
@@ -857,7 +888,6 @@ public class javaclaw implements WebSocketConfigurer {
                     ThreadDoc thread = threadRepo.findById(sessionId).orElse(null);
                     if (thread == null) throw new RuntimeException("Session/Thread not found: " + sessionId);
                     isThread = true;
-                    // Use thread as the target
                     thread.status = SessionStatus.RUNNING;
                     thread.updatedAt = Instant.now();
                     threadRepo.save(thread);
@@ -878,30 +908,45 @@ public class javaclaw implements WebSocketConfigurer {
                     }
                 }
 
-                // === FAKE LLM: Step 1 — Controller ===
+                System.out.printf("  [AgentLoop] session=%s type=%s messages=%d user=\"%s\"%n",
+                        sessionId.substring(0, 8), isThread ? "thread" : "session", messages.size(),
+                        truncate(lastUserMessage, 80));
+
+                // === Step 1 — Controller ===
+                long stepStart = System.currentTimeMillis();
                 lockService.renew(sessionId, owner);
                 eventService.emit(sessionId, EventType.AGENT_STEP_STARTED,
                         Map.of("step", 1, "agentId", "controller"));
                 String delegate = determineDelegate(lastUserMessage);
-                String controllerResp = "{\"delegate\": \"" + delegate +
-                        "\", \"subTask\": \"Handle: " + truncate(lastUserMessage, 100) + "\"}";
+                String controllerResp = switch (delegate) {
+                    case "file_tool" -> "Using **file tools** to handle: " + truncate(lastUserMessage, 100);
+                    case "jira_import" -> "Importing tickets from **Jira export**: " + truncate(lastUserMessage, 100);
+                    default -> "Delegating to **" + delegate + "**: " + truncate(lastUserMessage, 100);
+                };
                 streamTokens(sessionId, controllerResp);
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
                         Map.of("step", 1, "agentId", "controller"));
+                System.out.printf("  [AgentLoop] step=1 agent=controller api=mock -> delegate=%s (%dms)%n",
+                        delegate, System.currentTimeMillis() - stepStart);
 
                 Thread.sleep(200);
 
-                // === FAKE LLM: Step 2 — Specialist ===
+                // === Step 2 — Specialist ===
                 if (Thread.currentThread().isInterrupted()) { updateStatus(sessionId, isThread, SessionStatus.PAUSED); return; }
+                stepStart = System.currentTimeMillis();
                 lockService.renew(sessionId, owner);
                 eventService.emit(sessionId, EventType.AGENT_STEP_STARTED,
                         Map.of("step", 2, "agentId", delegate));
                 String specialistResp = generateSpecialistResponse(delegate, lastUserMessage, sessionId);
+                long specialistDuration = System.currentTimeMillis() - stepStart;
                 streamTokens(sessionId, specialistResp);
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
-                        Map.of("step", 2, "agentId", delegate));
+                        Map.of("step", 2, "agentId", delegate, "durationMs", specialistDuration,
+                                "apiProvider", "mock", "mocked", true));
+                System.out.printf("  [AgentLoop] step=2 agent=%s api=mock response=%d chars (%dms)%n",
+                        delegate, specialistResp.length(), specialistDuration);
 
-                // Save specialist response as assistant message
+                // Save specialist response as assistant message with metadata
                 long seq = messageRepo.countBySessionId(sessionId) + 1;
                 MessageDoc assistantMsg = new MessageDoc();
                 assistantMsg.messageId = UUID.randomUUID().toString();
@@ -910,27 +955,38 @@ public class javaclaw implements WebSocketConfigurer {
                 assistantMsg.role = "assistant";
                 assistantMsg.content = specialistResp;
                 assistantMsg.timestamp = Instant.now();
+                assistantMsg.agentId = delegate;
+                assistantMsg.apiProvider = "mock"; // Will be "anthropic" or "openai" when using real LLM
+                assistantMsg.durationMs = specialistDuration;
+                assistantMsg.mocked = true; // Flag: currently all responses are simulated
                 messageRepo.save(assistantMsg);
 
                 Thread.sleep(200);
 
-                // === FAKE LLM: Step 3 — Reviewer ===
+                // === Step 3 — Reviewer ===
                 if (Thread.currentThread().isInterrupted()) { updateStatus(sessionId, isThread, SessionStatus.PAUSED); return; }
+                stepStart = System.currentTimeMillis();
                 lockService.renew(sessionId, owner);
                 eventService.emit(sessionId, EventType.AGENT_STEP_STARTED,
                         Map.of("step", 3, "agentId", "reviewer"));
-                String reviewerResp = "{\"pass\": true, \"summary\": \"Response is comprehensive and addresses the user's request.\"}";
+                String reviewerResp = "**Review: PASS** — Response is comprehensive and addresses the user's request.";
                 streamTokens(sessionId, reviewerResp);
                 eventService.emit(sessionId, EventType.AGENT_STEP_COMPLETED,
                         Map.of("step", 3, "agentId", "reviewer", "done", true));
+                System.out.printf("  [AgentLoop] step=3 agent=reviewer api=mock PASS (%dms)%n",
+                        System.currentTimeMillis() - stepStart);
 
-                // Checkpoint (use Map to avoid ObjectNode deserialization issues)
+                // Checkpoint
                 cpService.create(sessionId, 3, Map.of("stepNo", 3, "messageCount", messages.size() + 1));
 
                 updateStatus(sessionId, isThread, SessionStatus.COMPLETED);
+                System.out.printf("  [AgentLoop] COMPLETED session=%s total=%dms%n",
+                        sessionId.substring(0, 8), System.currentTimeMillis() - loopStart);
                 if (distillerService != null) distillerService.distillAsync(sessionId);
             } catch (Exception e) {
                 String errMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                System.out.printf("  [AgentLoop] FAILED session=%s error=%s total=%dms%n",
+                        sessionId.substring(0, 8), errMsg, System.currentTimeMillis() - loopStart);
                 updateStatus(sessionId, false, SessionStatus.FAILED);
                 eventService.emit(sessionId, EventType.ERROR, Map.of("message", errMsg));
             } finally {
@@ -955,6 +1011,10 @@ public class javaclaw implements WebSocketConfigurer {
         private String determineDelegate(String userMessage) {
             if (userMessage == null || userMessage.isBlank()) return "pm";
             String lower = userMessage.toLowerCase();
+            // Jira/Excel import requests
+            if (isImportRequest(lower)) return "jira_import";
+            // File inspection requests → controller handles directly with file tools
+            if (isFileRequest(lower)) return "file_tool";
             if (lower.contains("code") || lower.contains("bug") || lower.contains("fix")
                     || lower.contains("implement") || lower.contains("write") || lower.contains("debug")
                     || lower.contains("function") || lower.contains("class") || lower.contains("test")) {
@@ -963,11 +1023,189 @@ public class javaclaw implements WebSocketConfigurer {
             return "pm";
         }
 
+        /** Detect Jira/Excel/CSV import requests */
+        private boolean isImportRequest(String lower) {
+            boolean hasImportVerb = lower.contains("import") || lower.contains("load") || lower.contains("ingest")
+                    || lower.contains("read") || lower.contains("parse") || lower.contains("create tickets from");
+            boolean hasImportContext = lower.contains("jira") || lower.contains("excel") || lower.contains(".xlsx")
+                    || lower.contains(".xls") || lower.contains(".csv") || lower.contains("spreadsheet")
+                    || lower.contains("ticket") && (lower.contains("file") || lower.contains("dump") || lower.contains("export"));
+            return hasImportVerb && hasImportContext;
+        }
+
+        /** Execute Jira import from a file into a project */
+        private String executeJiraImport(String userMessage, String sessionId) {
+            var paths = extractPaths(userMessage);
+            if (paths.isEmpty()) {
+                return "I need a file path to import from. Please provide the full path to a CSV or Excel file exported from Jira.\n\n"
+                        + "**Example:** `import tickets from /path/to/jira-export.csv`";
+            }
+
+            // Determine the project ID — check if this session belongs to a thread with a project
+            String projectId = resolveProjectId(sessionId);
+            if (projectId == null) {
+                return "**Error:** Could not determine the project for this session. Please use a thread that belongs to a project, or specify the project.";
+            }
+
+            String filePath = paths.get(0);
+            System.out.printf("  [JiraImport] file=%s project=%s%n", filePath, projectId);
+            var result = jiraImportService.importFile(filePath, projectId);
+
+            var sb = new StringBuilder();
+            sb.append("**Jira Import Results**\n\n");
+            sb.append("- **File:** `").append(filePath).append("`\n");
+            sb.append("- **Imported:** ").append(result.imported()).append(" / ").append(result.total()).append(" rows\n");
+            if (!result.errors().isEmpty()) {
+                sb.append("- **Errors:** ").append(result.errors().size()).append("\n\n");
+                sb.append("**Error details:**\n");
+                for (String err : result.errors().stream().limit(10).toList()) {
+                    sb.append("  - ").append(err).append("\n");
+                }
+                if (result.errors().size() > 10) {
+                    sb.append("  - ... and ").append(result.errors().size() - 10).append(" more\n");
+                }
+            }
+            if (result.imported() > 0) {
+                sb.append("\nTickets have been created in the project. Use the ticket list to review them.");
+            }
+            System.out.printf("  [JiraImport] imported=%d/%d errors=%d%n", result.imported(), result.total(), result.errors().size());
+            return sb.toString();
+        }
+
+        /** Resolve the project ID from a session/thread context */
+        private String resolveProjectId(String sessionId) {
+            // Check if it's a thread with project IDs
+            var thread = threadRepo.findById(sessionId).orElse(null);
+            if (thread != null) {
+                var pids = thread.getEffectiveProjectIds();
+                return pids.isEmpty() ? null : pids.get(0);
+            }
+            // Check if it's a session linked to a thread
+            var session = sessionRepo.findById(sessionId).orElse(null);
+            if (session != null && session.threadId != null) {
+                var t = threadRepo.findById(session.threadId).orElse(null);
+                if (t != null) {
+                    var pids = t.getEffectiveProjectIds();
+                    return pids.isEmpty() ? null : pids.get(0);
+                }
+            }
+            return null;
+        }
+
+        /** Detect requests to read/inspect/list files */
+        private boolean isFileRequest(String lower) {
+            // Check for file path patterns (absolute or relative)
+            boolean hasPath = lower.matches(".*(/[a-z0-9_.\\-]+){2,}.*")
+                    || lower.matches(".*[a-z]:\\\\.*")
+                    || lower.matches(".*\\.[a-z]{1,5}\\b.*");
+            boolean hasFileVerb = lower.contains("read ") || lower.contains("show ") || lower.contains("cat ")
+                    || lower.contains("contents of") || lower.contains("open ") || lower.contains("view ")
+                    || lower.contains("list dir") || lower.contains("list folder") || lower.contains("ls ")
+                    || lower.contains("what's in") || lower.contains("inspect ");
+            return hasPath && hasFileVerb;
+        }
+
+        /** Extract file paths from user message */
+        private List<String> extractPaths(String message) {
+            var paths = new java.util.ArrayList<String>();
+            // Match absolute Unix paths
+            var unixMatcher = java.util.regex.Pattern.compile("(/[\\w.\\-]+){2,}").matcher(message);
+            while (unixMatcher.find()) paths.add(unixMatcher.group());
+            // Match Windows paths
+            var winMatcher = java.util.regex.Pattern.compile("[A-Za-z]:\\\\[\\w.\\\\\\-]+").matcher(message);
+            while (winMatcher.find()) paths.add(winMatcher.group());
+            return paths;
+        }
+
+        /** Execute a file tool and return the result */
+        private String executeFileTool(String userMessage) {
+            var paths = extractPaths(userMessage);
+            String lower = userMessage.toLowerCase();
+            var sb = new StringBuilder();
+
+            if (lower.contains("list dir") || lower.contains("list folder") || lower.contains("ls ")) {
+                // List directory operation
+                String dirPath = paths.isEmpty() ? "." : paths.get(0);
+                try {
+                    var dir = java.nio.file.Path.of(dirPath);
+                    if (!java.nio.file.Files.isDirectory(dir)) {
+                        return "**Error:** `" + dirPath + "` is not a directory.";
+                    }
+                    sb.append("**Directory listing of** `").append(dirPath).append("`:\n\n");
+                    sb.append("| Name | Type | Size |\n|------|------|------|\n");
+                    try (var stream = java.nio.file.Files.list(dir)) {
+                        stream.sorted().forEach(p -> {
+                            boolean isDir = java.nio.file.Files.isDirectory(p);
+                            String size = "-";
+                            if (!isDir) {
+                                try { size = java.nio.file.Files.size(p) + " B"; } catch (Exception ignored) {}
+                            }
+                            sb.append("| ").append(p.getFileName()).append(" | ")
+                              .append(isDir ? "DIR" : "FILE").append(" | ").append(size).append(" |\n");
+                        });
+                    }
+                    System.out.printf("  [FileTool] list_directory path=%s%n", dirPath);
+                    return sb.toString();
+                } catch (Exception e) {
+                    return "**Error listing directory** `" + dirPath + "`: " + e.getMessage();
+                }
+            }
+
+            // Default: read file(s)
+            if (paths.isEmpty()) {
+                return "I couldn't find a file path in your request. Please provide a full path like `/path/to/file.java`.";
+            }
+            for (String path : paths) {
+                try {
+                    var filePath = java.nio.file.Path.of(path);
+                    if (!java.nio.file.Files.exists(filePath)) {
+                        sb.append("**File not found:** `").append(path).append("`\n\n");
+                        continue;
+                    }
+                    if (java.nio.file.Files.isDirectory(filePath)) {
+                        sb.append("**`").append(path).append("`** is a directory. Use 'list directory' to view contents.\n\n");
+                        continue;
+                    }
+                    long size = java.nio.file.Files.size(filePath);
+                    String content = java.nio.file.Files.readString(filePath);
+                    // Truncate very large files
+                    if (content.length() > 10_000) {
+                        content = content.substring(0, 10_000) + "\n... [truncated, " + size + " bytes total]";
+                    }
+                    String ext = path.contains(".") ? path.substring(path.lastIndexOf('.') + 1) : "";
+                    sb.append("**File:** `").append(path).append("` (").append(size).append(" bytes)\n\n");
+                    sb.append("```").append(ext).append("\n").append(content).append("\n```\n\n");
+                    System.out.printf("  [FileTool] read_file path=%s size=%d%n", path, size);
+                } catch (Exception e) {
+                    sb.append("**Error reading** `").append(path).append("`: ").append(e.getMessage()).append("\n\n");
+                }
+            }
+            return sb.toString();
+        }
+
         private String generateSpecialistResponse(String delegate, String userMessage, String threadId) {
             if (userMessage == null) userMessage = "";
             String lower = userMessage.toLowerCase();
             return switch (delegate) {
-                case "coder" -> """
+                case "jira_import" -> executeJiraImport(userMessage, threadId);
+                case "file_tool" -> executeFileTool(userMessage);
+                case "coder" -> {
+                    // If the user references files, pre-read them and include as context
+                    var referencedPaths = extractPaths(userMessage);
+                    var fileContext = new StringBuilder();
+                    for (String path : referencedPaths) {
+                        try {
+                            var p = java.nio.file.Path.of(path);
+                            if (java.nio.file.Files.isRegularFile(p)) {
+                                String content = java.nio.file.Files.readString(p);
+                                if (content.length() > 5_000) content = content.substring(0, 5_000) + "\n... [truncated]";
+                                fileContext.append("\n**File context** `").append(path).append("`:\n```\n")
+                                        .append(content).append("\n```\n");
+                                System.out.printf("  [FileTool] read_file for coder context path=%s%n", path);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                    yield """
                         I've analyzed the coding request: "%s"
 
                         **Approach:**
@@ -984,8 +1222,10 @@ public class javaclaw implements WebSocketConfigurer {
                         - All existing tests continue to pass
                         - Added unit tests for new functionality
 
-                        The implementation is complete. Let me know if you need any adjustments."""
-                        .formatted(truncate(userMessage, 100));
+                        The implementation is complete. Let me know if you need any adjustments.%s"""
+                        .formatted(truncate(userMessage, 100),
+                                fileContext.length() > 0 ? "\n\n---\n" + fileContext : "");
+                }
                 case "pm" -> {
                     if (lower.contains("sprint") || lower.contains("plan")) {
                         yield """
@@ -1030,8 +1270,8 @@ public class javaclaw implements WebSocketConfigurer {
         private void streamTokens(String sessionId, String response) throws InterruptedException {
             String[] words = response.split("(?<=\\s)");
             for (String word : words) {
-                eventService.emit(sessionId, EventType.MODEL_TOKEN_DELTA, Map.of("delta", word));
-                Thread.sleep(30);
+                eventService.emit(sessionId, EventType.MODEL_TOKEN_DELTA, Map.of("token", word));
+                Thread.sleep(15);
             }
         }
 
@@ -1140,6 +1380,193 @@ public class javaclaw implements WebSocketConfigurer {
     }
 
     // =======================================================================
+    // JIRA IMPORT SERVICE
+    // =======================================================================
+
+    @Component
+    static class JiraImportService {
+        private final TicketRepo ticketRepo;
+
+        JiraImportService(TicketRepo ticketRepo) { this.ticketRepo = ticketRepo; }
+
+        /** Import tickets from a CSV or Excel file into a project */
+        ImportResult importFile(String filePath, String projectId) {
+            var path = java.nio.file.Path.of(filePath);
+            if (!java.nio.file.Files.exists(path)) {
+                return new ImportResult(0, 0, List.of("File not found: " + filePath));
+            }
+            String name = path.getFileName().toString().toLowerCase();
+            try {
+                if (name.endsWith(".csv")) return importCsv(path, projectId);
+                if (name.endsWith(".xlsx") || name.endsWith(".xls")) return importExcel(path, projectId);
+                return new ImportResult(0, 0, List.of("Unsupported file type: " + name + ". Use .csv, .xlsx, or .xls"));
+            } catch (Exception e) {
+                return new ImportResult(0, 0, List.of("Import error: " + e.getMessage()));
+            }
+        }
+
+        private ImportResult importCsv(java.nio.file.Path path, String projectId) throws Exception {
+            var lines = java.nio.file.Files.readAllLines(path);
+            if (lines.isEmpty()) return new ImportResult(0, 0, List.of("CSV file is empty"));
+
+            // Parse header to find column indices
+            String[] headers = parseCsvLine(lines.get(0));
+            var colMap = mapColumns(headers);
+            if (colMap.get("title") < 0) {
+                return new ImportResult(0, 0, List.of("No 'Summary' or 'Title' column found. Headers: " + String.join(", ", headers)));
+            }
+
+            int imported = 0;
+            var errors = new java.util.ArrayList<String>();
+            for (int i = 1; i < lines.size(); i++) {
+                try {
+                    String[] cols = parseCsvLine(lines.get(i));
+                    if (cols.length == 0 || (cols.length == 1 && cols[0].isBlank())) continue;
+                    TicketDoc ticket = buildTicket(cols, colMap, projectId);
+                    ticketRepo.save(ticket);
+                    imported++;
+                } catch (Exception e) {
+                    errors.add("Row " + (i + 1) + ": " + e.getMessage());
+                }
+            }
+            return new ImportResult(imported, lines.size() - 1, errors);
+        }
+
+        private ImportResult importExcel(java.nio.file.Path path, String projectId) throws Exception {
+            var errors = new java.util.ArrayList<String>();
+            int imported = 0, totalRows = 0;
+
+            try (var workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(path.toFile())) {
+                var sheet = workbook.getSheetAt(0);
+                var headerRow = sheet.getRow(0);
+                if (headerRow == null) return new ImportResult(0, 0, List.of("Excel sheet has no header row"));
+
+                String[] headers = new String[headerRow.getLastCellNum()];
+                for (int c = 0; c < headers.length; c++) {
+                    var cell = headerRow.getCell(c);
+                    headers[c] = cell != null ? getCellString(cell) : "";
+                }
+                var colMap = mapColumns(headers);
+                if (colMap.get("title") < 0) {
+                    return new ImportResult(0, 0, List.of("No 'Summary' or 'Title' column found. Headers: " + String.join(", ", headers)));
+                }
+
+                for (int r = 1; r <= sheet.getLastRowNum(); r++) {
+                    var row = sheet.getRow(r);
+                    if (row == null) continue;
+                    totalRows++;
+                    try {
+                        String[] cols = new String[row.getLastCellNum()];
+                        for (int c = 0; c < cols.length; c++) {
+                            var cell = row.getCell(c);
+                            cols[c] = cell != null ? getCellString(cell) : "";
+                        }
+                        if (cols.length == 0 || (cols.length > 0 && cols[0].isBlank() && getCol(cols, colMap.get("title")).isBlank())) continue;
+                        TicketDoc ticket = buildTicket(cols, colMap, projectId);
+                        ticketRepo.save(ticket);
+                        imported++;
+                    } catch (Exception e) {
+                        errors.add("Row " + (r + 1) + ": " + e.getMessage());
+                    }
+                }
+            }
+            return new ImportResult(imported, totalRows, errors);
+        }
+
+        private String getCellString(org.apache.poi.ss.usermodel.Cell cell) {
+            return switch (cell.getCellType()) {
+                case STRING -> cell.getStringCellValue();
+                case NUMERIC -> {
+                    if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell))
+                        yield cell.getLocalDateTimeCellValue().toString();
+                    double d = cell.getNumericCellValue();
+                    yield d == Math.floor(d) ? String.valueOf((long) d) : String.valueOf(d);
+                }
+                case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+                case FORMULA -> cell.getCellFormula();
+                default -> "";
+            };
+        }
+
+        /** Map common Jira CSV/Excel column names to our ticket fields */
+        private Map<String, Integer> mapColumns(String[] headers) {
+            Map<String, Integer> map = new java.util.HashMap<>();
+            map.put("title", -1);
+            map.put("description", -1);
+            map.put("priority", -1);
+            map.put("status", -1);
+            map.put("key", -1);
+
+            for (int i = 0; i < headers.length; i++) {
+                String h = headers[i].trim().toLowerCase();
+                if (h.equals("summary") || h.equals("title") || h.equals("issue summary")) map.put("title", i);
+                else if (h.equals("description") || h.equals("issue description")) map.put("description", i);
+                else if (h.equals("priority")) map.put("priority", i);
+                else if (h.equals("status")) map.put("status", i);
+                else if (h.equals("issue key") || h.equals("key") || h.equals("issue id")) map.put("key", i);
+            }
+            return map;
+        }
+
+        private TicketDoc buildTicket(String[] cols, Map<String, Integer> colMap, String projectId) {
+            TicketDoc t = new TicketDoc();
+            t.ticketId = UUID.randomUUID().toString();
+            t.projectId = projectId;
+            t.title = getCol(cols, colMap.get("title"));
+            if (t.title.isBlank()) throw new RuntimeException("Empty title");
+            t.description = getCol(cols, colMap.get("description"));
+
+            // Map Jira key as prefix to title if present
+            String key = getCol(cols, colMap.get("key"));
+            if (!key.isBlank()) t.title = "[" + key + "] " + t.title;
+
+            // Map priority
+            String prio = getCol(cols, colMap.get("priority")).toUpperCase();
+            t.priority = switch (prio) {
+                case "HIGHEST", "BLOCKER", "CRITICAL" -> TicketPriority.CRITICAL;
+                case "HIGH", "MAJOR" -> TicketPriority.HIGH;
+                case "LOW", "MINOR" -> TicketPriority.LOW;
+                case "LOWEST", "TRIVIAL" -> TicketPriority.LOW;
+                default -> TicketPriority.MEDIUM;
+            };
+
+            // Map status
+            String st = getCol(cols, colMap.get("status")).toUpperCase().replace(" ", "_");
+            t.status = switch (st) {
+                case "IN_PROGRESS", "IN_REVIEW", "IN_DEVELOPMENT" -> TicketStatus.IN_PROGRESS;
+                case "DONE", "RESOLVED", "CLOSED", "RELEASED" -> TicketStatus.DONE;
+                default -> TicketStatus.OPEN;
+            };
+
+            t.createdAt = Instant.now();
+            t.updatedAt = Instant.now();
+            return t;
+        }
+
+        private String getCol(String[] cols, int idx) {
+            if (idx < 0 || idx >= cols.length) return "";
+            return cols[idx] != null ? cols[idx].trim() : "";
+        }
+
+        /** Simple CSV line parser (handles quoted fields with commas) */
+        private String[] parseCsvLine(String line) {
+            var fields = new java.util.ArrayList<String>();
+            boolean inQuotes = false;
+            var sb = new StringBuilder();
+            for (int i = 0; i < line.length(); i++) {
+                char c = line.charAt(i);
+                if (c == '"') { inQuotes = !inQuotes; continue; }
+                if (c == ',' && !inQuotes) { fields.add(sb.toString()); sb.setLength(0); continue; }
+                sb.append(c);
+            }
+            fields.add(sb.toString());
+            return fields.toArray(new String[0]);
+        }
+
+        record ImportResult(int imported, int total, List<String> errors) {}
+    }
+
+    // =======================================================================
     // WEBSOCKET HANDLER
     // =======================================================================
 
@@ -1195,14 +1622,15 @@ public class javaclaw implements WebSocketConfigurer {
     @RequestMapping("/api/sessions")
     static class SessionController {
         private final SessionRepo sessionRepo;
+        private final ThreadRepo threadRepo;
         private final MessageRepo messageRepo;
         private final AgentLoop agentLoop;
         private final EventService eventService;
 
-        SessionController(SessionRepo sessionRepo, MessageRepo messageRepo,
+        SessionController(SessionRepo sessionRepo, ThreadRepo threadRepo, MessageRepo messageRepo,
                           AgentLoop agentLoop, EventService eventService) {
-            this.sessionRepo = sessionRepo; this.messageRepo = messageRepo;
-            this.agentLoop = agentLoop; this.eventService = eventService;
+            this.sessionRepo = sessionRepo; this.threadRepo = threadRepo;
+            this.messageRepo = messageRepo; this.agentLoop = agentLoop; this.eventService = eventService;
         }
 
         @PostMapping ResponseEntity<?> create(@RequestBody(required = false) CreateSessionRequest req) {
@@ -1235,7 +1663,8 @@ public class javaclaw implements WebSocketConfigurer {
         }
 
         @PostMapping("/{id}/messages") ResponseEntity<?> sendMessage(@PathVariable String id, @RequestBody SendMessageRequest req) {
-            if (sessionRepo.findById(id).isEmpty()) return ResponseEntity.status(404).body(Map.of("error", "not found"));
+            if (sessionRepo.findById(id).isEmpty() && threadRepo.findById(id).isEmpty())
+                return ResponseEntity.status(404).body(Map.of("error", "not found"));
             long seq = messageRepo.countBySessionId(id) + 1;
             MessageDoc msg = new MessageDoc();
             msg.messageId = UUID.randomUUID().toString(); msg.sessionId = id; msg.seq = seq;
@@ -1250,7 +1679,8 @@ public class javaclaw implements WebSocketConfigurer {
         }
 
         @PostMapping("/{id}/run") ResponseEntity<?> run(@PathVariable String id) {
-            if (sessionRepo.findById(id).isEmpty()) return ResponseEntity.status(404).body(Map.of("error", "not found"));
+            if (sessionRepo.findById(id).isEmpty() && threadRepo.findById(id).isEmpty())
+                return ResponseEntity.status(404).body(Map.of("error", "not found"));
             agentLoop.startAsync(id);
             return ResponseEntity.ok(Map.of("status", "accepted"));
         }
@@ -1377,6 +1807,24 @@ public class javaclaw implements WebSocketConfigurer {
             });
             return ResponseEntity.ok(Map.of("status", "accepted"));
         }
+
+        @GetMapping("/{threadId}") ResponseEntity<?> get(
+                @PathVariable String projectId, @PathVariable String threadId) {
+            return threadRepo.findById(threadId)
+                    .filter(t -> t.getEffectiveProjectIds().contains(projectId))
+                    .<ResponseEntity<?>>map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.status(404).body(Map.of("error", "thread not found")));
+        }
+
+        @DeleteMapping("/{threadId}") ResponseEntity<?> delete(
+                @PathVariable String projectId, @PathVariable String threadId) {
+            if (threadRepo.findById(threadId).isEmpty())
+                return ResponseEntity.status(404).body(Map.of("error", "thread not found"));
+            agentLoop.stop(threadId);
+            messageRepo.deleteBySessionId(threadId);
+            threadRepo.deleteById(threadId);
+            return ResponseEntity.ok(Map.of("status", "deleted"));
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1422,6 +1870,38 @@ public class javaclaw implements WebSocketConfigurer {
                 Map.of("name", "excel", "description", "Create and manipulate spreadsheets",
                         "riskProfile", "WRITE_FILES")
             );
+        }
+
+        @PostMapping("/{name}/invoke") ResponseEntity<?> invoke(
+                @PathVariable String name, @RequestBody Map<String, Object> input) {
+            try {
+                return switch (name) {
+                    case "write_file" -> {
+                        String path = (String) input.get("path");
+                        String content = (String) input.get("content");
+                        java.nio.file.Files.createDirectories(java.nio.file.Path.of(path).getParent());
+                        java.nio.file.Files.writeString(java.nio.file.Path.of(path), content);
+                        yield ResponseEntity.ok(Map.of("success", true, "path", path, "bytes", content.length()));
+                    }
+                    case "read_file" -> {
+                        String path = (String) input.get("path");
+                        String content = java.nio.file.Files.readString(java.nio.file.Path.of(path));
+                        yield ResponseEntity.ok(Map.of("success", true, "content", content));
+                    }
+                    case "list_directory" -> {
+                        String path = (String) input.getOrDefault("path", ".");
+                        var entries = java.nio.file.Files.list(java.nio.file.Path.of(path))
+                                .sorted()
+                                .map(p -> Map.of("name", p.getFileName().toString(),
+                                        "type", java.nio.file.Files.isDirectory(p) ? "directory" : "file"))
+                                .toList();
+                        yield ResponseEntity.ok(Map.of("success", true, "entries", entries));
+                    }
+                    default -> ResponseEntity.status(400).body(Map.of("error", "Tool '" + name + "' not implemented for direct invoke"));
+                };
+            } catch (Exception e) {
+                return ResponseEntity.status(500).body(Map.of("success", false, "error", e.getMessage()));
+            }
         }
     }
 
@@ -1487,7 +1967,10 @@ public class javaclaw implements WebSocketConfigurer {
     @RequestMapping("/api/projects/{projectId}/tickets")
     static class TicketController {
         private final TicketRepo ticketRepo;
-        TicketController(TicketRepo ticketRepo) { this.ticketRepo = ticketRepo; }
+        private final JiraImportService jiraImportService;
+        TicketController(TicketRepo ticketRepo, JiraImportService jiraImportService) {
+            this.ticketRepo = ticketRepo; this.jiraImportService = jiraImportService;
+        }
 
         @GetMapping List<?> list(@PathVariable String projectId) {
             return ticketRepo.findByProjectIdOrderByCreatedAtDesc(projectId);
@@ -1505,6 +1988,17 @@ public class javaclaw implements WebSocketConfigurer {
             doc.updatedAt = Instant.now();
             ticketRepo.save(doc);
             return ResponseEntity.ok(doc);
+        }
+
+        @PostMapping("/import") ResponseEntity<?> importFromFile(
+                @PathVariable String projectId, @RequestBody Map<String, String> req) {
+            String filePath = req.get("filePath");
+            if (filePath == null || filePath.isBlank())
+                return ResponseEntity.badRequest().body(Map.of("error", "filePath is required"));
+            var result = jiraImportService.importFile(filePath, projectId);
+            return ResponseEntity.ok(Map.of(
+                    "imported", result.imported(), "total", result.total(),
+                    "errors", result.errors()));
         }
     }
 
@@ -1715,6 +2209,48 @@ public class javaclaw implements WebSocketConfigurer {
             eventService.emit(req.sessionId(), EventType.APPROVAL_RESPONDED,
                     Map.of("requestId", req.requestId(), "content", req.content()));
             return ResponseEntity.ok(Map.of("status", "accepted"));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Resource Controller
+    // -----------------------------------------------------------------------
+
+    @RestController
+    @RequestMapping("/api/resources")
+    static class ResourceController {
+        private final ResourceRepo resourceRepo;
+        ResourceController(ResourceRepo resourceRepo) { this.resourceRepo = resourceRepo; }
+
+        @GetMapping List<?> list(@RequestParam(required = false) String projectId) {
+            if (projectId != null) return resourceRepo.findByProjectId(projectId);
+            return resourceRepo.findAll();
+        }
+
+        @PostMapping ResponseEntity<?> create(@RequestBody Map<String, Object> body) {
+            ResourceDoc doc = new ResourceDoc();
+            doc.resourceId = UUID.randomUUID().toString();
+            doc.name = (String) body.get("name");
+            doc.email = (String) body.get("email");
+            doc.role = (String) body.getOrDefault("role", "ENGINEER");
+            doc.skills = body.containsKey("skills") ? (List<String>) body.get("skills") : List.of();
+            doc.availability = body.containsKey("availability") ? ((Number) body.get("availability")).doubleValue() : 1.0;
+            doc.projectId = (String) body.get("projectId");
+            doc.createdAt = Instant.now();
+            doc.updatedAt = Instant.now();
+            resourceRepo.save(doc);
+            return ResponseEntity.ok(doc);
+        }
+
+        @GetMapping("/{id}") ResponseEntity<?> get(@PathVariable String id) {
+            return resourceRepo.findById(id)
+                    .<ResponseEntity<?>>map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.status(404).body(Map.of("error", "not found")));
+        }
+
+        @DeleteMapping("/{id}") ResponseEntity<?> delete(@PathVariable String id) {
+            resourceRepo.deleteById(id);
+            return ResponseEntity.ok(Map.of("status", "deleted"));
         }
     }
 

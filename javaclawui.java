@@ -869,6 +869,20 @@ public class javaclawui {
                 }
                 @Override public void treeCollapsed(javax.swing.event.TreeExpansionEvent event) {}
             });
+            tree.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mousePressed(java.awt.event.MouseEvent e) { maybeShowPopup(e); }
+                @Override public void mouseReleased(java.awt.event.MouseEvent e) { maybeShowPopup(e); }
+                private void maybeShowPopup(java.awt.event.MouseEvent e) {
+                    if (!e.isPopupTrigger()) return;
+                    int row = tree.getClosestRowForLocation(e.getX(), e.getY());
+                    if (row < 0) return;
+                    tree.setSelectionRow(row);
+                    javax.swing.tree.DefaultMutableTreeNode node =
+                            (javax.swing.tree.DefaultMutableTreeNode) tree.getLastSelectedPathComponent();
+                    if (node == null || !(node.getUserObject() instanceof NavNode nav)) return;
+                    showContextMenu(nav, e.getX(), e.getY());
+                }
+            });
             JScrollPane sp = new JScrollPane(tree);
             sp.setBorder(null);
             add(sp, BorderLayout.CENTER);
@@ -917,6 +931,139 @@ public class javaclawui {
                 case PLANS_FOLDER -> showPlansDialog(node.projectId());
                 default -> {}
             }
+        }
+
+        void showContextMenu(NavNode nav, int x, int y) {
+            JPopupMenu popup = new JPopupMenu();
+            popup.setBackground(Theme.HDR_BG);
+            switch (nav.type()) {
+                case PROJECT -> {
+                    JMenuItem addThread = new JMenuItem("New Thread");
+                    addThread.addActionListener(e -> createThreadInProject(nav.id()));
+                    popup.add(addThread);
+                    JMenuItem addResource = new JMenuItem("Add Resource...");
+                    addResource.addActionListener(e -> showAddResourceDialog(nav.id()));
+                    popup.add(addResource);
+                    JMenuItem viewResources = new JMenuItem("View Resources");
+                    viewResources.addActionListener(e -> showResourcesDialog(nav.id()));
+                    popup.add(viewResources);
+                    popup.addSeparator();
+                    JMenuItem del = new JMenuItem("Delete Project");
+                    del.setForeground(Theme.RED);
+                    del.addActionListener(e -> {
+                        int confirm = JOptionPane.showConfirmDialog(this,
+                                "Delete project \"" + nav.label() + "\"?\n\nThis will permanently remove the project and all its threads, tickets, ideas, and designs.",
+                                "Confirm Delete", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                        if (confirm == JOptionPane.YES_OPTION) {
+                            CompletableFuture.runAsync(() -> {
+                                try { api.delete("/api/projects/" + nav.id()); SwingUtilities.invokeLater(this::refresh); }
+                                catch (Exception ex) { SwingUtilities.invokeLater(() -> chatPanel.appendError("Delete failed: " + ex.getMessage())); }
+                            });
+                        }
+                    });
+                    popup.add(del);
+                }
+                case THREAD -> {
+                    JMenuItem open = new JMenuItem("Open Thread");
+                    open.addActionListener(e -> {
+                        chatPanel.setThreadSession(nav.id(), nav.projectId(), nav.label());
+                        eventSocket.subscribe(nav.id());
+                    });
+                    popup.add(open);
+                    popup.addSeparator();
+                    JMenuItem del = new JMenuItem("Delete Thread");
+                    del.setForeground(Theme.RED);
+                    del.addActionListener(e -> {
+                        int confirm = JOptionPane.showConfirmDialog(this,
+                                "Delete thread \"" + nav.label() + "\"?\n\nAll messages in this thread will be lost.",
+                                "Confirm Delete", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                        if (confirm == JOptionPane.YES_OPTION) {
+                            CompletableFuture.runAsync(() -> {
+                                try {
+                                    api.delete("/api/projects/" + nav.projectId() + "/threads/" + nav.id());
+                                    SwingUtilities.invokeLater(this::refresh);
+                                } catch (Exception ex) { SwingUtilities.invokeLater(() -> chatPanel.appendError("Delete failed: " + ex.getMessage())); }
+                            });
+                        }
+                    });
+                    popup.add(del);
+                }
+                case SESSION -> {
+                    JMenuItem del = new JMenuItem("Delete Session");
+                    del.setForeground(Theme.RED);
+                    del.addActionListener(e -> {
+                        int confirm = JOptionPane.showConfirmDialog(this,
+                                "Delete standalone session?", "Confirm Delete",
+                                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                        if (confirm == JOptionPane.YES_OPTION) {
+                            CompletableFuture.runAsync(() -> {
+                                try { api.delete("/api/sessions/" + nav.id()); SwingUtilities.invokeLater(this::refresh); }
+                                catch (Exception ex) { SwingUtilities.invokeLater(() -> chatPanel.appendError("Delete failed: " + ex.getMessage())); }
+                            });
+                        }
+                    });
+                    popup.add(del);
+                }
+                default -> { return; }
+            }
+            popup.show(tree, x, y);
+        }
+
+        void showAddResourceDialog(String projectId) {
+            JPanel panel = new JPanel(new GridLayout(4, 2, 4, 4));
+            panel.setBackground(Theme.BG);
+            JTextField nameField = new JTextField();
+            JTextField emailField = new JTextField();
+            JComboBox<String> roleBox = new JComboBox<>(new String[]{"ENGINEER", "DESIGNER", "PM", "QA"});
+            JTextField skillsField = new JTextField();
+            panel.add(new JLabel("Name:")); panel.add(nameField);
+            panel.add(new JLabel("Email:")); panel.add(emailField);
+            panel.add(new JLabel("Role:")); panel.add(roleBox);
+            panel.add(new JLabel("Skills (comma-sep):")); panel.add(skillsField);
+            int result = JOptionPane.showConfirmDialog(this, panel, "Add Resource", JOptionPane.OK_CANCEL_OPTION);
+            if (result != JOptionPane.OK_OPTION || nameField.getText().isBlank()) return;
+            CompletableFuture.runAsync(() -> {
+                try {
+                    var skills = java.util.Arrays.stream(skillsField.getText().split(","))
+                            .map(String::trim).filter(s -> !s.isEmpty()).toList();
+                    var body = Map.of("name", nameField.getText(), "email", emailField.getText(),
+                            "role", roleBox.getSelectedItem(), "skills", skills,
+                            "projectId", projectId);
+                    api.post("/api/resources", body);
+                    SwingUtilities.invokeLater(() -> chatPanel.appendSystem("Resource added: " + nameField.getText()));
+                } catch (Exception ex) {
+                    SwingUtilities.invokeLater(() -> chatPanel.appendError("Add resource failed: " + ex.getMessage()));
+                }
+            });
+        }
+
+        void showResourcesDialog(String projectId) {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    JsonNode resources = api.get("/api/resources?projectId=" + projectId);
+                    SwingUtilities.invokeLater(() -> {
+                        String[] cols = {"Name", "Role", "Email", "Skills"};
+                        java.util.List<String[]> rows = new java.util.ArrayList<>();
+                        if (resources.isArray()) {
+                            for (JsonNode r : resources) {
+                                rows.add(new String[]{
+                                    r.path("name").asText(), r.path("role").asText(),
+                                    r.path("email").asText(""), r.path("skills").toString()
+                                });
+                            }
+                        }
+                        JTable table = new JTable(rows.toArray(new String[0][]), cols);
+                        table.setFont(TERM_FONT.deriveFont(11f));
+                        JDialog dlg = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Resources", true);
+                        dlg.setSize(500, 300);
+                        dlg.add(new JScrollPane(table));
+                        dlg.setLocationRelativeTo(this);
+                        dlg.setVisible(true);
+                    });
+                } catch (Exception ex) {
+                    SwingUtilities.invokeLater(() -> chatPanel.appendError("Load resources failed: " + ex.getMessage()));
+                }
+            });
         }
 
         void refresh() {
@@ -1051,6 +1198,11 @@ public class javaclawui {
                     SwingUtilities.invokeLater(() -> chatPanel.appendError("Create session failed: " + ex.getMessage()));
                 }
             });
+        }
+
+        void createThreadInProject(String projectId) {
+            selectedProjectId = projectId;
+            createThreadInProject();
         }
 
         void createThreadInProject() {

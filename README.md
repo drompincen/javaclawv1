@@ -93,7 +93,7 @@ JavaClaw uses a **controller → specialist → checker** pattern:
 2. **Specialist agent** (e.g., coder) executes the task using tools
 3. **Checker agent** (reviewer) validates the result — if it fails, loops back to controller (max 3 retries)
 
-Agents are defined in MongoDB and can be created/modified via REST API. Four default agents are seeded on first startup:
+Agents are defined in MongoDB and can be created/modified via REST API. Five default agents are seeded on first startup:
 
 | Agent | Role | Purpose |
 |---|---|---|
@@ -101,8 +101,9 @@ Agents are defined in MongoDB and can be created/modified via REST API. Four def
 | `coder` | SPECIALIST | Writes code, runs shell commands, uses JBang/Python |
 | `reviewer` | CHECKER | Reviews output, runs tests, validates correctness |
 | `pm` | SPECIALIST | Project management — planning, tickets, milestones, stakeholder tracking |
+| `distiller` | SPECIALIST | Distills completed sessions into persistent memories automatically |
 
-The PM agent has access to `create_ticket`, `create_idea`, `memory`, `excel`, `read_file`, `list_directory`, and `search_files`. If you upgrade from an older database that only had 3 agents, the PM agent is automatically seeded on startup.
+The PM agent has access to `create_ticket`, `create_idea`, `memory`, `excel`, `read_file`, `list_directory`, and `search_files`. The distiller agent runs automatically after each session completes, extracting key topics and outcomes into THREAD or SESSION-scoped memories. If you upgrade from an older database, missing agents are automatically seeded on startup.
 
 Agent-to-agent communication happens via MongoDB change streams — real-time, persistent, and observable from the UI.
 
@@ -112,7 +113,10 @@ Agents can **store and recall knowledge** across sessions using the `memory` too
 
 - **GLOBAL** scope — shared across all projects (e.g., "user prefers Java 21")
 - **PROJECT** scope — tied to a project (e.g., "this repo uses Gradle")
-- **SESSION** scope — ephemeral per session
+- **SESSION** scope — tied to a standalone session
+- **THREAD** scope — tied to a thread (e.g., "sprint planning decisions from this thread")
+
+The **distiller agent** automatically runs after each session completes, extracting a summary of the conversation topic and outcome. Thread-bound sessions produce THREAD-scoped memories; standalone sessions produce SESSION-scoped memories. This ensures valuable context is preserved without manual intervention.
 
 Memory is stored in MongoDB with text search, tag-based filtering, and key-based upsert. Before each LLM call, relevant memories are loaded into context so agents always have background knowledge.
 
@@ -361,14 +365,25 @@ Paste images from clipboard (`Ctrl+V`) and send them to the model for analysis. 
 
 ## How It Works
 
-### Thread vs Session Duality
+### Data Model: Projects > Threads > Sessions
 
-JavaClaw has two entity types that both feed into the same AgentLoop:
+JavaClaw organizes work in a hierarchy:
 
-- **Sessions** (`/api/sessions`) — Standalone conversations, stored in the `sessions` collection
-- **Threads** (`/api/projects/{pid}/threads`) — Project-scoped conversations, stored in the `threads` collection
+```
+Projects (M:N with threads)
+└── Threads (belong to 1+ projects via projectIds)
+    └── Sessions (optionally linked to a thread via threadId)
 
-Both share the `messages` collection — a thread's `threadId` is used as the `sessionId` when storing messages. The AgentLoop performs a **dual-lookup**: it first checks `SessionRepository`, then falls back to `ThreadRepository`. This means the agent loop, checkpoint system, and event streaming all work identically for both sessions and threads.
+Standalone Sessions (threadId = null)
+```
+
+- **Sessions** (`/api/sessions`) — Standalone or thread-bound conversations, stored in the `sessions` collection. Sessions with a `threadId` belong to that thread; sessions without one are standalone.
+- **Threads** (`/api/projects/{pid}/threads`) — Project-scoped conversations, stored in the `threads` collection. A thread can belong to multiple projects (M:N via `projectIds` list).
+- **Projects** — Top-level containers for threads, tickets, ideas, designs, plans, and scorecards.
+
+Both sessions and threads share the `messages` collection — a thread's `threadId` is used as the `sessionId` when storing messages. The AgentLoop performs a **dual-lookup**: it first checks `SessionRepository`, then falls back to `ThreadRepository`. This means the agent loop, checkpoint system, and event streaming all work identically for both.
+
+Sessions are **ephemeral by default** — the distiller agent decides what's worth persisting as memory after each session completes.
 
 From the UI's perspective, when the user selects a thread, `ChatPanel` stores both `currentSessionId` (= threadId) and `currentProjectId`, then routes API calls to the thread endpoints. When the user selects a standalone session, `currentProjectId` is null and API calls go to session endpoints.
 
@@ -786,12 +801,53 @@ jbang javaclawui.java --url http://localhost:8080
 
 **Project Management**: `TICKET_CREATED`, `TICKET_UPDATED`, `IDEA_PROMOTED`, `REMINDER_TRIGGERED`, `APPROVAL_REQUESTED`, `APPROVAL_RESPONDED`, `RESOURCE_ASSIGNED`
 
-## Future Roadmap
+## Roadmap
 
-The following capabilities are part of the longer-term vision:
+### Next Up
+
+These features are actively planned and will be implemented soon:
+
+#### Context Menus (Right-Click Actions)
+Right-click on projects and threads in the navigator tree to access quick actions:
+- **Projects** — Rename, delete (with confirmation warning), add/manage resources, create thread, view scorecard
+- **Threads** — Delete, archive, move to another project, copy thread ID
+- Eliminates the need to navigate through menus or remember keyboard shortcuts for common operations
+
+#### Agent Observability & Response Fix
+Currently agent responses appear blank regardless of whether an API key is configured. This needs to be fixed alongside better observability:
+- **Fix blank responses** — Ensure the agent loop produces visible output with both fake and real LLM providers
+- **Call logging** — Log which agent is active, what task it's working on, and how long each call takes
+- **Duration tracking** — Display elapsed time per agent step in the agent pane
+- **Status visibility** — Show "Coder is analyzing your request..." style messages in the UI during agent work
+
+#### Project & Thread Management
+Full lifecycle management from the UI:
+- **Delete projects** — With a confirmation warning dialog ("This will permanently delete the project and all its threads, tickets, ideas, and designs")
+- **Delete threads** — Remove threads from a project with confirmation
+- **Add resources to projects** — Assign team members (engineers, designers, PMs, QA) to projects directly from the navigator context menu
+- **Resource capacity view** — See who is assigned where and at what allocation percentage
+
+#### File Tool Verification
+Validate that the file tools (read_file, write_file, list_directory, search_files) work end-to-end from the UI:
+- Test creating files via the agent
+- Test listing local directories
+- Ensure WSL path translation works correctly for all file operations
+- Surface tool results clearly in the chat panel
+
+#### Jira Excel Import via Agent
+Ask the agent to read an Excel or CSV file exported from Jira and automatically create tickets in a project:
+- **Attach the export** — Use F9 or drag-and-drop to attach a `.xlsx` / `.csv` file
+- **Agent reads it** — The agent uses the `excel` tool to parse rows and columns (story title, description, priority, status, assignee)
+- **Auto-creates tickets** — Each row becomes a ticket in the current project via `create_ticket`
+- **Resource mapping** — Match assignee names to existing resources in the system
+- **Summary report** — Agent provides a summary of how many tickets were imported and any rows that couldn't be parsed
+
+This enables rapid project bootstrapping from existing Jira boards without manual re-entry.
+
+### Future Vision
 
 - **Confluence integration** — Read designs and compare against implementation
-- **Jira integration** — Direct API access (not just Excel imports)
+- **Jira API integration** — Direct Jira REST API access (not just Excel imports)
 - **Sprint management** — Week-by-week objective tracking, velocity metrics, burndown
 - **Mark-to-market** — Compare planned vs. actual ticket completion per sprint
 - **Team management** — Track directs, see who has capacity, auto-suggest assignments
