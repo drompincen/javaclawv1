@@ -2,7 +2,7 @@
 
 //JAVA 21+
 
-//REPOS mavenLocal
+//REPOS mavenLocal,mavencentral
 //DEPS io.github.drompincen.javaclawv1:javaclaw-gateway:0.1.0-SNAPSHOT
 
 package javaclaw;
