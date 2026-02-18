@@ -245,6 +245,11 @@ public class TestLLMConsumer {
     }
 
     private String generateSpecialistResponse(String agentId, String userMsg, boolean hasToolResults) {
+        // Reminder agent — generate parseable REMINDER lines
+        if ("reminder".equals(agentId)) {
+            return generateReminderResponse(userMsg);
+        }
+
         if (hasToolResults) {
             // Tool results are in — summarize
             return "[TEST] Agent %s completed the task. Tool results were processed successfully for: %s"
@@ -300,6 +305,36 @@ public class TestLLMConsumer {
 
         // Default — just acknowledge
         return "[TEST] Agent %s processed request: %s".formatted(agentId, truncate(userMsg, 200));
+    }
+
+    /**
+     * Generate a response with parseable REMINDER lines for ReminderAgentService.
+     * Format: REMINDER: what | WHEN: time | RECURRING: yes/no interval
+     */
+    private String generateReminderResponse(String userMsg) {
+        String lower = userMsg.toLowerCase();
+        String when = "tomorrow";
+        String recurring = "no";
+
+        if (lower.contains("daily") || lower.contains("every day")) {
+            recurring = "yes daily";
+            when = "daily";
+        } else if (lower.contains("weekly") || lower.contains("every week")) {
+            recurring = "yes weekly";
+            when = "weekly";
+        } else if (lower.contains("hourly") || lower.contains("every hour")) {
+            recurring = "yes hourly";
+            when = "every hour";
+        } else if (lower.contains("morning")) {
+            when = "tomorrow morning";
+        } else if (lower.contains("evening") || lower.contains("night")) {
+            when = "this evening";
+        }
+
+        String reminderMsg = truncate(userMsg, 150);
+        return "I've set up a reminder for you.\n\n"
+                + "REMINDER: " + reminderMsg + " | WHEN: " + when + " | RECURRING: " + recurring + "\n\n"
+                + "You'll be notified at the scheduled time.";
     }
 
     private boolean hasFileReference(String lower) {

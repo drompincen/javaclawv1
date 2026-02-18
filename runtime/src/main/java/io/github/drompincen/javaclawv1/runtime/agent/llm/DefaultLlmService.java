@@ -16,6 +16,7 @@ import org.springframework.ai.model.Media;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeType;
 import reactor.core.publisher.Flux;
@@ -50,33 +51,65 @@ public class DefaultLlmService implements LlmService {
 
     private final AnthropicChatModel anthropicModel;
     private final OpenAiChatModel openaiModel;
+    private final Environment environment;
 
     public DefaultLlmService(@Autowired(required = false) AnthropicChatModel anthropicModel,
-                             @Autowired(required = false) OpenAiChatModel openaiModel) {
+                             @Autowired(required = false) OpenAiChatModel openaiModel,
+                             Environment environment) {
         this.anthropicModel = anthropicModel;
         this.openaiModel = openaiModel;
+        this.environment = environment;
+        log.info("DefaultLlmService initialized — anthropic={}, openai={}",
+                anthropicModel != null ? "available" : "missing",
+                openaiModel != null ? "available" : "missing");
     }
 
     private enum Provider { ANTHROPIC, OPENAI, NONE }
 
+    private boolean hasRealKey(String key, String placeholderPrefix) {
+        return key != null && !key.isBlank() && !key.startsWith(placeholderPrefix);
+    }
+
+    /**
+     * Resolve key from multiple sources: System.setProperty (Ctrl+K runtime),
+     * then Spring Environment (env vars, YAML defaults, JVM -D args).
+     */
+    private String resolveKey(String propertyName) {
+        // System.getProperty sees keys set at runtime via Ctrl+K (ConfigController)
+        String key = System.getProperty(propertyName);
+        if (key != null && !key.isBlank()) return key;
+        // Spring Environment sees env vars, application.yml defaults, JVM -D args
+        return environment.getProperty(propertyName, "");
+    }
+
     private Provider resolveProvider() {
-        String anthropicKey = System.getProperty("spring.ai.anthropic.api-key", "");
-        if (!anthropicKey.isBlank() && !anthropicKey.startsWith("sk-ant-placeholder")) {
+        String anthropicKey = resolveKey("spring.ai.anthropic.api-key");
+        if (hasRealKey(anthropicKey, "sk-ant-placeholder") && anthropicModel != null) {
             return Provider.ANTHROPIC;
         }
-        String openaiKey = System.getProperty("spring.ai.openai.api-key", "");
-        if (!openaiKey.isBlank() && !openaiKey.startsWith("sk-placeholder")) {
+        String openaiKey = resolveKey("spring.ai.openai.api-key");
+        if (hasRealKey(openaiKey, "sk-placeholder") && openaiModel != null) {
             return Provider.OPENAI;
         }
         return Provider.NONE;
     }
 
+    @Override
+    public boolean isAvailable() {
+        return resolveProvider() != Provider.NONE;
+    }
+
     private ChatModel getActiveModel() {
-        return switch (resolveProvider()) {
+        Provider p = resolveProvider();
+        ChatModel model = switch (p) {
             case ANTHROPIC -> anthropicModel;
             case OPENAI -> openaiModel;
             case NONE -> null;
         };
+        if (model == null && p != Provider.NONE) {
+            log.warn("Provider {} selected but model bean is null — falling back to onboarding", p);
+        }
+        return model;
     }
 
     @Override
