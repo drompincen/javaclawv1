@@ -113,7 +113,7 @@ public class AgentGraphBuilder {
             state = state.withMessage("system", controller.getSystemPrompt()
                     + "\n\nAvailable specialists:\n" + specialistList);
 
-            String controllerResponse = callLlmForAgent(state, controller);
+            String controllerResponse = callLlmForAgentSilent(state, controller);
             state = state.withMessage("assistant", controllerResponse != null ? controllerResponse : "");
 
             if (controllerResponse == null || controllerResponse.isBlank()) break;
@@ -124,6 +124,8 @@ public class AgentGraphBuilder {
 
             String specialistOutput;
             if (delegateAgentId != null) {
+                log.info("[controller] Delegating to '{}', subTask='{}'",
+                        delegateAgentId, parseSubTask(controllerResponse));
                 // Step 2: Delegate to specialist
                 AgentDocument specialist = agents.stream()
                         .filter(a -> a.getAgentId().equals(delegateAgentId))
@@ -185,14 +187,16 @@ public class AgentGraphBuilder {
             state = state.withMessage("user",
                     "Review the work completed above. The specialist's final output was:\n" + specialistOutput);
 
-            String checkerResponse = callLlmForAgent(state, checker);
+            String checkerResponse = callLlmForAgentSilent(state, checker);
             state = state.withMessage("assistant", checkerResponse != null ? checkerResponse : "");
 
             boolean passed = parseCheckPassed(checkerResponse);
+            String summary = parseCheckSummary(checkerResponse);
+            log.info("[checker] Result: pass={}, summary='{}'", passed, summary);
             if (passed) {
                 eventService.emit(state.getThreadId(), EventType.AGENT_CHECK_PASSED,
                         Map.of("agentId", checker.getAgentId(),
-                                "summary", parseCheckSummary(checkerResponse)));
+                                "summary", summary));
                 break;
             } else {
                 String feedback = parseCheckFeedback(checkerResponse);
@@ -397,6 +401,7 @@ public class AgentGraphBuilder {
     }
 
     private String callLlmForAgent(AgentState state, AgentDocument agent) {
+        log.info("[{}] Streaming LLM response", agent.getAgentId());
         long startTime = System.currentTimeMillis();
         try {
             StringBuilder sb = new StringBuilder();
@@ -421,6 +426,34 @@ public class AgentGraphBuilder {
                     durationMs, false, e.getMessage());
             logService.logError("AgentGraphBuilder", state.getThreadId(),
                     "LLM call failed for " + agent.getAgentId() + ": " + e.getMessage(), e, Map.of());
+            eventService.emit(state.getThreadId(), EventType.ERROR,
+                    Map.of("message", "LLM call failed for " + agent.getAgentId() + ": " + e.getMessage()));
+            return null;
+        }
+    }
+
+    /**
+     * Blocking LLM call that does NOT emit MODEL_TOKEN_DELTA events.
+     * Used for controller and checker whose responses are internal orchestration
+     * and should not appear in the user's chat.
+     */
+    private String callLlmForAgentSilent(AgentState state, AgentDocument agent) {
+        long startTime = System.currentTimeMillis();
+        try {
+            String result = llmService.blockingResponse(state);
+            long durationMs = System.currentTimeMillis() - startTime;
+            log.info("[{}] LLM response received ({}ms, {} chars)",
+                    agent.getAgentId(), durationMs, result != null ? result.length() : 0);
+            logService.recordLlmInteraction(state.getThreadId(), agent.getAgentId(),
+                    "anthropic", null, state.getMessages().size(), 0,
+                    estimateTokens(result), durationMs, true, null);
+            return result;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startTime;
+            log.error("[{}] LLM call failed ({}ms): {}", agent.getAgentId(), durationMs, e.getMessage());
+            logService.recordLlmInteraction(state.getThreadId(), agent.getAgentId(),
+                    "anthropic", null, state.getMessages().size(), 0, 0,
+                    durationMs, false, e.getMessage());
             eventService.emit(state.getThreadId(), EventType.ERROR,
                     Map.of("message", "LLM call failed for " + agent.getAgentId() + ": " + e.getMessage()));
             return null;
@@ -490,9 +523,19 @@ public class AgentGraphBuilder {
 
     // --- JSON response parsing helpers ---
 
+    /** Pattern to strip markdown code fences (```json ... ```) that LLMs wrap around JSON responses */
+    private static final Pattern CODE_FENCE_PATTERN_JSON =
+            Pattern.compile("^\\s*```(?:json)?\\s*\\n?(.*?)\\n?\\s*```\\s*$", Pattern.DOTALL);
+
+    private String stripCodeFences(String response) {
+        if (response == null) return null;
+        Matcher m = CODE_FENCE_PATTERN_JSON.matcher(response.trim());
+        return m.matches() ? m.group(1).trim() : response.trim();
+    }
+
     private String parseDelegate(String response) {
         try {
-            JsonNode node = objectMapper.readTree(response);
+            JsonNode node = objectMapper.readTree(stripCodeFences(response));
             if (node.has("delegate")) return node.get("delegate").asText();
         } catch (Exception ignored) {}
         return null;
@@ -500,7 +543,7 @@ public class AgentGraphBuilder {
 
     private String parseDirectResponse(String response) {
         try {
-            JsonNode node = objectMapper.readTree(response);
+            JsonNode node = objectMapper.readTree(stripCodeFences(response));
             if (node.has("respond")) return node.get("respond").asText();
         } catch (Exception ignored) {}
         return null;
@@ -508,7 +551,7 @@ public class AgentGraphBuilder {
 
     private String parseSubTask(String response) {
         try {
-            JsonNode node = objectMapper.readTree(response);
+            JsonNode node = objectMapper.readTree(stripCodeFences(response));
             if (node.has("subTask")) return node.get("subTask").asText();
         } catch (Exception ignored) {}
         return "delegated task";
@@ -517,7 +560,7 @@ public class AgentGraphBuilder {
     private boolean parseCheckPassed(String response) {
         if (response == null) return true;
         try {
-            JsonNode node = objectMapper.readTree(response);
+            JsonNode node = objectMapper.readTree(stripCodeFences(response));
             if (node.has("pass")) return node.get("pass").asBoolean();
         } catch (Exception ignored) {}
         return !response.toLowerCase().contains("\"pass\": false")
@@ -527,7 +570,7 @@ public class AgentGraphBuilder {
     private String parseCheckSummary(String response) {
         if (response == null) return "";
         try {
-            JsonNode node = objectMapper.readTree(response);
+            JsonNode node = objectMapper.readTree(stripCodeFences(response));
             if (node.has("summary")) return node.get("summary").asText();
         } catch (Exception ignored) {}
         return truncate(response, 200);
@@ -536,7 +579,7 @@ public class AgentGraphBuilder {
     private String parseCheckFeedback(String response) {
         if (response == null) return "no feedback provided";
         try {
-            JsonNode node = objectMapper.readTree(response);
+            JsonNode node = objectMapper.readTree(stripCodeFences(response));
             if (node.has("feedback")) return node.get("feedback").asText();
         } catch (Exception ignored) {}
         return truncate(response, 500);

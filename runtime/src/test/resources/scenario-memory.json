@@ -1,0 +1,60 @@
+{
+  "projectName": null,
+  "description": "Memory tool: store, recall, and delete memories across scopes",
+  "steps": [
+    {
+      "userQuery": "remember that we use Spring Boot 3.3.1 for this project",
+      "description": "Generalist stores a memory using the memory tool",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"generalist\", \"subTask\": \"store framework memory\"}"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "I'll store that information for you.\n\n<tool_call>\n{\"name\": \"memory\", \"args\": {\"operation\": \"store\", \"scope\": \"SESSION\", \"key\": \"framework-version\", \"content\": \"This project uses Spring Boot 3.3.1 with Java 21\", \"tags\": [\"framework\", \"spring\", \"java\"]}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Generalist stored framework memory\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "what framework version do we use?",
+      "description": "Generalist recalls the stored memory",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"generalist\", \"subTask\": \"recall framework info\"}"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Let me check what I remember about the framework.\n\n<tool_call>\n{\"name\": \"memory\", \"args\": {\"operation\": \"recall\", \"scope\": \"SESSION\", \"query\": \"framework\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Generalist recalled framework memory\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "forget the framework version info",
+      "description": "Generalist deletes the stored memory",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"generalist\", \"subTask\": \"delete framework memory\"}"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "I'll remove that memory.\n\n<tool_call>\n{\"name\": \"memory\", \"args\": {\"operation\": \"delete\", \"scope\": \"SESSION\", \"key\": \"framework-version\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Generalist deleted framework memory\"}"
+        }
+      ]
+    }
+  ]
+}

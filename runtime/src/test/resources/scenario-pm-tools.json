@@ -1,0 +1,64 @@
+{
+  "projectName": "Sprint Tracker",
+  "description": "PM tools: create_ticket and create_idea via tool calls",
+  "steps": [
+    {
+      "userQuery": "use project Sprint Tracker",
+      "description": "Context command — no LLM call needed"
+    },
+    {
+      "userQuery": "create a ticket for database migration to PostgreSQL",
+      "description": "PM uses create_ticket tool",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"create database migration ticket\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "I'll create a ticket for the database migration.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"sprint-tracker\", \"title\": \"Migrate database to PostgreSQL\", \"description\": \"Migrate from MongoDB to PostgreSQL for relational data. Includes schema design, data migration scripts, and connection pool configuration.\", \"priority\": \"HIGH\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM created database migration ticket\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "add an idea for implementing dark mode in the UI",
+      "description": "PM uses create_idea tool",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"add dark mode idea\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "I'll add that as an idea for the project.\n\n<tool_call>\n{\"name\": \"create_idea\", \"args\": {\"projectId\": \"sprint-tracker\", \"title\": \"Dark mode support for UI\", \"content\": \"Add dark mode toggle to the Bloomberg terminal-style UI. Use FlatLaf dark theme as base, allow user preference persistence, and ensure all custom components respect the theme.\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM added dark mode idea\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "create a low priority ticket for updating documentation",
+      "description": "PM uses create_ticket with LOW priority",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"create documentation ticket\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "I'll create a documentation ticket.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"sprint-tracker\", \"title\": \"Update API documentation\", \"description\": \"Update REST API docs to reflect new endpoints added in Sprint 3. Include request/response examples.\", \"priority\": \"LOW\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM created documentation ticket\"}"
+        }
+      ]
+    }
+  ]
+}

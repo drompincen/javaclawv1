@@ -1,0 +1,42 @@
+{
+  "projectName": null,
+  "description": "Python execution tool: run Python scripts inline",
+  "steps": [
+    {
+      "userQuery": "run a python script that prints hello world",
+      "description": "Coder uses python_exec to run inline Python",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"run Python hello world\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll run a Python hello world script.\n\n<tool_call>\n{\"name\": \"python_exec\", \"args\": {\"code\": \"import sys\\nprint('Hello from Python!')\\nprint(f'Python version: {sys.version}')\\nprint(f'Platform: {sys.platform}')\", \"timeout_seconds\": 30}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder executed Python hello world\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "run a python script that generates fibonacci numbers up to 100",
+      "description": "Coder uses python_exec for a computation",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"run Python fibonacci generator\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll generate Fibonacci numbers using Python.\n\n<tool_call>\n{\"name\": \"python_exec\", \"args\": {\"code\": \"def fibonacci(limit):\\n    a, b = 0, 1\\n    nums = []\\n    while a <= limit:\\n        nums.append(a)\\n        a, b = b, a + b\\n    return nums\\n\\nresult = fibonacci(100)\\nprint(f'Fibonacci numbers up to 100: {result}')\\nprint(f'Count: {len(result)} numbers')\", \"timeout_seconds\": 30}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder generated Fibonacci numbers via Python\"}"
+        }
+      ]
+    }
+  ]
+}

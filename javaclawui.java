@@ -443,6 +443,7 @@ public class javaclawui {
                         }
                         case "AGENT_SWITCHED" -> {
                             String to = payload.path("payload").path("toAgent").asText();
+                            chatPanel.setCurrentAgent(to);
                             agentPane.onAgentEvent("Switched to [" + to + "]");
                         }
                         case "AGENT_CHECK_PASSED" -> {

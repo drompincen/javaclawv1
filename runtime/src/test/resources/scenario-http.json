@@ -1,0 +1,42 @@
+{
+  "projectName": null,
+  "description": "HTTP tool: fetch web content via http_get",
+  "steps": [
+    {
+      "userQuery": "fetch the httpbin test endpoint to check our HTTP client",
+      "description": "Coder uses http_get to fetch a test URL",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"fetch HTTP test endpoint\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll fetch the httpbin test endpoint to verify our HTTP client works.\n\n<tool_call>\n{\"name\": \"http_get\", \"args\": {\"url\": \"https://httpbin.org/get\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder fetched HTTP endpoint successfully\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "fetch the GitHub API rate limit to see if we have access",
+      "description": "Coder uses http_get with GitHub API",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"check GitHub API rate limit\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll check the GitHub API rate limit.\n\n<tool_call>\n{\"name\": \"http_get\", \"args\": {\"url\": \"https://api.github.com/rate_limit\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder checked GitHub API rate limit\"}"
+        }
+      ]
+    }
+  ]
+}

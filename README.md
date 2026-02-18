@@ -923,6 +923,14 @@ jbang javaclawui.java --url http://localhost:8080
 
 **Project Management**: `TICKET_CREATED`, `TICKET_UPDATED`, `IDEA_PROMOTED`, `REMINDER_TRIGGERED`, `APPROVAL_REQUESTED`, `APPROVAL_RESPONDED`, `RESOURCE_ASSIGNED`
 
+## TODO
+
+See [TODO.md](TODO.md) for the current task list, including:
+- E2E multi-agent orchestration tests (JBang scenarios + JUnit)
+- Java execution test: write a time util, run via ProcessBuilder, assert output
+- Python execution test: write a time util, run via ProcessBuilder, assert output
+- Combined agent orchestration + real tool execution flow test
+
 ## Roadmap
 
 ### Recently Completed

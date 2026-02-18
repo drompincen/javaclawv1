@@ -1,0 +1,60 @@
+{
+  "projectName": null,
+  "description": "Code execution: write time utils in Java and Python, execute, verify output",
+  "steps": [
+    {
+      "userQuery": "write a java program that prints the current local time and run it",
+      "description": "Coder writes Java time util, executes via JBang",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"write and execute Java time program\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll write a Java program to print the current time and run it with JBang.\n\n<tool_call>\n{\"name\": \"write_file\", \"args\": {\"path\": \"/tmp/JavaClawTimeCheck.java\", \"content\": \"///usr/bin/env jbang \\\"$0\\\" \\\"$@\\\" ; exit $?\\n//JAVA 21+\\n\\nimport java.time.LocalDateTime;\\nimport java.time.format.DateTimeFormatter;\\n\\npublic class JavaClawTimeCheck {\\n    public static void main(String[] args) {\\n        LocalDateTime now = LocalDateTime.now();\\n        String formatted = now.format(DateTimeFormatter.ofPattern(\\\"yyyy-MM-dd HH:mm:ss\\\"));\\n        System.out.println(\\\"CURRENT_TIME=\\\" + formatted);\\n    }\\n}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Java time program written and executed successfully\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "now write a python script that prints the current local time and run it",
+      "description": "Coder writes Python time util, executes via python3",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"write and execute Python time script\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll write a Python script to print the current time.\n\n<tool_call>\n{\"name\": \"write_file\", \"args\": {\"path\": \"/tmp/javaclaw_time_check.py\", \"content\": \"from datetime import datetime\\nnow = datetime.now()\\nprint(f\\\"CURRENT_TIME={now.strftime('%Y-%m-%d %H:%M:%S')}\\\")\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Python time script written and executed successfully\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "clean up both temp files",
+      "description": "Coder cleans up the temp files from both steps",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"delete temporary Java and Python files\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll clean up both temporary files.\n\n<tool_call>\n{\"name\": \"shell_exec\", \"args\": {\"command\": \"rm -f /tmp/JavaClawTimeCheck.java /tmp/javaclaw_time_check.py && echo 'Cleaned up both temp files'\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Temp files cleaned up\"}"
+        }
+      ]
+    }
+  ]
+}

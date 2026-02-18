@@ -80,9 +80,15 @@ public class TestModeLlmService implements LlmService {
         String userQuery = TestResponseGenerator.getLastUserMessage(state.getMessages());
 
         // Check scenario-driven response first
+        boolean hasToolResults = state.getMessages().stream()
+                .anyMatch(m -> "tool".equals(m.get("role")));
         if (scenarioService != null) {
             String scenarioResponse = scenarioService.getResponseForAgent(userQuery, agentId);
-            if (scenarioResponse != null) {
+            // Skip scenario response if it contains <tool_call> and messages already have
+            // tool results — this prevents an infinite loop where the specialist keeps
+            // re-executing the same tool call from the scenario on every loop-back.
+            if (scenarioResponse != null
+                    && !(hasToolResults && scenarioResponse.contains("<tool_call>"))) {
                 log.info("[TEST LLM] Scenario match for agent={}, userQuery='{}' — returning scenario response",
                         agentId, TestResponseGenerator.truncate(userQuery, 80));
 

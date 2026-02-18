@@ -1,0 +1,42 @@
+{
+  "projectName": null,
+  "description": "JBang execution tool: compile and run Java programs inline",
+  "steps": [
+    {
+      "userQuery": "run a java program that prints hello world using jbang",
+      "description": "Coder uses jbang_exec to run inline Java",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"run Java hello world via JBang\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll run a Java hello world program using JBang.\n\n<tool_call>\n{\"name\": \"jbang_exec\", \"args\": {\"code\": \"public class HelloWorld {\\n    public static void main(String[] args) {\\n        System.out.println(\\\"Hello from JBang!\\\");\\n        System.out.println(\\\"Java version: \\\" + System.getProperty(\\\"java.version\\\"));\\n    }\\n}\", \"timeout_seconds\": 30}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder executed Java hello world via JBang\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "run a java program that calculates the sum of numbers 1 to 100",
+      "description": "Coder uses jbang_exec for a computation",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"run Java sum calculator via JBang\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll calculate the sum of 1 to 100 using JBang.\n\n<tool_call>\n{\"name\": \"jbang_exec\", \"args\": {\"code\": \"import java.util.stream.IntStream;\\n\\npublic class SumCalculator {\\n    public static void main(String[] args) {\\n        int sum = IntStream.rangeClosed(1, 100).sum();\\n        System.out.println(\\\"Sum of 1 to 100 = \\\" + sum);\\n    }\\n}\", \"timeout_seconds\": 30}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder calculated sum via JBang execution\"}"
+        }
+      ]
+    }
+  ]
+}

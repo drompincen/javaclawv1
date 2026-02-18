@@ -1,0 +1,64 @@
+{
+  "projectName": "JavaClaw v1",
+  "description": "Git tools: git_status and git_diff (read-only, no commits)",
+  "steps": [
+    {
+      "userQuery": "use project JavaClaw v1",
+      "description": "Context command — no LLM call needed"
+    },
+    {
+      "userQuery": "show me the current git status",
+      "description": "Coder uses git_status to show working tree status",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"show git status\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll check the git status for you.\n\n<tool_call>\n{\"name\": \"git_status\", \"args\": {}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder showed git status\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "what changed since the last commit?",
+      "description": "Coder uses git_diff to show unstaged changes",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"show unstaged git diff\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll show you the unstaged changes.\n\n<tool_call>\n{\"name\": \"git_diff\", \"args\": {\"staged\": false}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder showed unstaged diff\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "show me what is staged for commit",
+      "description": "Coder uses git_diff with staged=true",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"show staged git diff\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll show you the staged changes.\n\n<tool_call>\n{\"name\": \"git_diff\", \"args\": {\"staged\": true}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder showed staged diff\"}"
+        }
+      ]
+    }
+  ]
+}
