@@ -48,10 +48,10 @@ public class javaclawui {
     static String baseUrl = "http://localhost:8080";
     static final ObjectMapper mapper = new ObjectMapper();
     static Font TERM_FONT;
-    static int currentFontSize = 15;
+    static int currentFontSize = 17;
     static final int MIN_FONT_SIZE = 10;
     static final int MAX_FONT_SIZE = 24;
-    static final int DEFAULT_FONT_SIZE = 15;
+    static final int DEFAULT_FONT_SIZE = 17;
     static final List<Runnable> fontChangeListeners = new ArrayList<>();
 
     public static void main(String... args) {
@@ -853,7 +853,7 @@ public class javaclawui {
             setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, Theme.BORDER));
 
             JLabel title = new JLabel(" NAVIGATOR");
-            title.setFont(TERM_FONT.deriveFont(Font.BOLD, 12f));
+            title.setFont(TERM_FONT.deriveFont(Font.BOLD, currentFontSize - 3f));
             title.setForeground(Theme.FG);
             title.setBackground(Theme.HDR_BG);
             title.setOpaque(true);
@@ -865,7 +865,7 @@ public class javaclawui {
             tree = new JTree(treeModel);
             tree.setRootVisible(false);
             tree.setShowsRootHandles(true);
-            tree.setFont(TERM_FONT.deriveFont(11f));
+            tree.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
             tree.setBackground(Theme.BG);
             tree.setForeground(Theme.FG);
             tree.setCellRenderer(new NavTreeCellRenderer());
@@ -901,20 +901,20 @@ public class javaclawui {
             JPanel btnPanel = new JPanel(new GridLayout(1, 2, 2, 0));
             btnPanel.setBackground(Theme.HDR_BG);
             JButton newProjBtn = new JButton("+ PROJECT");
-            newProjBtn.setFont(TERM_FONT.deriveFont(10f));
+            newProjBtn.setFont(TERM_FONT.deriveFont(currentFontSize - 5f));
             newProjBtn.addActionListener(e -> createProject());
             JButton newSessBtn = new JButton("+ SESSION");
-            newSessBtn.setFont(TERM_FONT.deriveFont(10f));
+            newSessBtn.setFont(TERM_FONT.deriveFont(currentFontSize - 5f));
             newSessBtn.addActionListener(e -> createSession());
             btnPanel.add(newProjBtn);
             btnPanel.add(newSessBtn);
             add(btnPanel, BorderLayout.SOUTH);
 
             fontChangeListeners.add(() -> {
-                title.setFont(TERM_FONT.deriveFont(Font.BOLD, 12f));
-                tree.setFont(TERM_FONT.deriveFont(11f));
-                newProjBtn.setFont(TERM_FONT.deriveFont(10f));
-                newSessBtn.setFont(TERM_FONT.deriveFont(10f));
+                title.setFont(TERM_FONT.deriveFont(Font.BOLD, currentFontSize - 3f));
+                tree.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
+                newProjBtn.setFont(TERM_FONT.deriveFont(currentFontSize - 5f));
+                newSessBtn.setFont(TERM_FONT.deriveFont(currentFontSize - 5f));
             });
         }
 
@@ -1956,11 +1956,11 @@ public class javaclawui {
             JPanel hdr = new JPanel(new BorderLayout());
             hdr.setBackground(Theme.HDR_BG);
             JLabel title = new JLabel(" AGENTS");
-            title.setFont(TERM_FONT.deriveFont(Font.BOLD, 12f));
+            title.setFont(TERM_FONT.deriveFont(Font.BOLD, currentFontSize - 3f));
             title.setForeground(Theme.FG);
             hdr.add(title, BorderLayout.WEST);
             statusLabel = new JLabel("IDLE ");
-            statusLabel.setFont(TERM_FONT.deriveFont(11f));
+            statusLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
             statusLabel.setForeground(Theme.DIM);
             hdr.add(statusLabel, BorderLayout.EAST);
             add(hdr, BorderLayout.NORTH);
@@ -1968,18 +1968,25 @@ public class javaclawui {
             // Activity log
             activityLog = new JTextPane();
             activityLog.setEditable(false);
-            activityLog.setFont(TERM_FONT.deriveFont(11f));
+            activityLog.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
             activityLog.setBackground(Theme.BG);
             logDoc = activityLog.getStyledDocument();
             add(new JScrollPane(activityLog), BorderLayout.CENTER);
 
             // Stats
             statsLabel = new JLabel(" Steps: 0 | Tools: 0");
-            statsLabel.setFont(TERM_FONT.deriveFont(10f));
+            statsLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 5f));
             statsLabel.setForeground(Theme.DIM);
             statsLabel.setBackground(Theme.HDR_BG);
             statsLabel.setOpaque(true);
             add(statsLabel, BorderLayout.SOUTH);
+
+            fontChangeListeners.add(() -> {
+                title.setFont(TERM_FONT.deriveFont(Font.BOLD, currentFontSize - 3f));
+                statusLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
+                activityLog.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
+                statsLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 5f));
+            });
         }
 
         void refreshAgents() {

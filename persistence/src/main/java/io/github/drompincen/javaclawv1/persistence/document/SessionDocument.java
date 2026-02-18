@@ -19,6 +19,9 @@ public class SessionDocument {
     @Indexed
     private String threadId;
 
+    @Indexed
+    private String projectId;
+
     private Instant createdAt;
 
     @Indexed(direction = org.springframework.data.mongodb.core.index.IndexDirection.DESCENDING)
@@ -37,6 +40,9 @@ public class SessionDocument {
 
     public String getThreadId() { return threadId; }
     public void setThreadId(String threadId) { this.threadId = threadId; }
+
+    public String getProjectId() { return projectId; }
+    public void setProjectId(String projectId) { this.projectId = projectId; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

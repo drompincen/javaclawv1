@@ -44,7 +44,7 @@ class SessionControllerTest {
     void createSessionReturnsWithIdleStatus() {
         when(sessionRepository.save(any(SessionDocument.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        var req = new io.github.drompincen.javaclawv1.protocol.api.CreateSessionRequest(null, null, null);
+        var req = new io.github.drompincen.javaclawv1.protocol.api.CreateSessionRequest(null, null, null, null);
         ResponseEntity<?> response = controller.create(req);
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);

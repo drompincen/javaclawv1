@@ -38,6 +38,7 @@ public class AgentLoop {
     private final SessionLockService lockService;
     private final AgentGraphBuilder graphBuilder;
     private final MongoCheckpointSaver checkpointSaver;
+    private final ContextCommandService contextCommandService;
     private DistillerService distillerService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
@@ -53,7 +54,8 @@ public class AgentLoop {
                      EventService eventService,
                      SessionLockService lockService,
                      AgentGraphBuilder graphBuilder,
-                     MongoCheckpointSaver checkpointSaver) {
+                     MongoCheckpointSaver checkpointSaver,
+                     ContextCommandService contextCommandService) {
         this.sessionRepository = sessionRepository;
         this.threadRepository = threadRepository;
         this.messageRepository = messageRepository;
@@ -61,6 +63,7 @@ public class AgentLoop {
         this.lockService = lockService;
         this.graphBuilder = graphBuilder;
         this.checkpointSaver = checkpointSaver;
+        this.contextCommandService = contextCommandService;
     }
 
     @Autowired
@@ -130,8 +133,27 @@ public class AgentLoop {
                 }
             }
 
+            // Check for context commands (use project, use thread, whereami) before running graph
+            String lastUserMsg = getLastUserMessage(messages);
+            if (lastUserMsg != null) {
+                String cmdResponse = contextCommandService.handleContextCommand(
+                        lastUserMsg.trim(), sessionId, isThread);
+                if (cmdResponse != null) {
+                    log.info("Context command handled for session {}: {}", sessionId,
+                            lastUserMsg.trim().length() > 50 ? lastUserMsg.trim().substring(0, 50) : lastUserMsg.trim());
+                    persistCommandResponse(sessionId, messages.size(), cmdResponse);
+                    eventService.emit(sessionId, EventType.AGENT_RESPONSE,
+                            Map.of("agentId", "system", "response", cmdResponse));
+                    updateStatus(sessionId, SessionStatus.COMPLETED, isThread);
+                    return;
+                }
+            }
+
             // Run the graph
             AgentState finalState = graphBuilder.runGraph(state);
+
+            // Persist new messages (assistant/tool) back to MongoDB
+            persistNewMessages(sessionId, messages.size(), finalState);
 
             updateStatus(sessionId, SessionStatus.COMPLETED, isThread);
             if (distillerService != null) distillerService.distillAsync(sessionId);
@@ -145,6 +167,54 @@ public class AgentLoop {
             lockService.release(sessionId, owner);
             runningLoops.remove(sessionId);
         }
+    }
+
+    /**
+     * Persist messages generated during graph execution (assistant, tool, system)
+     * back to the messages collection so they're visible via the API and UI.
+     */
+    private void persistNewMessages(String sessionId, int existingCount,
+                                     io.github.drompincen.javaclawv1.runtime.agent.graph.AgentState finalState) {
+        List<Map<String, String>> allMsgs = finalState.getMessages();
+        // Skip messages we already loaded (the first existingCount were from DB)
+        long nextSeq = existingCount + 1;
+        for (int i = existingCount; i < allMsgs.size(); i++) {
+            Map<String, String> msg = allMsgs.get(i);
+            String role = msg.getOrDefault("role", "system");
+            String content = msg.getOrDefault("content", "");
+            // Skip empty system prompts that were injected during graph execution
+            if ("system".equals(role) && content.length() > 2000) continue;
+
+            MessageDocument doc = new MessageDocument();
+            doc.setMessageId(java.util.UUID.randomUUID().toString());
+            doc.setSessionId(sessionId);
+            doc.setSeq(nextSeq++);
+            doc.setRole(role);
+            doc.setContent(content);
+            doc.setTimestamp(Instant.now());
+            messageRepository.save(doc);
+        }
+        log.info("Persisted {} new messages for session {}", nextSeq - existingCount - 1, sessionId);
+    }
+
+    private String getLastUserMessage(List<MessageDocument> messages) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if ("user".equals(messages.get(i).getRole())) {
+                return messages.get(i).getContent();
+            }
+        }
+        return null;
+    }
+
+    private void persistCommandResponse(String sessionId, int existingCount, String response) {
+        MessageDocument doc = new MessageDocument();
+        doc.setMessageId(java.util.UUID.randomUUID().toString());
+        doc.setSessionId(sessionId);
+        doc.setSeq(existingCount + 1);
+        doc.setRole("assistant");
+        doc.setContent(response);
+        doc.setTimestamp(Instant.now());
+        messageRepository.save(doc);
     }
 
     private void updateStatus(String sessionId, SessionStatus status, boolean isThread) {

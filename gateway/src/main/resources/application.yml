@@ -1,6 +1,6 @@
 javaclaw:
   llm:
-    provider: ${JAVACLAW_LLM_PROVIDER:fake}
+    provider: ${JAVACLAW_LLM_PROVIDER:anthropic}
   runtime:
     mode: ${JAVACLAW_RUNTIME_MODE:inprocess}
 

@@ -6,6 +6,7 @@ import java.util.Map;
 public record SessionDto(
         String sessionId,
         String threadId,
+        String projectId,
         Instant createdAt,
         Instant updatedAt,
         SessionStatus status,

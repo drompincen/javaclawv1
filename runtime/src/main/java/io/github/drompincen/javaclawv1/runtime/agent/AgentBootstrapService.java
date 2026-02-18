@@ -2,6 +2,7 @@ package io.github.drompincen.javaclawv1.runtime.agent;
 
 import io.github.drompincen.javaclawv1.persistence.document.AgentDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.AgentRepository;
+import io.github.drompincen.javaclawv1.persistence.repository.SessionRepository;
 import io.github.drompincen.javaclawv1.protocol.api.AgentRole;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -18,6 +19,7 @@ public class AgentBootstrapService {
     private static final Logger log = LoggerFactory.getLogger(AgentBootstrapService.class);
 
     private final AgentRepository agentRepository;
+    private final SessionRepository sessionRepository;
 
     /** Agent descriptions used by the LLM controller to decide routing */
     public static final Map<String, String> AGENT_DESCRIPTIONS = Map.of(
@@ -27,12 +29,20 @@ public class AgentBootstrapService {
             "reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization"
     );
 
-    public AgentBootstrapService(AgentRepository agentRepository) {
+    public AgentBootstrapService(AgentRepository agentRepository, SessionRepository sessionRepository) {
         this.agentRepository = agentRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     @PostConstruct
     public void bootstrap() {
+        // Clean up ephemeral sessions — only threads survive restarts
+        long sessionCount = sessionRepository.count();
+        if (sessionCount > 0) {
+            sessionRepository.deleteAll();
+            log.info("Cleaned up {} ephemeral sessions on startup (threads preserved)", sessionCount);
+        }
+
         long count = agentRepository.count();
         if (count > 0) {
             log.info("Agents already seeded ({} found), checking for missing agents", count);
@@ -56,6 +66,15 @@ public class AgentBootstrapService {
         if (agentRepository.findById("distiller").isEmpty()) { seedDistillerAgent(); log.info("Seeded missing distiller agent"); }
         if (agentRepository.findById("generalist").isEmpty()) { seedGeneralistAgent(); log.info("Seeded missing generalist agent"); }
         if (agentRepository.findById("reminder").isEmpty()) { seedReminderAgent(); log.info("Seeded missing reminder agent"); }
+        // Fix agents from older bootstraps that may lack the enabled flag
+        agentRepository.findAll().forEach(agent -> {
+            if (!agent.isEnabled()) {
+                agent.setEnabled(true);
+                agent.setUpdatedAt(Instant.now());
+                agentRepository.save(agent);
+                log.info("Fixed enabled flag on agent: {}", agent.getAgentId());
+            }
+        });
         // Update existing agents with rich prompts if they have short prompts
         updateIfNeeded("controller", CONTROLLER_PROMPT);
         updateIfNeeded("coder", CODER_PROMPT);
@@ -80,22 +99,36 @@ public class AgentBootstrapService {
             You decide which agent should handle each user request.""";
 
     private static final String CODER_PROMPT = """
-            You are a senior software engineer with the ability to WRITE FILES and EXECUTE CODE on the user's system.
-            Your skills include:
-            - Writing code in Java, Python, JavaScript, and other languages
-            - Debugging, fixing bugs, and analyzing stack traces
-            - Code review and refactoring suggestions
-            - Explaining technical concepts clearly
-            - Reading and analyzing files when provided as context
-            You have access to these TOOLS:
-            - FILE TOOL: read files and list directories on the user's system
-            - EXEC TOOL: execute shell commands, run code via jbang/python/node
-            - WRITE TOOL: save code to files on the user's system
-            When the user asks you to create AND run code, include the code in a ```java (or ```python etc.) block,
-            then add a TOOL CALL block to save and run it:
-            $$WRITE_FILE: /tmp/ToolName.java$$
-            $$EXEC: jbang /tmp/ToolName.java$$
-            When the user says "run it" or "execute it", look at previous messages for code you generated and run it.
+            You are a senior software engineer with the ability to READ FILES, WRITE FILES, and EXECUTE CODE.
+
+            ## Available Tools
+            To use a tool, output a <tool_call> block with JSON specifying "name" and "args":
+
+            <tool_call>
+            {"name": "list_directory", "args": {"path": "/some/directory"}}
+            </tool_call>
+
+            <tool_call>
+            {"name": "read_file", "args": {"path": "/some/file.java"}}
+            </tool_call>
+
+            ### Tool Reference:
+            - **list_directory**: List files/dirs in a path. Args: {"path": "..."}
+            - **read_file**: Read file contents. Args: {"path": "..."}
+            - **write_file**: Write content to file. Args: {"path": "...", "content": "..."}
+            - **search_files**: Search file contents. Args: {"pattern": "...", "path": "..."}
+            - **shell_exec**: Run a shell command. Args: {"command": "..."}
+            - **jbang_exec**: Run Java code via JBang. Args: {"code": "...", "args": [...]}
+            - **python_exec**: Run Python code. Args: {"code": "..."}
+            - **git_status**: Show git status. Args: {"path": "..."}
+            - **git_diff**: Show git diff. Args: {"path": "..."}
+
+            ## Workflow
+            1. When the user asks about files, ALWAYS use list_directory or read_file first
+            2. After receiving tool results, explain what you found
+            3. Use write_file or shell_exec only when the user explicitly asks to create/modify/run something
+
+            Paths can be Windows (C:\\Users\\...) or Unix (/home/...) — both work.
             Be concise and provide working code. Use markdown formatting.""";
 
     private static final String REVIEWER_PROMPT = """

@@ -14,6 +14,7 @@ package javaclaw;
 //   jbang javaclaw.java                          # Default: starts on port 8080
 //   jbang javaclaw.java --headless               # No UI, agent + REST gateway only
 //   jbang javaclaw.java --port 9090              # Custom HTTP port (default: 8080)
+//   jbang javaclaw.java --testmode               # Test mode with deterministic LLM
 //   jbang javaclaw.java --mongo mongodb://host:port/db   # Custom MongoDB URI
 //
 // Port override (pick one):
@@ -86,6 +87,7 @@ public class javaclaw {
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--headless" -> headless = true;
+                case "--testmode" -> System.setProperty("javaclaw.llm.provider", "test");
                 case "--mongo" -> { if (i + 1 < args.length) mongoUri = args[++i]; }
                 case "--port" -> { if (i + 1 < args.length) port = Integer.parseInt(args[++i]); }
             }

@@ -38,9 +38,10 @@ public class SessionController {
 
     @PostMapping
     public ResponseEntity<?> create(@RequestBody(required = false) CreateSessionRequest req) {
-        if (req == null) req = new CreateSessionRequest(null, null, null);
+        if (req == null) req = new CreateSessionRequest(null, null, null, null);
         SessionDocument doc = new SessionDocument();
         doc.setSessionId(UUID.randomUUID().toString());
+        doc.setProjectId(req.projectId());
         doc.setCreatedAt(Instant.now());
         doc.setUpdatedAt(Instant.now());
         doc.setStatus(SessionStatus.IDLE);
@@ -122,7 +123,8 @@ public class SessionController {
     }
 
     private SessionDto toDto(SessionDocument doc) {
-        return new SessionDto(doc.getSessionId(), doc.getThreadId(), doc.getCreatedAt(), doc.getUpdatedAt(),
+        return new SessionDto(doc.getSessionId(), doc.getThreadId(), doc.getProjectId(),
+                doc.getCreatedAt(), doc.getUpdatedAt(),
                 doc.getStatus(), doc.getModelConfig(), doc.getToolPolicy(),
                 doc.getCurrentCheckpointId(), doc.getMetadata());
     }

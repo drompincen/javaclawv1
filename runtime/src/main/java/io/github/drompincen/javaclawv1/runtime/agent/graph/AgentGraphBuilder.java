@@ -23,10 +23,13 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Component
@@ -35,6 +38,10 @@ public class AgentGraphBuilder {
     private static final Logger log = LoggerFactory.getLogger(AgentGraphBuilder.class);
     private static final int MAX_STEPS = 50;
     private static final int MAX_RETRIES = 3;
+
+    /** Pattern to match inline tool calls: <tool_call>{"name":"...","args":{...}}</tool_call> */
+    private static final Pattern TOOL_CALL_PATTERN =
+            Pattern.compile("<tool_call>\\s*(\\{.*?\\})\\s*</tool_call>", Pattern.DOTALL);
 
     private final LlmService llmService;
     private final ToolRegistry toolRegistry;
@@ -67,7 +74,6 @@ public class AgentGraphBuilder {
         AgentState state = initialState;
         List<AgentDocument> agents = agentRepository.findByEnabledTrue();
 
-        // If no agents defined, fall back to single-agent mode
         if (agents.isEmpty()) {
             return runSingleAgent(state);
         }
@@ -92,7 +98,6 @@ public class AgentGraphBuilder {
                     .map(a -> a.getAgentId() + ": " + a.getDescription())
                     .collect(Collectors.joining("\n"));
 
-            // Inject agent list context
             state = state.withMessage("system", controller.getSystemPrompt()
                     + "\n\nAvailable specialists:\n" + specialistList);
 
@@ -125,7 +130,7 @@ public class AgentGraphBuilder {
                 eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
                         Map.of("fromAgent", controller.getAgentId(), "toAgent", specialist.getAgentId()));
 
-                // Run specialist agent steps
+                // Run specialist with tool execution loop
                 state = state.withMessage("system", specialist.getSystemPrompt());
                 state = runAgentSteps(state, specialist);
 
@@ -145,7 +150,6 @@ public class AgentGraphBuilder {
                     .findFirst().orElse(null);
 
             if (checker == null) {
-                // No checker → accept as-is
                 eventService.emit(state.getThreadId(), EventType.AGENT_CHECK_PASSED,
                         Map.of("summary", "No checker configured, accepting result"));
                 break;
@@ -189,7 +193,7 @@ public class AgentGraphBuilder {
     }
 
     /**
-     * Fallback single-agent mode (original behavior)
+     * Fallback single-agent mode
      */
     private AgentState runSingleAgent(AgentState state) {
         for (int step = state.getStepNo(); step <= MAX_STEPS; step++) {
@@ -197,30 +201,36 @@ public class AgentGraphBuilder {
             eventService.emit(state.getThreadId(), EventType.AGENT_STEP_STARTED, Map.of("step", step));
 
             String response = callLlm(state);
-            state = state.withMessage("assistant", response != null ? response : "");
-
             if (response == null || response.isBlank()) {
                 eventService.emit(state.getThreadId(), EventType.AGENT_STEP_COMPLETED,
                         Map.of("step", step, "done", true));
                 break;
             }
 
+            // Parse and execute any tool calls in the response
+            List<ToolCallRequest> toolCalls = parseToolCalls(response);
+            String textPart = stripToolCallTags(response);
+
+            state = state.withMessage("assistant", textPart);
             eventService.emit(state.getThreadId(), EventType.AGENT_STEP_COMPLETED,
-                    Map.of("step", step, "done", false, "response", response));
+                    Map.of("step", step, "done", toolCalls.isEmpty()));
 
-            checkpointSaver.save(state.getThreadId(), step, state);
-
-            if (state.getPendingToolCalls().isEmpty()) {
-                eventService.emit(state.getThreadId(), EventType.AGENT_STEP_COMPLETED,
-                        Map.of("step", step, "done", true));
+            if (toolCalls.isEmpty()) {
                 break;
             }
+
+            state = executeToolCalls(state, toolCalls);
+            checkpointSaver.save(state.getThreadId(), step, state);
         }
         return state;
     }
 
     /**
-     * Run multiple agent steps for a specialist agent
+     * Run specialist agent steps with tool execution loop.
+     * This mirrors the Python agent pattern:
+     *   1. Call LLM
+     *   2. If response contains <tool_call> blocks → execute tools, feed results back, loop
+     *   3. If response is pure text → done
      */
     private AgentState runAgentSteps(AgentState state, AgentDocument agent) {
         for (int step = state.getStepNo(); step <= MAX_STEPS; step++) {
@@ -229,20 +239,114 @@ public class AgentGraphBuilder {
                     Map.of("step", step, "agentId", agent.getAgentId()));
 
             String response = callLlmForAgent(state, agent);
-            state = state.withMessage("assistant", response != null ? response : "");
-
-            eventService.emit(state.getThreadId(), EventType.AGENT_STEP_COMPLETED,
-                    Map.of("step", step, "agentId", agent.getAgentId(),
-                            "done", response == null || response.isBlank() || state.getPendingToolCalls().isEmpty()));
-
-            checkpointSaver.save(state.getThreadId(), step, state);
-
-            if (response == null || response.isBlank() || state.getPendingToolCalls().isEmpty()) {
+            if (response == null || response.isBlank()) {
+                eventService.emit(state.getThreadId(), EventType.AGENT_STEP_COMPLETED,
+                        Map.of("step", step, "agentId", agent.getAgentId(), "done", true));
                 break;
+            }
+
+            // Parse tool calls from the response
+            List<ToolCallRequest> toolCalls = parseToolCalls(response);
+            String textPart = stripToolCallTags(response);
+
+            // Add the text portion as assistant message
+            if (!textPart.isBlank()) {
+                state = state.withMessage("assistant", textPart);
+            }
+
+            boolean done = toolCalls.isEmpty();
+            eventService.emit(state.getThreadId(), EventType.AGENT_STEP_COMPLETED,
+                    Map.of("step", step, "agentId", agent.getAgentId(), "done", done));
+
+            if (done) {
+                // No tool calls — specialist is finished
+                if (textPart.isBlank()) {
+                    state = state.withMessage("assistant", response);
+                }
+                break;
+            }
+
+            // Execute each tool call and add results to conversation
+            log.info("[{}] Step {} — executing {} tool call(s)", agent.getAgentId(), step, toolCalls.size());
+            state = executeToolCalls(state, toolCalls);
+            checkpointSaver.save(state.getThreadId(), step, state);
+        }
+        return state;
+    }
+
+    /**
+     * Execute a list of tool calls and add results to state.
+     */
+    private AgentState executeToolCalls(AgentState state, List<ToolCallRequest> toolCalls) {
+        for (ToolCallRequest tc : toolCalls) {
+            log.info("[tool] Executing: {} with args: {}", tc.name(), tc.argsJson());
+            eventService.emit(state.getThreadId(), EventType.TOOL_CALL_STARTED,
+                    Map.of("tool", tc.name()));
+
+            try {
+                JsonNode argsNode = objectMapper.readTree(tc.argsJson());
+                ToolResult result = executeTool(state, tc.name(), argsNode);
+
+                String resultStr;
+                if (result.success()) {
+                    resultStr = result.output() != null ? result.output().toString() : "OK";
+                } else {
+                    resultStr = "Error: " + result.error();
+                }
+
+                // Add tool result to conversation history so LLM sees it on next call
+                state = state.withToolResult(tc.name(), resultStr);
+
+                eventService.emit(state.getThreadId(), EventType.TOOL_RESULT,
+                        Map.of("tool", tc.name(), "success", result.success(),
+                                "result", truncate(resultStr, 500)));
+            } catch (Exception e) {
+                log.error("Failed to execute tool {}: {}", tc.name(), e.getMessage(), e);
+                state = state.withToolResult(tc.name(), "Error: " + e.getMessage());
+                eventService.emit(state.getThreadId(), EventType.TOOL_RESULT,
+                        Map.of("tool", tc.name(), "success", false,
+                                "result", "Error: " + e.getMessage()));
             }
         }
         return state;
     }
+
+    // --- Tool call parsing ---
+
+    record ToolCallRequest(String name, String argsJson) {}
+
+    /**
+     * Parse <tool_call>{"name":"...","args":{...}}</tool_call> blocks from an LLM response.
+     */
+    List<ToolCallRequest> parseToolCalls(String response) {
+        if (response == null) return List.of();
+        List<ToolCallRequest> calls = new ArrayList<>();
+        Matcher matcher = TOOL_CALL_PATTERN.matcher(response);
+        while (matcher.find()) {
+            String json = matcher.group(1);
+            try {
+                JsonNode node = objectMapper.readTree(json);
+                String name = node.path("name").asText(null);
+                JsonNode argsNode = node.path("args");
+                if (name != null && !name.isBlank()) {
+                    calls.add(new ToolCallRequest(name, argsNode.toString()));
+                }
+            } catch (Exception e) {
+                log.warn("Failed to parse tool call JSON: {}", json, e);
+            }
+        }
+        return calls;
+    }
+
+    /**
+     * Strip <tool_call>...</tool_call> blocks from response, leaving only text.
+     */
+    String stripToolCallTags(String response) {
+        if (response == null) return "";
+        return TOOL_CALL_PATTERN.matcher(response).replaceAll("").trim();
+    }
+
+    // --- LLM call methods ---
 
     private String callLlm(AgentState state) {
         long startTime = System.currentTimeMillis();
