@@ -10,4 +10,10 @@ public interface LlmService {
     String blockingResponse(AgentState state);
 
     default String getProviderInfo() { return "Unknown"; }
+
+    /**
+     * Returns true if this LLM service has a working provider configured.
+     * Used to short-circuit the multi-agent loop when no API key is available.
+     */
+    default boolean isAvailable() { return true; }
 }

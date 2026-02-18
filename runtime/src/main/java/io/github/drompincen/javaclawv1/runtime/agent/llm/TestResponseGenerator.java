@@ -115,7 +115,29 @@ public final class TestResponseGenerator {
     }
 
     static String generateReminderResponse(String userMsg) {
-        return "[TEST] Reminder agent acknowledged: %s".formatted(truncate(userMsg, 200));
+        String lower = userMsg.toLowerCase();
+        String when = "tomorrow";
+        String recurring = "no";
+
+        if (lower.contains("daily") || lower.contains("every day")) {
+            recurring = "yes daily";
+            when = "daily";
+        } else if (lower.contains("weekly") || lower.contains("every week")) {
+            recurring = "yes weekly";
+            when = "weekly";
+        } else if (lower.contains("hourly") || lower.contains("every hour")) {
+            recurring = "yes hourly";
+            when = "every hour";
+        } else if (lower.contains("morning")) {
+            when = "tomorrow morning";
+        } else if (lower.contains("evening") || lower.contains("night")) {
+            when = "this evening";
+        }
+
+        String reminderMsg = truncate(userMsg, 150);
+        return "I've set up a reminder for you.\n\n"
+                + "REMINDER: " + reminderMsg + " | WHEN: " + when + " | RECURRING: " + recurring + "\n\n"
+                + "You'll be notified at the scheduled time.";
     }
 
     public static String getLastUserMessage(List<Map<String, String>> messages) {

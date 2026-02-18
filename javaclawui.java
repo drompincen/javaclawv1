@@ -1532,7 +1532,7 @@ public class javaclawui {
         @Override public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel,
                 boolean expanded, boolean leaf, int row, boolean hasFocus) {
             super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-            setFont(TERM_FONT.deriveFont(11f));
+            setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
             setBackgroundNonSelectionColor(Theme.BG);
             setBackgroundSelectionColor(Theme.SEL_BG);
             setTextNonSelectionColor(Theme.FG);
@@ -1544,7 +1544,7 @@ public class javaclawui {
                 switch (node.type()) {
                     case ROOT_PROJECTS, ROOT_SESSIONS -> {
                         setForeground(sel ? Theme.BLUE : Theme.AMBER);
-                        setFont(TERM_FONT.deriveFont(Font.BOLD, 11f));
+                        setFont(TERM_FONT.deriveFont(Font.BOLD, currentFontSize - 4f));
                     }
                     case PROJECT -> setForeground(sel ? Theme.BLUE : Theme.FG);
                     case THREAD -> {

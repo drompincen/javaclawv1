@@ -3,6 +3,7 @@ package io.github.drompincen.javaclawv1.runtime.agent.graph;
 import io.github.drompincen.javaclawv1.persistence.document.AgentDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.AgentRepository;
 import io.github.drompincen.javaclawv1.runtime.agent.EventService;
+import io.github.drompincen.javaclawv1.runtime.agent.ReminderAgentService;
 import io.github.drompincen.javaclawv1.runtime.agent.LogService;
 import io.github.drompincen.javaclawv1.runtime.agent.approval.ApprovalService;
 import io.github.drompincen.javaclawv1.runtime.agent.llm.LlmService;
@@ -51,6 +52,7 @@ public class AgentGraphBuilder {
     private final AgentRepository agentRepository;
     private final LogService logService;
     private final ObjectMapper objectMapper;
+    private final ReminderAgentService reminderAgentService;
 
     public AgentGraphBuilder(LlmService llmService,
                              ToolRegistry toolRegistry,
@@ -59,7 +61,8 @@ public class AgentGraphBuilder {
                              MongoCheckpointSaver checkpointSaver,
                              AgentRepository agentRepository,
                              LogService logService,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             ReminderAgentService reminderAgentService) {
         this.llmService = llmService;
         this.toolRegistry = toolRegistry;
         this.eventService = eventService;
@@ -68,9 +71,16 @@ public class AgentGraphBuilder {
         this.agentRepository = agentRepository;
         this.logService = logService;
         this.objectMapper = objectMapper;
+        this.reminderAgentService = reminderAgentService;
     }
 
     public AgentState runGraph(AgentState initialState) {
+        // Short-circuit: if LLM is not available, return onboarding once (no multi-agent loop)
+        if (!llmService.isAvailable()) {
+            String onboarding = llmService.blockingResponse(initialState);
+            return initialState.withMessage("assistant", onboarding != null ? onboarding : "");
+        }
+
         AgentState state = initialState;
         List<AgentDocument> agents = agentRepository.findByEnabledTrue();
 
@@ -135,6 +145,13 @@ public class AgentGraphBuilder {
                 state = runAgentSteps(state, specialist);
 
                 specialistOutput = getLastAssistantMessage(state);
+
+                // Post-process: if reminder agent, extract and save reminders
+                if ("reminder".equals(delegateAgentId) && specialistOutput != null) {
+                    String userMsg = getLastUserMessage(state);
+                    reminderAgentService.executeReminder(userMsg, state.getThreadId(),
+                            (agentName, msg) -> specialistOutput);
+                }
                 eventService.emit(state.getThreadId(), EventType.AGENT_RESPONSE,
                         Map.of("agentId", specialist.getAgentId(),
                                 "response", truncate(specialistOutput, 500)));
@@ -526,6 +543,16 @@ public class AgentGraphBuilder {
         List<Map<String, String>> msgs = state.getMessages();
         for (int i = msgs.size() - 1; i >= 0; i--) {
             if ("assistant".equals(msgs.get(i).get("role"))) {
+                return msgs.get(i).get("content");
+            }
+        }
+        return "";
+    }
+
+    private String getLastUserMessage(AgentState state) {
+        List<Map<String, String>> msgs = state.getMessages();
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            if ("user".equals(msgs.get(i).get("role"))) {
                 return msgs.get(i).get("content");
             }
         }
