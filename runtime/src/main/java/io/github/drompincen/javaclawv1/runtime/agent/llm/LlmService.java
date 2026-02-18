@@ -8,4 +8,6 @@ public interface LlmService {
     Flux<String> streamResponse(AgentState state);
 
     String blockingResponse(AgentState state);
+
+    default String getProviderInfo() { return "Unknown"; }
 }

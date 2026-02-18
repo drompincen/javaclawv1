@@ -36,7 +36,7 @@ public class TestModeLlmService implements LlmService {
     private static final Logger log = LoggerFactory.getLogger(TestModeLlmService.class);
     private static final int MAX_PROMPTS = 20;
     private static final long POLL_INTERVAL_MS = 500;
-    private static final long TIMEOUT_MS = 120_000; // 2 minutes
+    private static final long TIMEOUT_MS = 15_000; // 15 seconds
 
     private final TestPromptRepository testPromptRepository;
     private final ObjectMapper objectMapper;
@@ -70,12 +70,18 @@ public class TestModeLlmService implements LlmService {
             return "[ERROR] Failed to serialize prompt: " + e.getMessage();
         }
 
+        // Pre-compute fallback response and extract user query
+        String userQuery = TestResponseGenerator.getLastUserMessage(state.getMessages());
+        String fallback = TestResponseGenerator.generateResponse(agentId, state.getMessages());
+
         // Write prompt document
         TestPromptDocument doc = new TestPromptDocument();
         doc.setId(UUID.randomUUID().toString());
         doc.setPrompt(promptJson);
         doc.setAgentId(agentId);
         doc.setSessionId(sessionId);
+        doc.setUserQuery(userQuery);
+        doc.setResponseFallback(fallback);
         doc.setCreateTimestamp(Instant.now());
         testPromptRepository.save(doc);
 
@@ -83,7 +89,8 @@ public class TestModeLlmService implements LlmService {
                 agentId, sessionId, doc.getId());
 
         // Poll for response
-        long deadline = System.currentTimeMillis() + TIMEOUT_MS;
+        long startMs = System.currentTimeMillis();
+        long deadline = startMs + TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
             try {
                 Thread.sleep(POLL_INTERVAL_MS);
@@ -102,9 +109,17 @@ public class TestModeLlmService implements LlmService {
             }
         }
 
-        log.error("[TEST LLM] Timeout waiting for response, agent={}, promptId={}", agentId, doc.getId());
-        return "[ERROR] Timeout waiting for LLM response after " + (TIMEOUT_MS / 1000) + "s";
+        // Timeout — use pre-computed fallback instead of error
+        log.info("[TEST LLM] Using fallback for agent={}, promptId={}", agentId, doc.getId());
+        doc.setLlmResponse(fallback);
+        doc.setDuration(System.currentTimeMillis() - startMs);
+        doc.setResponseTimestamp(Instant.now());
+        testPromptRepository.save(doc);
+        return fallback;
     }
+
+    @Override
+    public String getProviderInfo() { return "Test Mode"; }
 
     private void enforcePromptCap() {
         long count = testPromptRepository.count();
