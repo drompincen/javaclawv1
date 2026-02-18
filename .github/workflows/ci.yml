@@ -10,17 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    services:
-      mongo:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
 
@@ -31,18 +20,13 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Install mongosh
+      - name: Start MongoDB replica set
         run: |
-          wget -qO- https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
-          echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-          sudo apt-get update
-          sudo apt-get install -y mongodb-mongosh
-
-      - name: Init MongoDB replica set
-        run: |
-          mongosh --eval "rs.initiate({_id:'rs0', members:[{_id:0, host:'localhost:27017'}]})"
+          docker run -d --name mongo -p 27017:27017 mongo:7 --replSet rs0
+          until docker exec mongo mongosh --eval "db.runCommand({ping:1})" >/dev/null 2>&1; do sleep 1; done
+          docker exec mongo mongosh --eval "rs.initiate({_id:'rs0', members:[{_id:0, host:'localhost:27017'}]})"
           sleep 3
-          mongosh --eval "rs.status().ok"
+          docker exec mongo mongosh --eval "rs.status().ok"
 
       - name: Build with Maven
         run: ./mvnw -B compile
