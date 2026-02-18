@@ -6,6 +6,8 @@ import io.github.drompincen.javaclawv1.runtime.agent.graph.AgentState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
+import org.springframework.ai.anthropic.api.AnthropicApi;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -14,6 +16,8 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.Media;
 import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.env.Environment;
@@ -27,6 +31,8 @@ import java.util.*;
  * Default LLM service that checks both Anthropic and OpenAI keys.
  * Uses whichever provider has a real (non-placeholder) key configured.
  * Anthropic is checked first, then OpenAI.
+ * If a key is set at runtime (--api-key or Ctrl+K) but the Spring AI
+ * autoconfiguration didn't create the model bean, models are created lazily.
  */
 @Service
 @ConditionalOnProperty(name = "javaclaw.llm.provider", havingValue = "anthropic", matchIfMissing = true)
@@ -53,6 +59,10 @@ public class DefaultLlmService implements LlmService {
     private final OpenAiChatModel openaiModel;
     private final Environment environment;
 
+    // Lazily-created models for keys set at runtime (--api-key, Ctrl+K)
+    private volatile ChatModel lazyOpenAiModel;
+    private volatile ChatModel lazyAnthropicModel;
+
     public DefaultLlmService(@Autowired(required = false) AnthropicChatModel anthropicModel,
                              @Autowired(required = false) OpenAiChatModel openaiModel,
                              Environment environment) {
@@ -75,20 +85,18 @@ public class DefaultLlmService implements LlmService {
      * then Spring Environment (env vars, YAML defaults, JVM -D args).
      */
     private String resolveKey(String propertyName) {
-        // System.getProperty sees keys set at runtime via Ctrl+K (ConfigController)
         String key = System.getProperty(propertyName);
         if (key != null && !key.isBlank()) return key;
-        // Spring Environment sees env vars, application.yml defaults, JVM -D args
         return environment.getProperty(propertyName, "");
     }
 
     private Provider resolveProvider() {
         String anthropicKey = resolveKey("spring.ai.anthropic.api-key");
-        if (hasRealKey(anthropicKey, "sk-ant-placeholder") && anthropicModel != null) {
+        if (hasRealKey(anthropicKey, "sk-ant-placeholder")) {
             return Provider.ANTHROPIC;
         }
         String openaiKey = resolveKey("spring.ai.openai.api-key");
-        if (hasRealKey(openaiKey, "sk-placeholder") && openaiModel != null) {
+        if (hasRealKey(openaiKey, "sk-placeholder")) {
             return Provider.OPENAI;
         }
         return Provider.NONE;
@@ -102,19 +110,57 @@ public class DefaultLlmService implements LlmService {
     private ChatModel getActiveModel() {
         Provider p = resolveProvider();
         ChatModel model = switch (p) {
-            case ANTHROPIC -> anthropicModel;
-            case OPENAI -> openaiModel;
+            case ANTHROPIC -> getOrCreateAnthropicModel();
+            case OPENAI -> getOrCreateOpenAiModel();
             case NONE -> null;
         };
         if (model == null && p != Provider.NONE) {
-            log.warn("Provider {} selected but model bean is null — falling back to onboarding", p);
+            log.warn("Provider {} selected but could not create model", p);
         }
         return model;
     }
 
+    private ChatModel getOrCreateOpenAiModel() {
+        if (openaiModel != null) return openaiModel;
+        if (lazyOpenAiModel != null) return lazyOpenAiModel;
+        String key = resolveKey("spring.ai.openai.api-key");
+        if (hasRealKey(key, "sk-placeholder")) {
+            try {
+                OpenAiApi api = new OpenAiApi(key);
+                OpenAiChatOptions options = OpenAiChatOptions.builder().model("gpt-4o").build();
+                lazyOpenAiModel = new OpenAiChatModel(api, options);
+                log.info("Created OpenAI model (lazy) — key set via --api-key or Ctrl+K");
+                return lazyOpenAiModel;
+            } catch (Exception e) {
+                log.error("Failed to create OpenAI model: {}", e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    private ChatModel getOrCreateAnthropicModel() {
+        if (anthropicModel != null) return anthropicModel;
+        if (lazyAnthropicModel != null) return lazyAnthropicModel;
+        String key = resolveKey("spring.ai.anthropic.api-key");
+        if (hasRealKey(key, "sk-ant-placeholder")) {
+            try {
+                AnthropicApi api = new AnthropicApi(key);
+                AnthropicChatOptions options = AnthropicChatOptions.builder()
+                        .model("claude-sonnet-4-5-20250929").build();
+                lazyAnthropicModel = new AnthropicChatModel(api, options);
+                log.info("Created Anthropic model (lazy) — key set via --api-key or Ctrl+K");
+                return lazyAnthropicModel;
+            } catch (Exception e) {
+                log.error("Failed to create Anthropic model: {}", e.getMessage());
+            }
+        }
+        return null;
+    }
+
     @Override
     public String getProviderInfo() {
-        return switch (resolveProvider()) {
+        Provider p = resolveProvider();
+        return switch (p) {
             case ANTHROPIC -> "Claude Sonnet";
             case OPENAI -> "GPT-4o";
             case NONE -> "No API Key";
@@ -128,30 +174,17 @@ public class DefaultLlmService implements LlmService {
             return Flux.just(ONBOARDING_MESSAGE);
         }
         Prompt prompt = buildPrompt(state);
-        Provider provider = resolveProvider();
-        log.debug("Streaming response via {}", provider);
+        log.debug("Streaming response via {}", resolveProvider());
 
-        if (provider == Provider.ANTHROPIC) {
-            return anthropicModel.stream(prompt)
-                    .map(response -> {
-                        if (response.getResult() != null && response.getResult().getOutput() != null) {
-                            String text = response.getResult().getOutput().getText();
-                            return text != null ? text : "";
-                        }
-                        return "";
-                    })
-                    .filter(text -> !text.isEmpty());
-        } else {
-            return openaiModel.stream(prompt)
-                    .map(response -> {
-                        if (response.getResult() != null && response.getResult().getOutput() != null) {
-                            String text = response.getResult().getOutput().getText();
-                            return text != null ? text : "";
-                        }
-                        return "";
-                    })
-                    .filter(text -> !text.isEmpty());
-        }
+        return model.stream(prompt)
+                .map(response -> {
+                    if (response.getResult() != null && response.getResult().getOutput() != null) {
+                        String text = response.getResult().getOutput().getText();
+                        return text != null ? text : "";
+                    }
+                    return "";
+                })
+                .filter(text -> !text.isEmpty());
     }
 
     @Override

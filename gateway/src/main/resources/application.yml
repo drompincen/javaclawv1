@@ -16,6 +16,7 @@ spring:
       enabled: true
     openai:
       api-key: ${OPENAI_API_KEY:sk-placeholder-set-real-key-via-ctrl-k}
+      enabled: true
       chat:
         options:
           model: gpt-4o

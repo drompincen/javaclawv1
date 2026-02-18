@@ -53,6 +53,7 @@ public class AgentGraphBuilder {
     private final LogService logService;
     private final ObjectMapper objectMapper;
     private final ReminderAgentService reminderAgentService;
+    private final boolean testMode;
 
     public AgentGraphBuilder(LlmService llmService,
                              ToolRegistry toolRegistry,
@@ -72,6 +73,7 @@ public class AgentGraphBuilder {
         this.logService = logService;
         this.objectMapper = objectMapper;
         this.reminderAgentService = reminderAgentService;
+        this.testMode = "test".equals(System.getProperty("javaclaw.llm.provider"));
     }
 
     public AgentState runGraph(AgentState initialState) {
@@ -438,8 +440,9 @@ public class AgentGraphBuilder {
         Tool tool = toolOpt.get();
         Set<ToolRiskProfile> risks = tool.riskProfiles();
 
-        boolean needsApproval = risks.contains(ToolRiskProfile.WRITE_FILES)
-                || risks.contains(ToolRiskProfile.EXEC_SHELL);
+        boolean needsApproval = !testMode
+                && (risks.contains(ToolRiskProfile.WRITE_FILES)
+                    || risks.contains(ToolRiskProfile.EXEC_SHELL));
 
         if (needsApproval) {
             String approvalId = approvalService.createRequest(state.getThreadId(), toolName, input);

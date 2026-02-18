@@ -1,0 +1,46 @@
+{
+  "projectName": "JavaClaw v1",
+  "description": "Coder workflow: file reading, architecture explanation",
+  "steps": [
+    {
+      "userQuery": "use project JavaClaw v1",
+      "description": "Context command — no LLM call needed"
+    },
+    {
+      "userQuery": "read the pom.xml file",
+      "description": "Coder agent reads a file",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"read pom.xml file\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll read that file for you.\n\n<tool_call>\n{\"name\": \"read_file\", \"args\": {\"path\": \"pom.xml\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder read the requested file\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "explain the architecture",
+      "description": "Coder agent explains project architecture",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"explain project architecture\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "The project uses a multi-module Maven architecture:\n- **protocol** — shared DTOs and enums\n- **persistence** — MongoDB documents and repositories\n- **runtime** — multi-agent engine with LangGraph4j\n- **tools** — 17 SPI-based tools\n- **gateway** — REST + WebSocket server\n- **ui** — Swing desktop with FlatLaf"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder provided comprehensive architecture overview\"}"
+        }
+      ]
+    }
+  ]
+}

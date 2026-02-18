@@ -1,0 +1,64 @@
+{
+  "projectName": "Sprint Tracker",
+  "description": "PM workflow: sprint status, team capacity, ticket creation",
+  "steps": [
+    {
+      "userQuery": "use project Sprint Tracker",
+      "description": "Context command — no LLM call needed"
+    },
+    {
+      "userQuery": "what is the current sprint status?",
+      "description": "PM agent handles sprint query",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"sprint status check\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Sprint 3 has 5 completed, 3 in progress, 2 not started. Velocity: 21 pts."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM provided sprint status with metrics\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "who has capacity this week?",
+      "description": "PM agent handles team capacity query",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"team capacity check\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Team capacity this week:\n- Alice: 3 pts available (assigned 5/8)\n- Bob: 0 pts (fully loaded)\n- Carol: 5 pts available (assigned 3/8)\nTotal available: 8 story points"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM provided team capacity breakdown\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "create a ticket for API refactoring",
+      "description": "PM agent creates a ticket",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"create ticket for API refactoring\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Created ticket: **API Refactoring**\n- Priority: MEDIUM\n- Status: OPEN\n- Description: Refactor REST API endpoints for consistency and performance"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM created ticket with appropriate details\"}"
+        }
+      ]
+    }
+  ]
+}

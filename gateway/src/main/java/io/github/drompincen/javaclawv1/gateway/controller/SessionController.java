@@ -65,6 +65,19 @@ public class SessionController {
                 .map(this::toDto).collect(Collectors.toList());
     }
 
+    @GetMapping("/{id}/messages")
+    public ResponseEntity<?> getMessages(@PathVariable String id) {
+        if (sessionRepository.findById(id).isEmpty()) return ResponseEntity.notFound().build();
+        List<MessageDocument> messages = messageRepository.findBySessionIdOrderBySeqAsc(id);
+        return ResponseEntity.ok(messages.stream().map(m -> Map.of(
+                "messageId", m.getMessageId(),
+                "role", m.getRole(),
+                "content", m.getContent() != null ? m.getContent() : "",
+                "agentId", m.getAgentId() != null ? m.getAgentId() : "",
+                "seq", m.getSeq()
+        )).collect(Collectors.toList()));
+    }
+
     @PostMapping("/{id}/messages")
     public ResponseEntity<?> sendMessage(@PathVariable String id, @RequestBody SendMessageRequest req) {
         if (sessionRepository.findById(id).isEmpty()) return ResponseEntity.notFound().build();

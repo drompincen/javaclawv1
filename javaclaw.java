@@ -15,6 +15,8 @@ package javaclaw;
 //   jbang javaclaw.java --headless               # No UI, agent + REST gateway only
 //   jbang javaclaw.java --port 9090              # Custom HTTP port (default: 8080)
 //   jbang javaclaw.java --testmode               # Test mode with deterministic LLM
+//   jbang javaclaw.java --scenario file.json      # Scenario-based E2E test (implies --testmode)
+//   jbang javaclaw.java --api-key sk-ant-...      # Set API key (auto-detects Anthropic/OpenAI)
 //   jbang javaclaw.java --mongo mongodb://host:port/db   # Custom MongoDB URI
 //
 // Port override (pick one):
@@ -88,6 +90,28 @@ public class javaclaw {
             switch (args[i]) {
                 case "--headless" -> headless = true;
                 case "--testmode" -> System.setProperty("javaclaw.llm.provider", "test");
+                case "--scenario" -> {
+                    if (i + 1 < args.length) {
+                        System.setProperty("javaclaw.scenario.file", args[++i]);
+                        System.setProperty("javaclaw.llm.provider", "test"); // scenario implies test mode
+                    }
+                }
+                case "--api-key" -> {
+                    if (i + 1 < args.length) {
+                        String key = args[++i];
+                        if (key.startsWith("sk-ant-")) {
+                            System.setProperty("spring.ai.anthropic.api-key", key);
+                            System.out.println("  Anthropic API key set.");
+                        } else if (key.startsWith("sk-")) {
+                            System.setProperty("spring.ai.openai.api-key", key);
+                            System.out.println("  OpenAI API key set.");
+                        } else {
+                            // Default to OpenAI
+                            System.setProperty("spring.ai.openai.api-key", key);
+                            System.out.println("  API key set (defaulting to OpenAI).");
+                        }
+                    }
+                }
                 case "--mongo" -> { if (i + 1 < args.length) mongoUri = args[++i]; }
                 case "--port" -> { if (i + 1 < args.length) port = Integer.parseInt(args[++i]); }
             }

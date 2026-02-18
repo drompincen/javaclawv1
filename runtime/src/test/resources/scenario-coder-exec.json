@@ -1,0 +1,100 @@
+{
+  "projectName": "JavaClaw v1",
+  "description": "Coder agent: write, execute, and clean up Java (JBang) and Python code",
+  "steps": [
+    {
+      "userQuery": "use project JavaClaw v1",
+      "description": "Context command — no LLM call needed"
+    },
+    {
+      "userQuery": "write a java program that calculates fibonacci numbers up to 20 and run it",
+      "description": "Coder writes Java code, executes via JBang, returns output",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"write and execute Java fibonacci program\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll write a Java program to calculate Fibonacci numbers and run it with JBang.\n\n<tool_call>\n{\"name\": \"write_file\", \"args\": {\"path\": \"/tmp/Fibonacci.java\", \"content\": \"///usr/bin/env jbang \\\"$0\\\" \\\"$@\\\" ; exit $?\\n//JAVA 21+\\n\\npublic class Fibonacci {\\n    public static void main(String[] args) {\\n        long a = 0, b = 1;\\n        System.out.println(\\\"Fibonacci numbers up to 20:\\\");\\n        while (a <= 20) {\\n            System.out.print(a + \\\" \\\");\\n            long next = a + b;\\n            a = b;\\n            b = next;\\n        }\\n        System.out.println();\\n        System.out.println(\\\"Done! Generated \\\" + 9 + \\\" numbers.\\\");\\n    }\\n}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder wrote and executed Java fibonacci program via JBang\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "now clean up the temp file",
+      "description": "Coder deletes the temporary Java file",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"delete temporary Java file\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll clean up the temporary file.\n\n<tool_call>\n{\"name\": \"shell_exec\", \"args\": {\"command\": \"rm -f /tmp/Fibonacci.java && echo 'Cleaned up /tmp/Fibonacci.java'\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder cleaned up temporary Java file\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "write a python script that generates a multiplication table for 1-5 and run it",
+      "description": "Coder writes Python code, executes it, returns output",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"write and execute Python multiplication table\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll write a Python script for a multiplication table and execute it.\n\n<tool_call>\n{\"name\": \"write_file\", \"args\": {\"path\": \"/tmp/multable.py\", \"content\": \"#!/usr/bin/env python3\\n\\ndef multiplication_table(n):\\n    print(f'Multiplication Table (1-{n})')\\n    print('-' * 30)\\n    header = '   ' + ''.join(f'{i:4d}' for i in range(1, n+1))\\n    print(header)\\n    print('-' * 30)\\n    for i in range(1, n+1):\\n        row = f'{i:2d} |' + ''.join(f'{i*j:4d}' for j in range(1, n+1))\\n        print(row)\\n\\nmultiplication_table(5)\\nprint('\\\\nDone!')\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder wrote and executed Python multiplication table script\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "clean up the python temp file too",
+      "description": "Coder deletes the temporary Python file",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"delete temporary Python file\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll clean up the temporary Python file.\n\n<tool_call>\n{\"name\": \"shell_exec\", \"args\": {\"command\": \"rm -f /tmp/multable.py && echo 'Cleaned up /tmp/multable.py'\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder cleaned up temporary Python file\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "write a java program that fetches the current time from worldtimeapi.org and prints it, then run it and clean up",
+      "description": "Coder writes Java HTTP client, executes, cleans up — all in one step",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"write Java HTTP time fetcher, execute, and clean up\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll write a Java program that fetches the current time from an API, run it with JBang, and clean up.\n\n<tool_call>\n{\"name\": \"write_file\", \"args\": {\"path\": \"/tmp/TimeFetcher.java\", \"content\": \"///usr/bin/env jbang \\\"$0\\\" \\\"$@\\\" ; exit $?\\n//JAVA 21+\\n\\nimport java.net.URI;\\nimport java.net.http.*;\\n\\npublic class TimeFetcher {\\n    public static void main(String[] args) throws Exception {\\n        var client = HttpClient.newHttpClient();\\n        var request = HttpRequest.newBuilder()\\n            .uri(URI.create(\\\"http://worldtimeapi.org/api/timezone/America/New_York\\\"))\\n            .GET().build();\\n        var response = client.send(request, HttpResponse.BodyHandlers.ofString());\\n        System.out.println(\\\"Status: \\\" + response.statusCode());\\n        System.out.println(\\\"Time data: \\\" + response.body().substring(0, Math.min(200, response.body().length())));\\n    }\\n}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder wrote, executed, and cleaned up Java HTTP time fetcher\"}"
+        }
+      ]
+    }
+  ]
+}

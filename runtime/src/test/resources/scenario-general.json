@@ -1,0 +1,42 @@
+{
+  "projectName": null,
+  "description": "Generalist workflow: greetings, general knowledge",
+  "steps": [
+    {
+      "userQuery": "hello how are you?",
+      "description": "Generalist handles casual greeting",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"generalist\", \"subTask\": \"respond to greeting\"}"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Hello! I'm doing well, thank you for asking. I'm JavaClaw, your AI engineering assistant. How can I help you today?"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Generalist provided friendly greeting\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "what makes a good engineering manager?",
+      "description": "Generalist handles knowledge question",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"generalist\", \"subTask\": \"engineering management advice\"}"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Key traits of a good engineering manager:\n1. **Technical credibility** — understand the codebase and architecture\n2. **Clear communication** — translate between business and engineering\n3. **Team growth** — mentor, coach, and create growth opportunities\n4. **Execution focus** — remove blockers, manage scope, deliver on time\n5. **Trust building** — give autonomy, be transparent, have their back"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Generalist provided thoughtful management advice\"}"
+        }
+      ]
+    }
+  ]
+}

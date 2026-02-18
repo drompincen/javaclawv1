@@ -6,6 +6,7 @@ import io.github.drompincen.javaclawv1.persistence.repository.TestPromptReposito
 import io.github.drompincen.javaclawv1.runtime.agent.graph.AgentState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -36,15 +37,34 @@ public class TestModeLlmService implements LlmService {
     private static final Logger log = LoggerFactory.getLogger(TestModeLlmService.class);
     private static final int MAX_PROMPTS = 20;
     private static final long POLL_INTERVAL_MS = 500;
-    private static final long TIMEOUT_MS = 15_000; // 15 seconds
+    static final long DEFAULT_TIMEOUT_MS = 15_000; // 15 seconds
 
     private final TestPromptRepository testPromptRepository;
     private final ObjectMapper objectMapper;
+    private final long timeoutMs;
+    private final ScenarioService scenarioService;
 
+    @Autowired
     public TestModeLlmService(TestPromptRepository testPromptRepository,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              @Autowired(required = false) ScenarioService scenarioService) {
+        this(testPromptRepository, objectMapper, DEFAULT_TIMEOUT_MS, scenarioService);
+    }
+
+    TestModeLlmService(TestPromptRepository testPromptRepository,
+                       ObjectMapper objectMapper,
+                       long timeoutMs) {
+        this(testPromptRepository, objectMapper, timeoutMs, null);
+    }
+
+    TestModeLlmService(TestPromptRepository testPromptRepository,
+                       ObjectMapper objectMapper,
+                       long timeoutMs,
+                       ScenarioService scenarioService) {
         this.testPromptRepository = testPromptRepository;
         this.objectMapper = objectMapper;
+        this.timeoutMs = timeoutMs;
+        this.scenarioService = scenarioService;
     }
 
     @Override
@@ -57,6 +77,36 @@ public class TestModeLlmService implements LlmService {
     public String blockingResponse(AgentState state) {
         String agentId = state.getCurrentAgentId() != null ? state.getCurrentAgentId() : "unknown";
         String sessionId = state.getThreadId();
+        String userQuery = TestResponseGenerator.getLastUserMessage(state.getMessages());
+
+        // Check scenario-driven response first
+        if (scenarioService != null) {
+            String scenarioResponse = scenarioService.getResponseForAgent(userQuery, agentId);
+            if (scenarioResponse != null) {
+                log.info("[TEST LLM] Scenario match for agent={}, userQuery='{}' — returning scenario response",
+                        agentId, TestResponseGenerator.truncate(userQuery, 80));
+
+                // Write to testPrompts for observability
+                enforcePromptCap();
+                TestPromptDocument doc = new TestPromptDocument();
+                doc.setId(UUID.randomUUID().toString());
+                doc.setAgentId(agentId);
+                doc.setSessionId(sessionId);
+                doc.setUserQuery(userQuery);
+                doc.setResponseFallback(scenarioResponse);
+                doc.setLlmResponse(scenarioResponse);
+                doc.setDuration(0L);
+                doc.setCreateTimestamp(Instant.now());
+                doc.setResponseTimestamp(Instant.now());
+                try {
+                    doc.setPrompt(objectMapper.writeValueAsString(state.getMessages()));
+                } catch (Exception e) {
+                    doc.setPrompt("[serialization error]");
+                }
+                testPromptRepository.save(doc);
+                return scenarioResponse;
+            }
+        }
 
         // Enforce cap — delete oldest if at limit
         enforcePromptCap();
@@ -70,8 +120,7 @@ public class TestModeLlmService implements LlmService {
             return "[ERROR] Failed to serialize prompt: " + e.getMessage();
         }
 
-        // Pre-compute fallback response and extract user query
-        String userQuery = TestResponseGenerator.getLastUserMessage(state.getMessages());
+        // Pre-compute fallback response
         String fallback = TestResponseGenerator.generateResponse(agentId, state.getMessages());
 
         // Write prompt document
@@ -90,7 +139,7 @@ public class TestModeLlmService implements LlmService {
 
         // Poll for response
         long startMs = System.currentTimeMillis();
-        long deadline = startMs + TIMEOUT_MS;
+        long deadline = startMs + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
             try {
                 Thread.sleep(POLL_INTERVAL_MS);
@@ -119,7 +168,15 @@ public class TestModeLlmService implements LlmService {
     }
 
     @Override
-    public String getProviderInfo() { return "Test Mode"; }
+    public String getProviderInfo() {
+        String anthropicKey = System.getProperty("spring.ai.anthropic.api-key", "");
+        String openaiKey = System.getProperty("spring.ai.openai.api-key", "");
+        boolean hasAnthropic = !anthropicKey.isBlank() && !anthropicKey.contains("placeholder");
+        boolean hasOpenai = !openaiKey.isBlank() && !openaiKey.contains("placeholder");
+        if (hasAnthropic) return "Claude Sonnet (Test Mode)";
+        if (hasOpenai) return "GPT-4o (Test Mode)";
+        return "Test Mode (No API Key)";
+    }
 
     private void enforcePromptCap() {
         long count = testPromptRepository.count();

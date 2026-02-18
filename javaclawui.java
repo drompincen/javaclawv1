@@ -417,15 +417,25 @@ public class javaclawui {
                             agentPane.onToolCall(tool);
                         }
                         case "TOOL_RESULT" -> {
-                            String result = payload.path("payload").path("result").asText(payload.path("payload").asText());
-                            if (result.length() > 200) result = result.substring(0, 200) + "...";
-                            chatPanel.appendSystem("  Result: " + result);
+                            String toolRes = payload.path("payload").path("result").asText(payload.path("payload").asText());
+                            boolean toolSuccess = payload.path("payload").path("success").asBoolean(true);
+                            String toolResName = payload.path("payload").path("tool").asText("tool");
+                            if (toolRes.length() > 200) toolRes = toolRes.substring(0, 200) + "...";
+                            chatPanel.appendSystem("  Result: " + toolRes);
+                            agentPane.onToolResult(toolResName, toolSuccess, toolRes);
                         }
                         case "TOOL_STDOUT_DELTA" -> chatPanel.appendSystem("  " + payload.path("payload").path("text").asText());
                         case "SESSION_STATUS_CHANGED" -> {
                             String status = payload.path("payload").path("status").asText(payload.path("payload").asText());
                             chatPanel.appendSystem("Session " + status);
                             agentPane.onStatusChanged(status);
+                            // Reload messages from server on completion to catch any
+                            // responses that weren't received via streaming
+                            if (("COMPLETED".equals(status) || "FAILED".equals(status))
+                                    && chatPanel.currentSessionId != null
+                                    && !chatPanel.receivingTokens) {
+                                chatPanel.reloadIfNewMessages();
+                            }
                         }
                         case "AGENT_DELEGATED" -> {
                             String target = payload.path("payload").path("targetAgentId").asText();
@@ -1745,6 +1755,50 @@ public class javaclawui {
             });
         }
 
+        /**
+         * Reload messages from server after session completes.
+         * Clears the display and re-renders all messages to ensure nothing
+         * is missing (e.g., if streaming tokens were not received).
+         */
+        void reloadIfNewMessages() {
+            if (currentSessionId == null) return;
+            String sid = currentSessionId;
+            CompletableFuture.runAsync(() -> {
+                try {
+                    JsonNode msgs = api.get("/api/sessions/" + sid + "/messages");
+                    if (!msgs.isArray() || msgs.isEmpty()) return;
+                    // Check if there are assistant messages we might have missed
+                    boolean hasAssistant = false;
+                    for (JsonNode m : msgs) {
+                        if ("assistant".equals(m.path("role").asText())) { hasAssistant = true; break; }
+                    }
+                    if (!hasAssistant) return;
+                    SwingUtilities.invokeLater(() -> {
+                        try { doc.remove(0, doc.getLength()); } catch (BadLocationException ignored) {}
+                        appendSystem("Session: " + sid);
+                        for (JsonNode m : msgs) {
+                            String role = m.path("role").asText();
+                            String content = m.path("content").asText();
+                            if ("user".equals(role)) {
+                                appendLabel("You");
+                                appendText(content + "\n", userStyle);
+                            } else if ("assistant".equals(role)) {
+                                String agent = m.path("agentId").asText(null);
+                                String label = agent != null ? "Agent [" + agent + "]" : "Agent";
+                                appendLabel(label);
+                                appendText(content + "\n", assistantStyle);
+                                String apiProv = m.path("apiProvider").asText(null);
+                                long dur = m.path("durationMs").asLong(0);
+                                boolean mock = m.path("mocked").asBoolean(false);
+                                if (apiProv != null) showAgentMeta(agent != null ? agent : "unknown", apiProv, dur, mock);
+                            }
+                        }
+                        appendSystem("Session COMPLETED");
+                    });
+                } catch (Exception ignored) {}
+            });
+        }
+
         void sendMessage() {
             String text = inputField.getText().trim();
             if (text.isEmpty() && attachedFiles.isEmpty() && pendingImage == null) return;
@@ -1938,6 +1992,16 @@ public class javaclawui {
         final SimpleAttributeSet eventStyle = new SimpleAttributeSet();
         final SimpleAttributeSet errorAgentStyle = new SimpleAttributeSet();
         final SimpleAttributeSet dimAgentStyle = new SimpleAttributeSet();
+        // Per-agent color styles
+        final SimpleAttributeSet controllerStyle = new SimpleAttributeSet();
+        final SimpleAttributeSet coderStyle = new SimpleAttributeSet();
+        final SimpleAttributeSet pmStyle = new SimpleAttributeSet();
+        final SimpleAttributeSet reviewerStyle = new SimpleAttributeSet();
+        final SimpleAttributeSet generalistStyle = new SimpleAttributeSet();
+        final SimpleAttributeSet reminderStyle = new SimpleAttributeSet();
+        final SimpleAttributeSet hintStyle = new SimpleAttributeSet();
+        boolean hintsShown = false;
+        String currentAgentId = null; // track which agent is active for coloring tool calls
 
         AgentPane(ApiClient api) {
             this.api = api;
@@ -1952,6 +2016,15 @@ public class javaclawui {
             StyleConstants.setForeground(eventStyle, Theme.FG);
             StyleConstants.setForeground(errorAgentStyle, Theme.RED);
             StyleConstants.setForeground(dimAgentStyle, Theme.DIM);
+            // Per-agent colors
+            StyleConstants.setForeground(controllerStyle, Theme.AMBER);
+            StyleConstants.setForeground(coderStyle, Theme.CYAN);
+            StyleConstants.setForeground(pmStyle, Theme.BLUE);
+            StyleConstants.setForeground(reviewerStyle, Theme.WHITE);
+            StyleConstants.setForeground(generalistStyle, Theme.FG);
+            StyleConstants.setForeground(reminderStyle, new Color(0xCC, 0x66, 0xFF)); // Purple
+            StyleConstants.setForeground(hintStyle, Theme.DIM);
+            StyleConstants.setItalic(hintStyle, true);
 
             // Header
             JPanel hdr = new JPanel(new BorderLayout());
@@ -2005,11 +2078,28 @@ public class javaclawui {
                 try {
                     JsonNode resp = api.get("/api/config/provider");
                     String provider = resp.path("provider").asText("Unknown");
-                    SwingUtilities.invokeLater(() -> providerLabel.setText("[" + provider + "] "));
+                    SwingUtilities.invokeLater(() -> {
+                        providerLabel.setText("[" + provider + "] ");
+                        if (!hintsShown) {
+                            hintsShown = true;
+                            showHints(provider);
+                        }
+                    });
                 } catch (Exception ignored) {
                     SwingUtilities.invokeLater(() -> providerLabel.setText(""));
                 }
             });
+        }
+
+        void showHints(String provider) {
+            appendLog("", dimAgentStyle); // blank line
+            if ("No API Key".equals(provider)) {
+                appendLog("  Ctrl+K  Set API key", hintStyle);
+            }
+            appendLog("  whereami         Show current context", hintStyle);
+            appendLog("  use project <n>  Switch project", hintStyle);
+            appendLog("  F1               Keyboard shortcuts", hintStyle);
+            appendLog("", dimAgentStyle);
         }
 
         void refreshAgents() {
@@ -2025,9 +2115,11 @@ public class javaclawui {
         }
 
         void onStepStarted(String agentId) {
+            currentAgentId = agentId;
             stepCount++;
             String prefix = agentId != null ? "[" + agentId + "] " : "";
-            appendLog(prefix + "STEP " + stepCount + " started", stepStyle);
+            String msg = prefix + "STEP " + stepCount + " started";
+            appendLog(msg, agentId != null ? agentStyleFor("[" + agentId + "]") : stepStyle);
             updateStats();
         }
 
@@ -2036,7 +2128,25 @@ public class javaclawui {
             appendLog(prefix + "STEP " + stepCount + " completed", dimAgentStyle);
         }
 
-        void onToolCall(String toolName) { toolCount++; appendLog("Tool: " + toolName, toolStyle); updateStats(); }
+        void onToolCall(String toolName) {
+            toolCount++;
+            String prefix = currentAgentId != null ? "[" + currentAgentId + "] " : "";
+            appendLog(prefix + "Tool: " + toolName,
+                    currentAgentId != null ? agentStyleFor("[" + currentAgentId + "]") : toolStyle);
+            updateStats();
+        }
+        void onToolResult(String toolName, boolean success, String result) {
+            AttributeSet style = success
+                    ? (currentAgentId != null ? agentStyleFor("[" + currentAgentId + "]") : toolStyle)
+                    : errorAgentStyle;
+            String prefix = currentAgentId != null ? "[" + currentAgentId + "] " : "";
+            String msg = prefix + (success ? "OK" : "FAIL") + ": " + toolName;
+            if (result != null && !result.isBlank()) {
+                String preview = result.length() > 80 ? result.substring(0, 80) + "..." : result;
+                msg += " -> " + preview;
+            }
+            appendLog(msg, style);
+        }
         void onStatusChanged(String status) {
             statusLabel.setText(status + " ");
             statusLabel.setForeground(switch (status) {
@@ -2047,10 +2157,22 @@ public class javaclawui {
             });
             appendLog("Status: " + status, eventStyle);
         }
-        void onAgentEvent(String text) { appendLog(text, eventStyle); }
+        void onAgentEvent(String text) { appendLog(text, agentStyleFor(text)); }
         void onError(String text) { appendLog("ERROR: " + text, errorAgentStyle); }
 
         void updateStats() { statsLabel.setText(" Steps: " + stepCount + " | Tools: " + toolCount); }
+
+        AttributeSet agentStyleFor(String text) {
+            if (text == null) return eventStyle;
+            String lower = text.toLowerCase();
+            if (lower.contains("[controller]") || lower.contains("controller")) return controllerStyle;
+            if (lower.contains("[coder]") || lower.contains("coder")) return coderStyle;
+            if (lower.contains("[pm]") || lower.contains(" pm ")) return pmStyle;
+            if (lower.contains("[reviewer]") || lower.contains("reviewer")) return reviewerStyle;
+            if (lower.contains("[generalist]") || lower.contains("generalist")) return generalistStyle;
+            if (lower.contains("[reminder]") || lower.contains("reminder")) return reminderStyle;
+            return eventStyle;
+        }
 
         void appendLog(String text, AttributeSet style) {
             String ts = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));

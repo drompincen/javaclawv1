@@ -525,6 +525,9 @@ The terminal UI connects to `http://localhost:8080`. On first launch, a **built-
 | Flag | Description | Default |
 |---|---|---|
 | `--headless` | REST gateway only (no UI) | off |
+| `--testmode` | Test mode with deterministic LLM (no API key needed) | off |
+| `--scenario <file>` | Scenario-based E2E test (implies `--testmode`) | off |
+| `--api-key <key>` | Set API key (auto-detects Anthropic `sk-ant-*` vs OpenAI `sk-*`) | none |
 | `--mongo <uri>` | Custom MongoDB connection URI | `mongodb://localhost:27017/javaclaw?replicaSet=rs0` |
 | `--port <port>` | HTTP server port | `8080` |
 | `--url <url>` | (UI only) Backend URL | `http://localhost:8080` |
@@ -704,6 +707,89 @@ Events pushed as:
 ```json
 {"type": "EVENT", "sessionId": "<id>", "payload": {"type": "MODEL_TOKEN_DELTA", "seq": 42}}
 ```
+
+## Test Mode & Scenario Testing
+
+### Test Mode (`--testmode`)
+
+Test mode replaces the real LLM (Anthropic/OpenAI) with a deterministic response system. No API key is needed. Activate with:
+
+```bash
+jbang javaclaw.java --testmode --headless
+```
+
+In test mode:
+- **TestModeLlmService** writes each prompt to the `testPrompts` MongoDB collection
+- **TestLLMConsumer** watches for new prompts via change stream and generates responses using **TestResponseGenerator**
+- Responses are based on agent role and message content (controller returns delegation JSON, reviewer returns pass/fail JSON, specialists return tool calls or text)
+- All prompt/response pairs are observable in MongoDB for debugging
+
+### Scenario Testing (`--scenario`)
+
+Scenario files provide **fully deterministic E2E testing** where every agent's response is explicitly specified per user query. This tests the full `controller → specialist → reviewer` loop with known inputs and outputs.
+
+```bash
+jbang javaclaw.java --headless --scenario runtime/src/test/resources/scenario-pm.json
+```
+
+The `--scenario` flag implies `--testmode`. When a scenario is loaded:
+1. **ScenarioService** loads the JSON file and provides `(userQuery, agentName) → responseFallback` lookup
+2. **TestModeLlmService** checks the scenario first: if a match is found for the current `(userQuery, agentName)` pair, it returns that response immediately
+3. If no match is found, it falls back to the standard TestResponseGenerator behavior
+4. **ScenarioRunner** auto-plays all steps via REST API after server startup, logging pass/fail for each step
+
+### Scenario JSON Format
+
+Each step has a `userQuery` and an `agentResponses` array keyed by `agentName`:
+
+```json
+{
+  "projectName": "Sprint Tracker",
+  "description": "PM workflow: sprint status, team capacity",
+  "steps": [
+    {
+      "userQuery": "use project Sprint Tracker",
+      "description": "Context command — no LLM call needed"
+    },
+    {
+      "userQuery": "what is the current sprint status?",
+      "description": "PM agent handles sprint query",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"sprint status check\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Sprint 3 has 5 completed, 3 in progress, 2 not started."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM provided sprint status\"}"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Built-in Scenarios
+
+| File | Description |
+|------|-------------|
+| `runtime/src/test/resources/scenario-pm.json` | PM workflow: sprint status, team capacity, ticket creation |
+| `runtime/src/test/resources/scenario-coder.json` | Coder workflow: file reading, architecture explanation |
+| `runtime/src/test/resources/scenario-coder-exec.json` | Coder workflow: write Java/Python code, execute via JBang/Python, clean up temp files |
+| `runtime/src/test/resources/scenario-general.json` | Generalist workflow: greetings, general knowledge |
+
+### Creating New Scenarios
+
+1. Create a JSON file following the format above
+2. Each step with `agentResponses` tests one full agent loop (controller → specialist → reviewer)
+3. Steps without `agentResponses` are context commands (e.g., `use project`)
+4. The `agentName` must match agent IDs: `controller`, `coder`, `pm`, `generalist`, `reviewer`
+5. Run with: `jbang javaclaw.java --headless --scenario your-scenario.json`
+6. Check logs for step pass/fail summary
 
 ## Developer Guide
 
