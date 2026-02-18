@@ -1,0 +1,150 @@
+{
+  "projectName": null,
+  "description": "Excel tool: write/read weather data for 4 cities over January 2026",
+  "steps": [
+    {
+      "userQuery": "create a weather report spreadsheet with Tokyo January data in /tmp/weather_report.xlsx",
+      "description": "Coder writes Tokyo January 2026 weather data as the first sheet",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"Write Tokyo January 2026 weather data to /tmp/weather_report.xlsx sheet Tokyo\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll create the weather report spreadsheet and write Tokyo's January 2026 data as the first sheet.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"write\", \"file_path\": \"/tmp/weather_report.xlsx\", \"sheet_name\": \"Tokyo\", \"data\": [[\"Date\", \"High_C\", \"Low_C\", \"Humidity_Pct\", \"Condition\"], [\"2026-01-01\", 8, 1, 55, \"Cloudy\"], [\"2026-01-02\", 7, 0, 58, \"Cloudy\"], [\"2026-01-03\", 6, -1, 60, \"Overcast\"], [\"2026-01-04\", 5, -2, 62, \"Overcast\"], [\"2026-01-05\", 6, -1, 59, \"Sunny\"], [\"2026-01-06\", 9, 2, 50, \"Sunny\"], [\"2026-01-07\", 11, 3, 47, \"Sunny\"], [\"2026-01-08\", 12, 4, 45, \"Partly Cloudy\"], [\"2026-01-09\", 10, 3, 48, \"Partly Cloudy\"], [\"2026-01-10\", 8, 2, 52, \"Cloudy\"], [\"2026-01-11\", 7, 1, 55, \"Cloudy\"], [\"2026-01-12\", 6, 0, 60, \"Overcast\"], [\"2026-01-13\", 5, -1, 63, \"Overcast\"], [\"2026-01-14\", 6, -2, 61, \"Sunny\"], [\"2026-01-15\", 8, 0, 54, \"Sunny\"], [\"2026-01-16\", 10, 2, 49, \"Sunny\"], [\"2026-01-17\", 11, 3, 46, \"Partly Cloudy\"], [\"2026-01-18\", 10, 3, 50, \"Partly Cloudy\"], [\"2026-01-19\", 9, 2, 53, \"Cloudy\"], [\"2026-01-20\", 7, 1, 57, \"Cloudy\"], [\"2026-01-21\", 6, 0, 61, \"Overcast\"], [\"2026-01-22\", 5, -2, 64, \"Overcast\"], [\"2026-01-23\", 6, -1, 62, \"Overcast\"], [\"2026-01-24\", 8, 1, 55, \"Sunny\"], [\"2026-01-25\", 11, 3, 48, \"Sunny\"], [\"2026-01-26\", 12, 4, 44, \"Sunny\"], [\"2026-01-27\", 11, 4, 46, \"Partly Cloudy\"], [\"2026-01-28\", 9, 2, 51, \"Partly Cloudy\"], [\"2026-01-29\", 7, 1, 56, \"Cloudy\"], [\"2026-01-30\", 6, 0, 59, \"Cloudy\"], [\"2026-01-31\", 8, 1, 54, \"Sunny\"]]}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder successfully wrote Tokyo January 2026 weather data (31 rows) to /tmp/weather_report.xlsx sheet Tokyo\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "add London January weather data as a new sheet in /tmp/weather_report.xlsx",
+      "description": "Coder appends London January 2026 weather data as a second sheet",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"Write London January 2026 weather data to /tmp/weather_report.xlsx sheet London\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll add London's January 2026 weather data as a new sheet in the existing file.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"write\", \"file_path\": \"/tmp/weather_report.xlsx\", \"sheet_name\": \"London\", \"data\": [[\"Date\", \"High_C\", \"Low_C\", \"Humidity_Pct\", \"Condition\"], [\"2026-01-01\", 7, 2, 82, \"Overcast\"], [\"2026-01-02\", 6, 1, 85, \"Rain\"], [\"2026-01-03\", 5, 0, 88, \"Rain\"], [\"2026-01-04\", 6, 1, 87, \"Rain\"], [\"2026-01-05\", 7, 2, 84, \"Overcast\"], [\"2026-01-06\", 8, 3, 80, \"Overcast\"], [\"2026-01-07\", 9, 4, 77, \"Partly Cloudy\"], [\"2026-01-08\", 10, 4, 75, \"Partly Cloudy\"], [\"2026-01-09\", 9, 3, 78, \"Overcast\"], [\"2026-01-10\", 7, 2, 83, \"Rain\"], [\"2026-01-11\", 5, 0, 89, \"Rain\"], [\"2026-01-12\", 4, -1, 92, \"Rain\"], [\"2026-01-13\", 5, 0, 90, \"Rain\"], [\"2026-01-14\", 6, 1, 86, \"Overcast\"], [\"2026-01-15\", 7, 2, 83, \"Overcast\"], [\"2026-01-16\", 9, 3, 79, \"Partly Cloudy\"], [\"2026-01-17\", 10, 4, 76, \"Partly Cloudy\"], [\"2026-01-18\", 8, 3, 80, \"Overcast\"], [\"2026-01-19\", 6, 2, 85, \"Rain\"], [\"2026-01-20\", 5, 1, 88, \"Rain\"], [\"2026-01-21\", 4, 0, 91, \"Rain\"], [\"2026-01-22\", 5, 1, 89, \"Overcast\"], [\"2026-01-23\", 6, 2, 85, \"Overcast\"], [\"2026-01-24\", 8, 3, 81, \"Overcast\"], [\"2026-01-25\", 9, 4, 78, \"Partly Cloudy\"], [\"2026-01-26\", 10, 4, 76, \"Partly Cloudy\"], [\"2026-01-27\", 8, 3, 80, \"Overcast\"], [\"2026-01-28\", 6, 2, 84, \"Rain\"], [\"2026-01-29\", 5, 1, 87, \"Rain\"], [\"2026-01-30\", 6, 2, 85, \"Overcast\"], [\"2026-01-31\", 7, 3, 82, \"Overcast\"]]}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder successfully wrote London January 2026 weather data (31 rows) to /tmp/weather_report.xlsx sheet London\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "add São Paulo January weather data as a new sheet in /tmp/weather_report.xlsx",
+      "description": "Coder appends São Paulo January 2026 weather data as a third sheet",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"Write Sao Paulo January 2026 weather data to /tmp/weather_report.xlsx sheet SaoPaulo\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll add São Paulo's January 2026 weather data as a new sheet. January is peak summer and rainy season in São Paulo.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"write\", \"file_path\": \"/tmp/weather_report.xlsx\", \"sheet_name\": \"SaoPaulo\", \"data\": [[\"Date\", \"High_C\", \"Low_C\", \"Humidity_Pct\", \"Condition\"], [\"2026-01-01\", 29, 20, 78, \"Partly Cloudy\"], [\"2026-01-02\", 30, 21, 80, \"Rain\"], [\"2026-01-03\", 28, 20, 83, \"Rain\"], [\"2026-01-04\", 27, 19, 85, \"Thunderstorm\"], [\"2026-01-05\", 28, 19, 84, \"Thunderstorm\"], [\"2026-01-06\", 29, 20, 82, \"Rain\"], [\"2026-01-07\", 31, 21, 77, \"Partly Cloudy\"], [\"2026-01-08\", 32, 22, 74, \"Partly Cloudy\"], [\"2026-01-09\", 33, 23, 71, \"Partly Cloudy\"], [\"2026-01-10\", 31, 22, 75, \"Rain\"], [\"2026-01-11\", 29, 21, 80, \"Rain\"], [\"2026-01-12\", 28, 20, 83, \"Thunderstorm\"], [\"2026-01-13\", 27, 19, 86, \"Thunderstorm\"], [\"2026-01-14\", 28, 20, 84, \"Rain\"], [\"2026-01-15\", 30, 21, 79, \"Rain\"], [\"2026-01-16\", 31, 22, 76, \"Partly Cloudy\"], [\"2026-01-17\", 32, 22, 73, \"Partly Cloudy\"], [\"2026-01-18\", 33, 23, 70, \"Partly Cloudy\"], [\"2026-01-19\", 31, 22, 75, \"Rain\"], [\"2026-01-20\", 29, 20, 81, \"Rain\"], [\"2026-01-21\", 28, 19, 85, \"Thunderstorm\"], [\"2026-01-22\", 27, 18, 88, \"Thunderstorm\"], [\"2026-01-23\", 28, 19, 86, \"Rain\"], [\"2026-01-24\", 30, 21, 80, \"Rain\"], [\"2026-01-25\", 31, 22, 77, \"Partly Cloudy\"], [\"2026-01-26\", 32, 22, 74, \"Partly Cloudy\"], [\"2026-01-27\", 33, 23, 71, \"Partly Cloudy\"], [\"2026-01-28\", 31, 21, 76, \"Rain\"], [\"2026-01-29\", 29, 20, 81, \"Rain\"], [\"2026-01-30\", 28, 19, 84, \"Thunderstorm\"], [\"2026-01-31\", 29, 20, 82, \"Rain\"]]}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder successfully wrote Sao Paulo January 2026 weather data (31 rows) to /tmp/weather_report.xlsx sheet SaoPaulo\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "add Dubai January weather data as a new sheet in /tmp/weather_report.xlsx",
+      "description": "Coder appends Dubai January 2026 weather data as a fourth sheet",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"Write Dubai January 2026 weather data to /tmp/weather_report.xlsx sheet Dubai\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll add Dubai's January 2026 weather data as a new sheet. January is Dubai's mild winter season with mostly sunny skies.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"write\", \"file_path\": \"/tmp/weather_report.xlsx\", \"sheet_name\": \"Dubai\", \"data\": [[\"Date\", \"High_C\", \"Low_C\", \"Humidity_Pct\", \"Condition\"], [\"2026-01-01\", 24, 15, 58, \"Sunny\"], [\"2026-01-02\", 25, 16, 55, \"Sunny\"], [\"2026-01-03\", 26, 16, 52, \"Clear\"], [\"2026-01-04\", 27, 17, 50, \"Clear\"], [\"2026-01-05\", 27, 17, 48, \"Sunny\"], [\"2026-01-06\", 26, 16, 51, \"Sunny\"], [\"2026-01-07\", 25, 15, 54, \"Sunny\"], [\"2026-01-08\", 23, 14, 60, \"Partly Cloudy\"], [\"2026-01-09\", 22, 13, 63, \"Partly Cloudy\"], [\"2026-01-10\", 22, 13, 65, \"Cloudy\"], [\"2026-01-11\", 23, 14, 62, \"Partly Cloudy\"], [\"2026-01-12\", 25, 15, 57, \"Sunny\"], [\"2026-01-13\", 26, 16, 53, \"Sunny\"], [\"2026-01-14\", 27, 17, 49, \"Clear\"], [\"2026-01-15\", 28, 18, 47, \"Clear\"], [\"2026-01-16\", 28, 18, 46, \"Sunny\"], [\"2026-01-17\", 27, 17, 48, \"Sunny\"], [\"2026-01-18\", 26, 16, 51, \"Sunny\"], [\"2026-01-19\", 24, 15, 56, \"Partly Cloudy\"], [\"2026-01-20\", 23, 14, 60, \"Partly Cloudy\"], [\"2026-01-21\", 22, 13, 64, \"Cloudy\"], [\"2026-01-22\", 22, 13, 67, \"Cloudy\"], [\"2026-01-23\", 23, 14, 63, \"Partly Cloudy\"], [\"2026-01-24\", 25, 15, 58, \"Sunny\"], [\"2026-01-25\", 26, 16, 54, \"Sunny\"], [\"2026-01-26\", 27, 17, 50, \"Clear\"], [\"2026-01-27\", 28, 18, 47, \"Clear\"], [\"2026-01-28\", 28, 18, 45, \"Sunny\"], [\"2026-01-29\", 27, 17, 48, \"Sunny\"], [\"2026-01-30\", 26, 16, 52, \"Sunny\"], [\"2026-01-31\", 25, 15, 55, \"Partly Cloudy\"]]}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder successfully wrote Dubai January 2026 weather data (31 rows) to /tmp/weather_report.xlsx sheet Dubai\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "list all sheets in /tmp/weather_report.xlsx to verify all 4 cities are present",
+      "description": "Coder lists sheets in the workbook to confirm Tokyo, London, SaoPaulo, Dubai all exist",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"List all sheet names in /tmp/weather_report.xlsx\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll list all sheets in the workbook to verify all four city sheets were created successfully.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"list_sheets\", \"file_path\": \"/tmp/weather_report.xlsx\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder listed sheets in /tmp/weather_report.xlsx confirming all 4 city sheets (Tokyo, London, SaoPaulo, Dubai) are present\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "read back the Tokyo sheet from /tmp/weather_report.xlsx",
+      "description": "Coder reads the Tokyo sheet to verify the written data is intact",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"Read Tokyo sheet from /tmp/weather_report.xlsx\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll read back the Tokyo sheet to verify the data was stored correctly.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"read\", \"file_path\": \"/tmp/weather_report.xlsx\", \"sheet_name\": \"Tokyo\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder read the Tokyo sheet from /tmp/weather_report.xlsx and confirmed 31 rows of January 2026 weather data are intact\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "read back the Dubai sheet from /tmp/weather_report.xlsx",
+      "description": "Coder reads the Dubai sheet to verify the written data is intact",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"Read Dubai sheet from /tmp/weather_report.xlsx\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll read back the Dubai sheet to verify the data was stored correctly.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"read\", \"file_path\": \"/tmp/weather_report.xlsx\", \"sheet_name\": \"Dubai\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder read the Dubai sheet from /tmp/weather_report.xlsx and confirmed 31 rows of January 2026 weather data are intact\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "delete /tmp/weather_report.xlsx to clean up",
+      "description": "Coder deletes the temporary weather report file using shell_exec",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"Delete /tmp/weather_report.xlsx using shell_exec\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll delete the weather report file to clean up.\n\n<tool_call>\n{\"name\": \"shell_exec\", \"args\": {\"command\": \"rm /tmp/weather_report.xlsx && echo 'Deleted /tmp/weather_report.xlsx'\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder deleted /tmp/weather_report.xlsx successfully using shell_exec rm command\"}"
+        }
+      ]
+    }
+  ]
+}

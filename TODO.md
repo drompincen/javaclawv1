@@ -47,6 +47,9 @@ jbang --fresh javaclaw.java --testmode --headless --scenario runtime/src/test/re
 
 # HTTP tool (http_get — network calls)
 jbang --fresh javaclaw.java --testmode --headless --scenario runtime/src/test/resources/scenario-http.json
+
+# Excel tool (write 4 city weather sheets + list_sheets + read back + delete)
+jbang --fresh javaclaw.java --testmode --headless --scenario runtime/src/test/resources/scenario-excel-weather.json
 ```
 
 **Pass criteria**: All steps pass, logs show `[controller] Delegating to '...'`, `[checker] Result: pass=true`.
@@ -66,7 +69,8 @@ jbang --fresh javaclaw.java --testmode --headless --scenario runtime/src/test/re
 | `scenario-memory.json` | 3/3 | `memory` (store/recall/delete) | PASS |
 | `scenario-pm-tools.json` | 4/4 | `create_ticket`, `create_idea` | PASS |
 | `scenario-http.json` | 2/2 | `http_get` | PASS |
-| **Total** | **39/39** | **13 of 16 tools** | **ALL PASS** |
+| `scenario-excel-weather.json` | 8/8 | `excel` (write/list_sheets/read), `shell_exec` | PASS |
+| **Total** | **47/47** | **14 of 16 tools** | **ALL PASS** |
 
 **Tools not tested via scenarios** (3 remaining):
 | Tool | Reason |
