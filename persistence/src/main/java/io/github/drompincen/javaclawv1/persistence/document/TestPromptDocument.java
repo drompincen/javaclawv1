@@ -53,4 +53,14 @@ public class TestPromptDocument {
 
     public Instant getResponseTimestamp() { return responseTimestamp; }
     public void setResponseTimestamp(Instant responseTimestamp) { this.responseTimestamp = responseTimestamp; }
+
+    private String userQuery;
+
+    public String getUserQuery() { return userQuery; }
+    public void setUserQuery(String userQuery) { this.userQuery = userQuery; }
+
+    private String responseFallback;
+
+    public String getResponseFallback() { return responseFallback; }
+    public void setResponseFallback(String responseFallback) { this.responseFallback = responseFallback; }
 }

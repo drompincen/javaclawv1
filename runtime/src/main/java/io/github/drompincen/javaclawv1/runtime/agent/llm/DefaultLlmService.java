@@ -113,6 +113,15 @@ public class DefaultLlmService implements LlmService {
     }
 
     @Override
+    public String getProviderInfo() {
+        return switch (resolveProvider()) {
+            case ANTHROPIC -> "Claude Sonnet";
+            case OPENAI -> "GPT-4o";
+            case NONE -> "No API Key";
+        };
+    }
+
+    @Override
     public Flux<String> streamResponse(AgentState state) {
         ChatModel model = getActiveModel();
         if (model == null) {

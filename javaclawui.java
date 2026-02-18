@@ -759,7 +759,7 @@ public class javaclawui {
         }
 
         void showApiKeyDialog() {
-            new ApiKeyDialog(SwingUtilities.getWindowAncestor(this), api).setVisible(true);
+            new ApiKeyDialog(SwingUtilities.getWindowAncestor(this), api, () -> agentPane.refreshProviderLabel()).setVisible(true);
         }
 
         void showMemoryDialog() {
@@ -1929,6 +1929,7 @@ public class javaclawui {
         final JTextPane activityLog;
         final StyledDocument logDoc;
         final JLabel statusLabel;
+        final JLabel providerLabel;
         final JLabel statsLabel;
         int stepCount = 0, toolCount = 0;
 
@@ -1959,11 +1960,20 @@ public class javaclawui {
             title.setFont(TERM_FONT.deriveFont(Font.BOLD, currentFontSize - 3f));
             title.setForeground(Theme.FG);
             hdr.add(title, BorderLayout.WEST);
+            JPanel hdrRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+            hdrRight.setBackground(Theme.HDR_BG);
+            providerLabel = new JLabel();
+            providerLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
+            providerLabel.setForeground(Theme.CYAN);
+            hdrRight.add(providerLabel);
             statusLabel = new JLabel("IDLE ");
             statusLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
             statusLabel.setForeground(Theme.DIM);
-            hdr.add(statusLabel, BorderLayout.EAST);
+            hdrRight.add(statusLabel);
+            hdr.add(hdrRight, BorderLayout.EAST);
             add(hdr, BorderLayout.NORTH);
+
+            refreshProviderLabel();
 
             // Activity log
             activityLog = new JTextPane();
@@ -1983,9 +1993,22 @@ public class javaclawui {
 
             fontChangeListeners.add(() -> {
                 title.setFont(TERM_FONT.deriveFont(Font.BOLD, currentFontSize - 3f));
+                providerLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
                 statusLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
                 activityLog.setFont(TERM_FONT.deriveFont(currentFontSize - 4f));
                 statsLabel.setFont(TERM_FONT.deriveFont(currentFontSize - 5f));
+            });
+        }
+
+        void refreshProviderLabel() {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    JsonNode resp = api.get("/api/config/provider");
+                    String provider = resp.path("provider").asText("Unknown");
+                    SwingUtilities.invokeLater(() -> providerLabel.setText("[" + provider + "] "));
+                } catch (Exception ignored) {
+                    SwingUtilities.invokeLater(() -> providerLabel.setText(""));
+                }
             });
         }
 
@@ -2253,7 +2276,7 @@ public class javaclawui {
     // API Key Dialog (Ctrl+K)
     // -----------------------------------------------------------------------
     static class ApiKeyDialog extends JDialog {
-        ApiKeyDialog(Window owner, ApiClient api) {
+        ApiKeyDialog(Window owner, ApiClient api, Runnable onKeysUpdated) {
             super(owner, "API CONFIGURATION", ModalityType.APPLICATION_MODAL);
             setSize(520, 280);
             setLocationRelativeTo(owner);
@@ -2293,6 +2316,7 @@ public class javaclawui {
                     String antKey = new String(antField.getPassword()).trim();
                     String oaiKey = new String(oaiField.getPassword()).trim();
                     api.setApiKeys(antKey.isEmpty() ? null : antKey, oaiKey.isEmpty() ? null : oaiKey);
+                    if (onKeysUpdated != null) onKeysUpdated.run();
                     JOptionPane.showMessageDialog(this, "Keys updated (in-memory only)", "OK", JOptionPane.INFORMATION_MESSAGE);
                     dispose();
                 } catch (Exception ex) {

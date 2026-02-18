@@ -1,5 +1,6 @@
 package io.github.drompincen.javaclawv1.gateway.controller;
 
+import io.github.drompincen.javaclawv1.runtime.agent.llm.LlmService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -8,6 +9,12 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/config")
 public class ConfigController {
+
+    private final LlmService llmService;
+
+    public ConfigController(LlmService llmService) {
+        this.llmService = llmService;
+    }
 
     @PostMapping("/keys")
     public ResponseEntity<Map<String, String>> setKeys(@RequestBody Map<String, String> keys) {
@@ -42,6 +49,11 @@ public class ConfigController {
     public ResponseEntity<Map<String, Integer>> getFontSize() {
         int size = Integer.parseInt(System.getProperty("javaclaw.font.size", "15"));
         return ResponseEntity.ok(Map.of("fontSize", size));
+    }
+
+    @GetMapping("/provider")
+    public ResponseEntity<Map<String, String>> getProvider() {
+        return ResponseEntity.ok(Map.of("provider", llmService.getProviderInfo()));
     }
 
     private String mask(String key) {
