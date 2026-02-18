@@ -396,6 +396,10 @@ public class javaclawui {
                     switch (eventType) {
                         case "MODEL_TOKEN_DELTA" -> {
                             String token = payload.path("payload").path("token").asText(payload.path("payload").asText());
+                            String tokenAgent = payload.path("payload").path("agentId").asText(null);
+                            if (tokenAgent != null && !tokenAgent.isEmpty()) {
+                                chatPanel.setCurrentAgent(tokenAgent);
+                            }
                             chatPanel.appendToken(token);
                         }
                         case "AGENT_STEP_STARTED" -> {
@@ -1741,6 +1745,7 @@ public class javaclawui {
                                 appendText(content + "\n", userStyle);
                             } else if ("assistant".equals(role)) {
                                 String agent = m.path("agentId").asText(null);
+                                if (agent != null && agent.isEmpty()) agent = null;
                                 String label = agent != null ? "Agent [" + agent + "]" : "Agent";
                                 appendLabel(label);
                                 appendText(content + "\n", assistantStyle);
@@ -1785,6 +1790,7 @@ public class javaclawui {
                                 appendText(content + "\n", userStyle);
                             } else if ("assistant".equals(role)) {
                                 String agent = m.path("agentId").asText(null);
+                                if (agent != null && agent.isEmpty()) agent = null;
                                 String label = agent != null ? "Agent [" + agent + "]" : "Agent";
                                 appendLabel(label);
                                 appendText(content + "\n", assistantStyle);

@@ -1,0 +1,1196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OpenClaw+ - Agentic Project Command Center (Response 2)</title>
+  <style>
+    :root{
+      --bg:#0b0f17;
+      --panel:#0f1624;
+      --panel2:#0c1220;
+      --text:#e7eefc;
+      --muted:#9ab0d1;
+      --faint:#6f86ab;
+      --good:#24d18f;
+      --warn:#ffcc66;
+      --bad:#ff5a7a;
+      --accent:#7aa2ff;
+      --accent2:#b58cff;
+      --shadow: 0 14px 40px rgba(0,0,0,.35);
+      --radius:16px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:var(--sans);
+      color:var(--text);
+      background:
+        radial-gradient(1200px 800px at 20% -10%, rgba(122,162,255,.18), transparent 60%),
+        radial-gradient(900px 700px at 110% 20%, rgba(181,140,255,.14), transparent 55%),
+        radial-gradient(700px 600px at 20% 110%, rgba(36,209,143,.10), transparent 55%),
+        var(--bg);
+      overflow:hidden;
+    }
+    .app{
+      height:100%;
+      display:grid;
+      grid-template-columns: 280px 1fr 420px;
+      gap:14px;
+      padding:14px;
+    }
+    .sidebar,.main,.right{
+      min-height:0;
+      border:1px solid rgba(255,255,255,.06);
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .sidebar{background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)), var(--panel2);}
+    .main{background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)), var(--panel);}
+    .right{background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)), var(--panel2);}
+
+    .bar{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      padding:14px 14px 12px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      background:rgba(0,0,0,.12);
+      backdrop-filter: blur(10px);
+    }
+    .brand{display:flex; align-items:center; gap:10px; font-weight:800;}
+    .logo{
+      width:34px; height:34px; border-radius:12px;
+      background:
+        radial-gradient(12px 12px at 30% 30%, rgba(255,255,255,.45), transparent 50%),
+        linear-gradient(135deg, rgba(122,162,255,.95), rgba(181,140,255,.85));
+      border:1px solid rgba(255,255,255,.18);
+      box-shadow:0 10px 30px rgba(122,162,255,.18);
+    }
+    .tiny{font-size:11px; color:var(--faint);}
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:6px 10px; border-radius:999px;
+      background:rgba(122,162,255,.10);
+      border:1px solid rgba(122,162,255,.25);
+      font-size:12px;
+      white-space:nowrap;
+    }
+    .btn{
+      cursor:pointer; user-select:none;
+      padding:8px 10px; border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(255,255,255,.04);
+      color:var(--text);
+      font-size:12px;
+      display:inline-flex; align-items:center; gap:8px;
+    }
+    .btn:hover{background:rgba(255,255,255,.06)}
+    .btn.primary{
+      background:linear-gradient(135deg, rgba(122,162,255,.26), rgba(181,140,255,.18));
+      border:1px solid rgba(122,162,255,.32);
+    }
+
+    /* Sidebar nav */
+    .nav{padding:10px; display:flex; flex-direction:column; gap:8px; overflow:auto; height:calc(100% - 58px);}
+    .nav h4{margin:10px 8px 4px; color:var(--muted); font-size:11px; letter-spacing:.8px; text-transform:uppercase;}
+    .navItem{
+      display:flex; align-items:center; gap:10px;
+      padding:10px 10px; border-radius:14px;
+      border:1px solid rgba(255,255,255,.06);
+      background:rgba(255,255,255,.02);
+      cursor:pointer;
+    }
+    .navItem:hover{background:rgba(255,255,255,.04)}
+    .navItem.active{
+      background:linear-gradient(135deg, rgba(122,162,255,.18), rgba(181,140,255,.10));
+      border:1px solid rgba(122,162,255,.28);
+    }
+    .icon{
+      width:34px; height:34px; border-radius:12px;
+      background:rgba(122,162,255,.10);
+      border:1px solid rgba(122,162,255,.20);
+      display:grid; place-items:center;
+      font-size:16px;
+    }
+    .navMeta{display:flex; flex-direction:column; gap:2px}
+    .navMeta .title{font-weight:750; font-size:13px}
+    .navMeta .desc{font-size:12px; color:var(--muted)}
+    .kpi{
+      margin-top:auto;
+      padding:10px;
+      border-top:1px solid rgba(255,255,255,.06);
+      background:rgba(0,0,0,.10);
+    }
+    .kpiGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px;}
+    .kpiCard{
+      padding:10px; border-radius:14px;
+      border:1px solid rgba(255,255,255,.07);
+      background:rgba(255,255,255,.02);
+    }
+    .kpiCard .n{font-family:var(--mono); font-size:18px; font-weight:800}
+    .kpiCard .l{font-size:11px; color:var(--muted); margin-top:3px}
+
+    /* Main layout */
+    .mainTop{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+    .search{
+      flex:1; display:flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:12px;
+      background:rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      min-width:180px;
+    }
+    .search input{
+      width:100%;
+      background:transparent; border:0; outline:none;
+      color:var(--text); font-size:13px;
+    }
+    .mainContent{
+      height:calc(100% - 58px);
+      overflow:auto;
+      padding:14px;
+      display:grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap:14px;
+      align-content:start;
+    }
+
+    .card{
+      border:1px solid rgba(255,255,255,.07);
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+      border-radius:var(--radius);
+      overflow:hidden;
+    }
+    .cardHeader{
+      padding:12px 12px 10px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      background:rgba(0,0,0,.12);
+    }
+    .cardHeader .left{display:flex; flex-direction:column; gap:2px; min-width:0;}
+    .h{font-weight:800; font-size:13px; letter-spacing:.2px; display:flex; align-items:center; gap:8px;}
+    .sub{font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .cardBody{padding:12px}
+
+    /* Chips + lists */
+    .seg{display:inline-flex; gap:6px; flex-wrap:wrap;}
+    .chip{
+      font-size:11px; padding:5px 8px; border-radius:999px;
+      background:rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.08);
+      color:rgba(231,238,252,.92);
+      white-space:nowrap;
+    }
+    .chip.good{background:rgba(36,209,143,.10); border-color:rgba(36,209,143,.22)}
+    .chip.warn{background:rgba(255,204,102,.10); border-color:rgba(255,204,102,.22)}
+    .chip.bad{background:rgba(255,90,122,.10); border-color:rgba(255,90,122,.22)}
+    .chip.accent{background:rgba(122,162,255,.10); border-color:rgba(122,162,255,.22)}
+
+    /* Inbox timeline */
+    .dropzone{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:10px; border-radius:14px;
+      border:1px dashed rgba(255,255,255,.18);
+      background:rgba(255,255,255,.02);
+    }
+    .dropzone b{font-weight:850}
+    .timeline{display:flex; flex-direction:column; gap:10px; margin-top:10px;}
+    .event{
+      border:1px solid rgba(255,255,255,.07);
+      background:rgba(255,255,255,.02);
+      border-radius:14px;
+      padding:10px;
+      cursor:pointer;
+    }
+    .event:hover{background:rgba(255,255,255,.04)}
+    .event.active{
+      border-color:rgba(122,162,255,.35);
+      background:linear-gradient(135deg, rgba(122,162,255,.12), rgba(181,140,255,.08));
+    }
+    .eventTop{display:flex; justify-content:space-between; gap:10px; align-items:flex-start;}
+    .eventTitle{font-weight:800; font-size:13px; line-height:1.25}
+    .eventMeta{display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;}
+    .eventDesc{font-size:12px; color:var(--muted); line-height:1.35; margin-top:6px;}
+    .mono{font-family:var(--mono);}
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px;}
+    .row .btn{padding:7px 9px; border-radius:12px}
+
+    /* Objectives */
+    .sprintBar{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:10px; border-radius:14px;
+      border:1px solid rgba(255,255,255,.07);
+      background:rgba(255,255,255,.02);
+      margin-bottom:10px;
+    }
+    select,input,textarea{
+      width:100%;
+      padding:10px 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(255,255,255,.03);
+      color:var(--text);
+      outline:none;
+      font-size:12px;
+    }
+    textarea{min-height:70px; resize:vertical}
+    .objGrid{display:grid; grid-template-columns:1fr; gap:10px;}
+    .obj{
+      border:1px solid rgba(255,255,255,.07);
+      background:rgba(255,255,255,.02);
+      border-radius:14px;
+      padding:10px;
+    }
+    .objTop{display:flex; justify-content:space-between; gap:10px; align-items:flex-start;}
+    .objTitle{font-weight:850; font-size:13px}
+    .objDesc{font-size:12px; color:var(--muted); line-height:1.35; margin-top:6px;}
+    .progress{
+      height:10px; border-radius:999px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.06);
+      overflow:hidden;
+      margin-top:10px;
+    }
+    .progress > div{
+      height:100%;
+      background:linear-gradient(90deg, rgba(122,162,255,.75), rgba(181,140,255,.65));
+    }
+
+    /* Right inspector */
+    .rightContent{
+      height:calc(100% - 58px);
+      overflow:auto;
+      padding:14px;
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+    }
+    .hint{font-size:12px; color:var(--muted); line-height:1.35}
+    .log{
+      font-family:var(--mono);
+      font-size:11px;
+      line-height:1.35;
+      padding:10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.20);
+      max-height:160px;
+      overflow:auto;
+      white-space:pre-wrap;
+    }
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0 8px;
+      font-size:12px;
+    }
+    th{
+      text-align:left;
+      color:var(--muted);
+      font-weight:700;
+      font-size:11px;
+      padding:0 8px 4px;
+      text-transform:uppercase;
+      letter-spacing:.7px;
+    }
+    td{
+      padding:10px 10px;
+      background:rgba(255,255,255,.02);
+      border-top:1px solid rgba(255,255,255,.07);
+      border-bottom:1px solid rgba(255,255,255,.07);
+    }
+    tr td:first-child{
+      border-left:1px solid rgba(255,255,255,.07);
+      border-top-left-radius:14px;
+      border-bottom-left-radius:14px;
+    }
+    tr td:last-child{
+      border-right:1px solid rgba(255,255,255,.07);
+      border-top-right-radius:14px;
+      border-bottom-right-radius:14px;
+    }
+
+    /* LinkHub + Checklists */
+    .linkGrid{display:grid; grid-template-columns:1fr; gap:10px;}
+    .linkCard{
+      border:1px solid rgba(255,255,255,.07);
+      background:rgba(255,255,255,.02);
+      border-radius:14px;
+      padding:10px;
+    }
+    .linkCard .t{font-weight:850; font-size:13px}
+    .linkCard .d{font-size:12px; color:var(--muted); margin-top:6px; line-height:1.35}
+    .linkList{margin-top:8px; display:flex; flex-direction:column; gap:6px;}
+    .linkItem{
+      display:flex; justify-content:space-between; gap:10px; align-items:center;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.12);
+    }
+    .linkItem b{font-size:12px}
+    .linkItem span{font-size:11px; color:var(--muted)}
+    .checks{display:flex; flex-direction:column; gap:8px; margin-top:8px;}
+    .checkRow{
+      display:flex; justify-content:space-between; gap:10px; align-items:center;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(255,255,255,.02);
+    }
+    .checkRow .left{display:flex; flex-direction:column; gap:2px;}
+    .checkRow .left b{font-size:12px}
+    .checkRow .left span{font-size:11px; color:var(--muted)}
+    .badge{
+      font-family:var(--mono);
+      font-size:11px;
+      padding:3px 8px;
+      border-radius:999px;
+      background:rgba(0,0,0,.20);
+      border:1px solid rgba(255,255,255,.10);
+      color:rgba(231,238,252,.9);
+      white-space:nowrap;
+    }
+
+    /* Reconcile preview */
+    .reconcileGrid{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+    .miniList{display:flex; flex-direction:column; gap:8px;}
+    .miniItem{
+      border:1px solid rgba(255,255,255,.07);
+      background:rgba(255,255,255,.02);
+      border-radius:14px;
+      padding:10px;
+    }
+    .miniItem .t{font-weight:800; font-size:12.5px}
+    .miniItem .d{font-size:12px; color:var(--muted); margin-top:6px; line-height:1.35}
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:18px;
+      transform:translateX(-50%);
+      padding:10px 12px;
+      border-radius:14px;
+      background:rgba(10,14,22,.84);
+      border:1px solid rgba(255,255,255,.10);
+      box-shadow:var(--shadow);
+      display:none;
+      gap:10px;
+      align-items:center;
+      color:rgba(231,238,252,.95);
+      font-size:12px;
+      max-width:min(860px, calc(100vw - 28px));
+      backdrop-filter: blur(10px);
+    }
+    .toast.show{display:flex}
+    .toast .ticon{
+      width:26px; height:26px; border-radius:10px;
+      display:grid; place-items:center;
+      background:rgba(36,209,143,.12);
+      border:1px solid rgba(36,209,143,.25);
+    }
+
+    @media (max-width: 1220px){
+      body{overflow:auto}
+      .app{grid-template-columns: 280px 1fr; grid-template-rows:auto auto; height:auto}
+      .right{grid-column:1 / -1}
+    }
+    @media (max-width: 860px){
+      .app{grid-template-columns: 1fr; }
+      .sidebar{display:none}
+      .mainContent{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="bar">
+        <div class="brand">
+          <div class="logo"></div>
+          <div>
+            <div style="font-size:13px;">OpenClaw<span style="opacity:.8;">+</span></div>
+            <div class="tiny">Inbox → Threads → Objectives → Links → Reconcile</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="nav" id="nav">
+        <h4>Daily loop</h4>
+        <div class="navItem active" data-view="today">
+          <div class="icon">🧭</div>
+          <div class="navMeta"><div class="title">Today</div><div class="desc">triage → align → execute</div></div>
+        </div>
+        <div class="navItem" data-view="inbox">
+          <div class="icon">📥</div>
+          <div class="navMeta"><div class="title">Inbox</div><div class="desc">uploads & dumps</div></div>
+        </div>
+        <div class="navItem" data-view="threads">
+          <div class="icon">🧵</div>
+          <div class="navMeta"><div class="title">Threads</div><div class="desc">narratives + ideas</div></div>
+        </div>
+        <div class="navItem" data-view="objectives">
+          <div class="icon">🎯</div>
+          <div class="navMeta"><div class="title">Objectives</div><div class="desc">by sprint</div></div>
+        </div>
+        <div class="navItem" data-view="phases">
+          <div class="icon">🧱</div>
+          <div class="navMeta"><div class="title">Phases</div><div class="desc">definitions & exits</div></div>
+        </div>
+        <div class="navItem" data-view="links">
+          <div class="icon">🔗</div>
+          <div class="navMeta"><div class="title">Important Links</div><div class="desc">curated hub + bundles</div></div>
+        </div>
+        <div class="navItem" data-view="checklists">
+          <div class="icon">✅</div>
+          <div class="navMeta"><div class="title">Checklists</div><div class="desc">ORR + readiness</div></div>
+        </div>
+        <div class="navItem" data-view="reconcile">
+          <div class="icon">🔁</div>
+          <div class="navMeta"><div class="title">Reconcile</div><div class="desc">smartsheet ↔ tickets</div></div>
+        </div>
+
+        <h4>Execution</h4>
+        <div class="navItem" data-view="delivery">
+          <div class="icon">🎫</div>
+          <div class="navMeta"><div class="title">Delivery</div><div class="desc">local jira truth</div></div>
+        </div>
+
+        <div class="kpi">
+          <div class="pill" style="width:100%; justify-content:space-between;"><span>Project</span><b>KYC Modernization</b></div>
+          <div class="kpiGrid">
+            <div class="kpiCard"><div class="n" id="kpiUntriaged">7</div><div class="l">untriaged inputs</div></div>
+            <div class="kpiCard"><div class="n" id="kpiThreads">3</div><div class="l">active threads</div></div>
+            <div class="kpiCard"><div class="n" id="kpiAtRisk">2</div><div class="l">objectives at risk</div></div>
+            <div class="kpiCard"><div class="n" id="kpiConflicts">4</div><div class="l">plan conflicts</div></div>
+          </div>
+          <div class="tiny" style="margin-top:10px; line-height:1.35;">
+            Inputs can be Confluence PDF/paste, Jira/Smartsheet dumps, or link bundles. Agents organize into threads, objectives, artifacts, and reconciled plans.
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="bar">
+        <div class="mainTop">
+          <div>
+            <div style="font-weight:900; font-size:14px;">Command Center (Response 2)</div>
+            <div class="tiny">Example: date-first Inbox + Links/Checklists + Agents that organize dumps</div>
+          </div>
+          <span class="pill"><span>View</span> <b id="modeLabel">Today</b></span>
+        </div>
+        <div class="search">
+          <span style="opacity:.8">⌕</span>
+          <input id="globalSearch" placeholder="Search uploads, threads, objectives, links, checklists…" />
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" id="runAgents">Run Agents</button>
+          <button class="btn primary" id="newInput">＋ Add Input</button>
+        </div>
+      </div>
+
+      <div class="mainContent">
+        <!-- Pane A -->
+        <section class="card" id="paneA">
+          <div class="cardHeader">
+            <div class="left">
+              <div class="h" id="paneATitle">Inbox Timeline</div>
+              <div class="sub" id="paneASub">Chronological inputs with thread/idea extraction suggestions.</div>
+            </div>
+            <button class="btn" id="paneAAction">Inbox</button>
+          </div>
+          <div class="cardBody" id="paneABody"></div>
+        </section>
+
+        <!-- Pane B -->
+        <section class="card" id="paneB">
+          <div class="cardHeader">
+            <div class="left">
+              <div class="h" id="paneBTitle">Sprint Objectives</div>
+              <div class="sub" id="paneBSub">Objectives stay tight; everything maps back.</div>
+            </div>
+            <button class="btn" id="paneBAction">Open</button>
+          </div>
+          <div class="cardBody" id="paneBBody"></div>
+        </section>
+
+        <!-- Pane C -->
+        <section class="card" id="paneC" style="grid-column:1 / -1;">
+          <div class="cardHeader">
+            <div class="left">
+              <div class="h" id="paneCTitle">Links + Checklists Snapshot</div>
+              <div class="sub" id="paneCSub">Important links hub and ORR-style checklists tied to phases.</div>
+            </div>
+            <button class="btn" id="paneCAction">Open</button>
+          </div>
+          <div class="cardBody" id="paneCBody"></div>
+        </section>
+      </div>
+    </main>
+
+    <!-- Inspector -->
+    <aside class="right">
+      <div class="bar">
+        <div class="brand" style="gap:10px;">
+          <div style="font-weight:900;">Inspector</div>
+          <span class="pill" style="background:rgba(255,255,255,.04); border-color:rgba(255,255,255,.10);">
+            Selected <b id="selectedLabel">Input</b>
+          </span>
+        </div>
+        <button class="btn" id="export">Export</button>
+      </div>
+
+      <div class="rightContent">
+        <section class="card">
+          <div class="cardHeader">
+            <div class="left">
+              <div class="h">Agents</div>
+              <div class="sub" id="agentSub">Content Aggregator + Thread Maker + Objective Decipher + PM + Reconcile + Curator</div>
+            </div>
+            <button class="btn primary" id="agentRun">Run</button>
+          </div>
+          <div class="cardBody">
+            <div class="seg" id="agentChips"></div>
+            <div class="hint" style="margin-top:10px;">
+              Your expected inputs: Confluence PDF/paste, Jira dumps, Smartsheet dumps, and link bundles. Agents normalize and organize them into threads, objectives, artifacts, and reconciled plans.
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="cardHeader">
+            <div class="left">
+              <div class="h">Local Artifact Store</div>
+              <div class="sub">Initiative → Epic → Story → Subtask (even without Jira tools)</div>
+            </div>
+          </div>
+          <div class="cardBody">
+            <table>
+              <thead><tr><th>Artifact</th><th>Owner</th><th>Status</th><th>Updated</th></tr></thead>
+              <tbody id="artifactTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="cardHeader">
+            <div class="left"><div class="h">Execution Log</div><div class="sub">Evidence + decisions + tool outputs (mock)</div></div>
+          </div>
+          <div class="cardBody"><div class="log" id="log"></div></div>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"><div class="ticon">✓</div><div id="toastText">Saved</div></div>
+
+<script>
+  const $ = (s)=>document.querySelector(s);
+  const $$ = (s)=>Array.from(document.querySelectorAll(s));
+
+  const state = { view: "today", selectedInputId: "i1" };
+
+  // Example inputs: Confluence PDF/paste, Jira dump, Smartsheet dump, link bundle.
+  const inputs = [
+    {
+      id:"i1",
+      ts:"2026-02-18 09:12",
+      type:"Confluence PDF",
+      title:"Architecture Notes — KYC-SVC façade & tool annotations",
+      desc:"PDF exported from Confluence. Topic: transformations/safety/enrichment; exposing tools; ADR candidate.",
+      tags:["confluence","pdf","design","decision?"],
+      suggestedThreads:[
+        { name:"Thread: KYC-SVC façade", confidence:0.86 },
+        { name:"Thread: Tool schema + policies", confidence:0.72 }
+      ],
+      extractedIdeas:[
+        "Add tool RBAC + audit trail to KYC-SVC endpoints",
+        "Create ADR for eventing choice and durable retries",
+        "Define evidence storage contract (hash + metadata)"
+      ]
+    },
+    {
+      id:"i2",
+      ts:"2026-02-17 16:41",
+      type:"Smartsheet dump",
+      title:"PM Plan Export — Phase 1 dates & owners",
+      desc:"Smartsheet export. Phase dates differ from ticket truth; integration test env owner mismatch.",
+      tags:["smartsheet","date drift","owner mismatch"],
+      suggestedThreads:[ { name:"Thread: Phase 1 plan reconciliation", confidence:0.91 } ],
+      extractedIdeas:[
+        "Generate delta pack: shift Phase 1 complete date",
+        "Create missing story for integration env readiness"
+      ]
+    },
+    {
+      id:"i3",
+      ts:"2026-02-17 10:06",
+      type:"Jira dump",
+      title:"Jira Export — Initiative/Epics/Stories snapshot",
+      desc:"Pasted Jira export (no tool access). Used to refresh local artifact truth.",
+      tags:["jira","export","status"],
+      suggestedThreads:[ { name:"Thread: Sprint 12 execution status", confidence:0.78 } ],
+      extractedIdeas:[
+        "Objective coverage map: ensure each story maps to a sprint objective",
+        "Flag stale owners and missing updates > 7 days"
+      ]
+    },
+    {
+      id:"i4",
+      ts:"2026-02-16 08:22",
+      type:"Link bundle",
+      title:"Important Links bundle (from Confluence page)",
+      desc:"Pasted list of key URLs: runbooks, repos, environments, agendas/minutes, onboarding, architecture docs.",
+      tags:["links","runbooks","repos","environments"],
+      suggestedThreads:[ { name:"Thread: Knowledge hub curation", confidence:0.88 } ],
+      extractedIdeas:[
+        "Auto-categorize links into Architecture/Runbooks/Prod/Non-Prod/Setup/Minutes",
+        "Create ORR checklist template and attach to Phase 1"
+      ]
+    }
+  ];
+
+  const sprint = {
+    name:"Sprint 12 (Feb 17–Feb 28)",
+    objectives:[
+      { title:"Durable A2A communication design locked", desc:"Eventing choice; retries/idempotency/replay/DLQ; publish ADR.", coverage:62, risk:"watch" },
+      { title:"KYC-SVC façade skeleton delivered", desc:"Spring Boot scaffold + tool stubs; safety/enrichment hooks.", coverage:44, risk:"ok" },
+      { title:"Operational readiness checklist drafted", desc:"Checklist for envs/runbooks/monitoring; attach to Phase 1 exit.", coverage:35, risk:"risk" }
+    ]
+  };
+
+  const linkHub = [
+    {
+      cat:"Architecture",
+      items:[
+        { name:"Latest target architecture doc", note:"Confluence page / PDF export" },
+        { name:"Eventing decision ADR", note:"draft in progress" }
+      ]
+    },
+    {
+      cat:"Conversation minutes & agendas",
+      items:[
+        { name:"Weekly sync minutes", note:"last updated Feb 18" },
+        { name:"Steering agenda", note:"next meeting Feb 20" }
+      ]
+    },
+    {
+      cat:"Repos & dev setup",
+      items:[
+        { name:"kyc-svc repo", note:"main + release branches" },
+        { name:"New developer setup", note:"bootstrap + env access" }
+      ]
+    },
+    {
+      cat:"Environments",
+      items:[
+        { name:"Non-prod links", note:"dev/test/stage dashboards" },
+        { name:"Prod links", note:"runbooks + oncall + dashboards" }
+      ]
+    },
+    {
+      cat:"Runbooks & ORR",
+      items:[
+        { name:"Runbook index", note:"service runbooks + playbooks" },
+        { name:"ORR checklist", note:"phase exit criteria" }
+      ]
+    }
+  ];
+
+  const checklists = [
+    { name:"Operational Readiness (ORR) — Phase 1", owner:"PM + SRE", status:"In Progress", items:18, done:7 },
+    { name:"Non-prod access checklist", owner:"Eng Enablement", status:"Draft", items:9, done:0 },
+    { name:"Release readiness checklist", owner:"Release Captain", status:"Draft", items:12, done:0 }
+  ];
+
+  const artifacts = [
+    { name:"Initiative — KYC Modernization", owner:"You", status:"Active", updated:"Feb 18" },
+    { name:"Epic — KYC-SVC façade", owner:"Eng Lead", status:"In Progress", updated:"Feb 18" },
+    { name:"Story — Durable event model", owner:"Architect", status:"In Progress", updated:"Feb 17" },
+    { name:"Checklist — ORR Phase 1", owner:"PMO", status:"In Progress", updated:"Feb 18" }
+  ];
+
+  function toast(msg){
+    $("#toastText").textContent = msg;
+    $("#toast").classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(()=>$("#toast").classList.remove("show"), 1400);
+  }
+  function log(line){
+    const el = $("#log");
+    const stamp = new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+    el.textContent += `[${stamp}] ${line}\n`;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function setView(view){
+    state.view = view;
+    $("#modeLabel").textContent = view.charAt(0).toUpperCase() + view.slice(1);
+    $$("#nav .navItem[data-view]").forEach(x=>x.classList.remove("active"));
+    const active = $(`#nav .navItem[data-view="${view}"]`);
+    if(active) active.classList.add("active");
+
+    if(view === "today"){ renderToday(); }
+    else if(view === "inbox"){ renderInbox(); }
+    else if(view === "links"){ renderLinks(); }
+    else if(view === "checklists"){ renderChecklists(); }
+    else if(view === "objectives"){ renderObjectives(); }
+    else { renderPlaceholder(view); }
+
+    toast(`View: ${view}`);
+  }
+
+  function renderPlaceholder(view){
+    $("#paneATitle").textContent = view.charAt(0).toUpperCase() + view.slice(1);
+    $("#paneASub").textContent = "Placeholder. In the real product this becomes a full workspace.";
+    $("#paneAAction").textContent = "Open";
+    $("#paneABody").innerHTML = `
+      <div class="hint">
+        This is where the <b>${view}</b> workspace lives (thread editor, phase definitions, delivery tree, reconcile diff, etc.).
+      </div>
+      <div class="dropzone" style="margin-top:10px;">
+        <div><b>Agent-first</b><div class="tiny">Inspector stays constant: always offers agent actions + evidence.</div></div>
+        <button class="btn">Open</button>
+      </div>
+    `;
+    renderObjectivesSide();
+    renderLinksChecklistSnapshot();
+  }
+
+  function renderInboxTimeline(){
+    $("#paneATitle").textContent = "Inbox Timeline";
+    $("#paneASub").textContent = "Inputs are Confluence PDFs/pastes, Jira dumps, Smartsheet dumps, and link bundles.";
+    $("#paneAAction").textContent = "Run Agents";
+    $("#paneAAction").onclick = runAgents;
+
+    $("#paneABody").innerHTML = `
+      <div class="dropzone">
+        <div>
+          <b>Add input</b>
+          <div class="tiny">Paste Confluence page, upload PDF/image, drop Jira/Smartsheet export, or paste link bundle.</div>
+        </div>
+        <button class="btn primary" id="addInputBtn">＋ Add</button>
+      </div>
+      <div class="timeline" id="tl"></div>
+    `;
+
+    const tl = $("#paneABody").querySelector("#tl");
+    inputs.forEach(u=>{
+      const div = document.createElement("div");
+      div.className = "event" + (state.selectedInputId===u.id ? " active" : "");
+      div.innerHTML = `
+        <div class="eventTop">
+          <div style="min-width:0;">
+            <div class="eventTitle">${u.title}</div>
+            <div class="tiny mono" style="margin-top:4px;">${u.ts} • ${u.type}</div>
+          </div>
+          <div class="eventMeta">
+            ${u.tags.map(t=>`<span class="chip accent">${t}</span>`).join("")}
+          </div>
+        </div>
+        <div class="eventDesc">${u.desc}</div>
+        <div class="row">
+          <button class="btn" data-act="thread">Promote → Thread</button>
+          <button class="btn" data-act="ideas">Extract ideas</button>
+          <button class="btn" data-act="artifact">Update artifacts</button>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          ${u.suggestedThreads.map(st=>`<span class="chip good">🧵 ${st.name} (${Math.round(st.confidence*100)}%)</span>`).join("")}
+        </div>
+      `;
+      div.addEventListener("click", (e)=>{
+        if(e.target && e.target.dataset && e.target.dataset.act) return;
+        state.selectedInputId = u.id;
+        renderInboxTimeline();
+        renderInspectorForInput(u.id);
+      });
+      div.querySelectorAll("button[data-act]").forEach(b=>{
+        b.addEventListener("click",(e)=>{
+          e.stopPropagation();
+          const act = e.target.dataset.act;
+          if(act==="thread"){ toast("Promoted to thread (mock)"); log(`THREAD_MAKER: promoted ${u.id} to thread + evidence.`); }
+          if(act==="ideas"){ toast("Ideas extracted (mock)"); log(`THREAD_MAKER: extracted ${u.extractedIdeas.length} ideas from ${u.id}.`); }
+          if(act==="artifact"){ toast("Artifacts updated (mock)"); log(`PM_AGENT: updated local artifacts from ${u.type} input ${u.id}.`); }
+        });
+      });
+      tl.appendChild(div);
+    });
+
+    $("#paneABody").querySelector("#addInputBtn").onclick = ()=>{
+      toast("Add input (mock)");
+      log("INPUT: opened input dialog (paste/upload/import) (mock).");
+    };
+  }
+
+  function renderObjectivesSide(){
+    $("#paneBTitle").textContent = "Sprint Objectives";
+    $("#paneBSub").textContent = "North star focus by sprint; coverage + risk visible.";
+    $("#paneBAction").textContent = "Open";
+    $("#paneBAction").onclick = ()=> setView("objectives");
+
+    $("#paneBBody").innerHTML = `
+      <div class="sprintBar">
+        <div><div style="font-weight:900;">${sprint.name}</div><div class="tiny">Objective Decipher Agent tracks drift.</div></div>
+        <div style="width:160px;"><select><option>${sprint.name}</option></select></div>
+      </div>
+      <div class="objGrid" id="objGrid"></div>
+    `;
+    const grid = $("#paneBBody").querySelector("#objGrid");
+    sprint.objectives.forEach(o=>{
+      const riskChip = o.risk==="ok" ? "good" : (o.risk==="watch" ? "warn" : "bad");
+      const div = document.createElement("div");
+      div.className = "obj";
+      div.innerHTML = `
+        <div class="objTop">
+          <div style="min-width:0;">
+            <div class="objTitle">${o.title}</div>
+            <div class="objDesc">${o.desc}</div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+            <span class="chip ${riskChip}">${o.risk}</span>
+            <span class="badge">${o.coverage}% coverage</span>
+          </div>
+        </div>
+        <div class="progress"><div style="width:${o.coverage}%"></div></div>
+        <div class="row">
+          <button class="btn">Open tickets</button>
+          <button class="btn" data-act="objAgent">Ask agent</button>
+        </div>
+      `;
+      div.querySelector('button[data-act="objAgent"]').onclick = (e)=>{
+        e.stopPropagation();
+        toast("Objective agent ran (mock)");
+        log(`OBJECTIVE_AGENT: evaluated "${o.title}" → propose coverage fixes and date alignment.`);
+      };
+      grid.appendChild(div);
+    });
+  }
+
+  function renderLinksChecklistSnapshot(){
+    $("#paneCTitle").textContent = "Links + Checklists Snapshot";
+    $("#paneCSub").textContent = "Important links hub, plus ORR and other readiness checklists.";
+    $("#paneCAction").textContent = "Open Links";
+    $("#paneCAction").onclick = ()=> setView("links");
+
+    // Show 2 link categories and 2 checklists as snapshot
+    const cats = linkHub.slice(0,2);
+    const cls = checklists.slice(0,2);
+
+    $("#paneCBody").innerHTML = `
+      <div class="reconcileGrid">
+        <div class="card" style="border-radius:14px;">
+          <div class="cardHeader" style="border-radius:14px 14px 0 0;">
+            <div class="left"><div class="h">Important Links</div><div class="sub">Organized like Confluence, but curated here</div></div>
+            <button class="btn" id="openLinks">Open</button>
+          </div>
+          <div class="cardBody" id="linksSnap"></div>
+        </div>
+        <div class="card" style="border-radius:14px;">
+          <div class="cardHeader" style="border-radius:14px 14px 0 0;">
+            <div class="left"><div class="h">Checklists</div><div class="sub">ORR-style checklists tied to phases</div></div>
+            <button class="btn" id="openChecks">Open</button>
+          </div>
+          <div class="cardBody" id="checksSnap"></div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="curate">Run Curator Agent</button>
+        <button class="btn" id="newChecklist">New checklist</button>
+        <button class="btn" id="newLinkBundle">Add link bundle</button>
+      </div>
+    `;
+
+    const linksSnap = $("#paneCBody").querySelector("#linksSnap");
+    linksSnap.innerHTML = cats.map(c=>`
+      <div class="linkCard">
+        <div class="t">${c.cat}</div>
+        <div class="linkList">
+          ${c.items.map(i=>`
+            <div class="linkItem">
+              <div><b>${i.name}</b><div class="tiny">${i.note}</div></div>
+              <span class="chip accent">pin</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `).join("");
+
+    const checksSnap = $("#paneCBody").querySelector("#checksSnap");
+    checksSnap.innerHTML = `
+      ${cls.map(x=>{
+        const pct = Math.round((x.done/x.items)*100);
+        const chip = x.status==="In Progress" ? "warn" : "accent";
+        return `
+          <div class="checkRow">
+            <div class="left"><b>${x.name}</b><span>owner: ${x.owner} • ${x.done}/${x.items} done</span></div>
+            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+              <span class="chip ${chip}">${x.status}</span>
+              <span class="badge">${pct}%</span>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    `;
+
+    $("#paneCBody").querySelector("#openLinks").onclick = ()=> setView("links");
+    $("#paneCBody").querySelector("#openChecks").onclick = ()=> setView("checklists");
+
+    $("#paneCBody").querySelector("#curate").onclick = ()=>{
+      toast("Curator agent ran (mock)");
+      log("CURATOR_AGENT: categorized 14 links; pinned 4; created ORR checklist template; flagged 3 missing runbooks.");
+    };
+    $("#paneCBody").querySelector("#newChecklist").onclick = ()=>{
+      toast("Checklist created (mock)");
+      log("CHECKLIST: created new checklist template (mock).");
+    };
+    $("#paneCBody").querySelector("#newLinkBundle").onclick = ()=>{
+      toast("Link bundle added (mock)");
+      log("LINKS: added bundle; queued for categorization (mock).");
+    };
+  }
+
+  function renderInspectorForInput(id){
+    const u = inputs.find(x=>x.id===id) || inputs[0];
+    $("#selectedLabel").textContent = u.type;
+    $("#agentChips").innerHTML = `
+      <span class="chip accent">🕒 ${u.ts}</span>
+      <span class="chip accent">📦 ${u.type}</span>
+      ${u.tags.map(t=>`<span class="chip accent">${t}</span>`).join("")}
+      ${u.suggestedThreads.map(st=>`<span class="chip good">🧵 ${st.name} (${Math.round(st.confidence*100)}%)</span>`).join("")}
+    `;
+    log(`SELECT: ${u.id} (${u.type})`);
+    // Show idea extraction in log as "preview" without overwhelming the UI.
+    log(`IDEAS_PREVIEW: ${u.extractedIdeas.slice(0,2).join(" | ")}${u.extractedIdeas.length>2 ? " | ..." : ""}`);
+  }
+
+  function renderArtifacts(){
+    const tb = $("#artifactTable");
+    tb.innerHTML = "";
+    artifacts.forEach(a=>{
+      const statusChip =
+        a.status === "In Progress" || a.status === "Active" ? "good" :
+        a.status === "Draft" ? "warn" : "accent";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><b>${a.name}</b></td>
+        <td class="tiny" style="color:var(--muted)">${a.owner}</td>
+        <td><span class="chip ${statusChip}">${a.status}</span></td>
+        <td class="mono">${a.updated}</td>
+      `;
+      tb.appendChild(tr);
+    });
+  }
+
+  function runAgents(){
+    toast("Agents ran (mock)");
+    log("AGENTS: Content Aggregator normalized inputs.");
+    log("AGENTS: Thread Maker created/updated threads + extracted ideas/actions.");
+    log("AGENTS: Objective Decipher evaluated sprint objectives + coverage.");
+    log("AGENTS: PM Agent refreshed local artifacts from Jira/Smartsheet dumps.");
+    log("AGENTS: Curator updated link hub + checklists.");
+  }
+
+  function renderToday(){
+    renderInboxTimeline();
+    renderObjectivesSide();
+    renderLinksChecklistSnapshot();
+    renderInspectorForInput(state.selectedInputId);
+  }
+
+  function renderInbox(){
+    renderInboxTimeline();
+    renderObjectivesSide();
+    renderLinksChecklistSnapshot();
+    renderInspectorForInput(state.selectedInputId);
+  }
+
+  function renderLinks(){
+    $("#paneATitle").textContent = "Important Links Hub";
+    $("#paneASub").textContent = "Organize links into Architecture, Minutes, Agendas, Non-prod, Repos, Setup, Prod, Runbooks, ORR, etc.";
+    $("#paneAAction").textContent = "Run Curator";
+    $("#paneAAction").onclick = ()=>{
+      toast("Curator agent ran (mock)");
+      log("CURATOR_AGENT: re-categorized links; detected duplicates; flagged stale runbook link.");
+    };
+
+    $("#paneABody").innerHTML = `
+      <div class="dropzone">
+        <div><b>Add link bundle</b><div class="tiny">Paste from Confluence: links get categorized automatically.</div></div>
+        <button class="btn primary" id="addLinks">＋ Add</button>
+      </div>
+      <div class="linkGrid" id="lg"></div>
+    `;
+    const lg = $("#paneABody").querySelector("#lg");
+    linkHub.forEach(c=>{
+      const div = document.createElement("div");
+      div.className = "linkCard";
+      div.innerHTML = `
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+          <div>
+            <div class="t">${c.cat}</div>
+            <div class="d">Pinned and searchable. Attach to threads/objectives/phases/tickets.</div>
+          </div>
+          <button class="btn">Pin rules</button>
+        </div>
+        <div class="linkList">
+          ${c.items.map(i=>`
+            <div class="linkItem">
+              <div><b>${i.name}</b><div class="tiny">${i.note}</div></div>
+              <span class="chip accent">open</span>
+            </div>
+          `).join("")}
+        </div>
+        <div class="row">
+          <button class="btn">Attach → Thread</button>
+          <button class="btn">Attach → Phase</button>
+          <button class="btn">Attach → Objective</button>
+        </div>
+      `;
+      lg.appendChild(div);
+    });
+
+    $("#paneABody").querySelector("#addLinks").onclick = ()=>{
+      toast("Link bundle added (mock)");
+      log("LINK_BUNDLE: queued for categorization + duplicate detection (mock).");
+    };
+
+    renderObjectivesSide();
+    renderLinksChecklistSnapshot();
+  }
+
+  function renderChecklists(){
+    $("#paneATitle").textContent = "Checklists";
+    $("#paneASub").textContent = "Operational readiness planning and other checklist templates/instances.";
+    $("#paneAAction").textContent = "New Checklist";
+    $("#paneAAction").onclick = ()=>{
+      toast("Checklist created (mock)");
+      log("CHECKLIST: created new checklist (template or instance) (mock).");
+    };
+
+    $("#paneABody").innerHTML = `
+      <div class="dropzone">
+        <div><b>Create checklist</b><div class="tiny">ORR, release readiness, env readiness, onboarding, runbook completeness.</div></div>
+        <button class="btn primary" id="newC">＋ Create</button>
+      </div>
+      <div class="checks" id="cl"></div>
+    `;
+    const cl = $("#paneABody").querySelector("#cl");
+    checklists.forEach(x=>{
+      const pct = Math.round((x.done/x.items)*100);
+      const statusChip = x.status==="In Progress" ? "warn" : (x.status==="Draft" ? "accent" : "good");
+      const div = document.createElement("div");
+      div.className = "checkRow";
+      div.innerHTML = `
+        <div class="left"><b>${x.name}</b><span>owner: ${x.owner} • ${x.done}/${x.items} done</span></div>
+        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+          <span class="chip ${statusChip}">${x.status}</span>
+          <span class="badge">${pct}%</span>
+        </div>
+      `;
+      div.addEventListener("click", ()=>{
+        toast("Checklist opened (mock)");
+        log(`CHECKLIST_OPEN: ${x.name} (mock).`);
+      });
+      cl.appendChild(div);
+    });
+
+    $("#paneABody").querySelector("#newC").onclick = ()=>{
+      toast("Checklist created (mock)");
+      log("CHECKLIST: created ORR checklist template; attached to Phase 1 exit criteria (mock).");
+    };
+
+    renderObjectivesSide();
+    renderLinksChecklistSnapshot();
+  }
+
+  function renderObjectives(){
+    $("#paneATitle").textContent = "Objectives (by Sprint)";
+    $("#paneASub").textContent = "Objective Decipher Agent proposes objectives from threads and delivery state.";
+    $("#paneAAction").textContent = "Run Agent";
+    $("#paneAAction").onclick = ()=>{
+      toast("Objective agent ran (mock)");
+      log("OBJECTIVE_AGENT: detected drift; proposed moving 1 story; created 3 subtasks to raise coverage.");
+    };
+
+    $("#paneABody").innerHTML = `
+      <div class="sprintBar">
+        <div><div style="font-weight:900;">${sprint.name}</div><div class="tiny">Everything maps back to objectives.</div></div>
+        <div style="width:180px;"><select><option>${sprint.name}</option></select></div>
+      </div>
+      <div class="objGrid" id="og"></div>
+      <div class="dropzone" style="margin-top:10px;">
+        <div><b>Add objective</b><div class="tiny">Define outcome + metric; link to threads and tickets.</div></div>
+        <button class="btn primary" id="addObj">＋ Add</button>
+      </div>
+    `;
+    const og = $("#paneABody").querySelector("#og");
+    sprint.objectives.forEach(o=>{
+      const riskChip = o.risk==="ok" ? "good" : (o.risk==="watch" ? "warn" : "bad");
+      const div = document.createElement("div");
+      div.className = "obj";
+      div.innerHTML = `
+        <div class="objTop">
+          <div style="min-width:0;">
+            <div class="objTitle">${o.title}</div>
+            <div class="objDesc">${o.desc}</div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+            <span class="chip ${riskChip}">${o.risk}</span>
+            <span class="badge">${o.coverage}% coverage</span>
+          </div>
+        </div>
+        <div class="progress"><div style="width:${o.coverage}%"></div></div>
+        <div class="row">
+          <button class="btn">Link tickets</button>
+          <button class="btn">Link threads</button>
+          <button class="btn">Create missing</button>
+        </div>
+      `;
+      og.appendChild(div);
+    });
+
+    $("#paneABody").querySelector("#addObj").onclick = ()=>{
+      toast("Objective created (mock)");
+      log("OBJECTIVE: created new objective draft for current sprint (mock).");
+    };
+
+    renderObjectivesSide();
+    renderLinksChecklistSnapshot();
+  }
+
+  function wireNav(){
+    $$("#nav .navItem[data-view]").forEach(it=>{
+      it.addEventListener("click", ()=> setView(it.dataset.view));
+    });
+  }
+
+  function init(){
+    wireNav();
+    renderArtifacts();
+
+    $("#agentRun").onclick = runAgents;
+    $("#runAgents").onclick = runAgents;
+    $("#newInput").onclick = ()=>{ toast("Add input (mock)"); log("INPUT: paste/upload/import dialog (mock)."); };
+    $("#export").onclick = ()=>{ toast("Exported (mock)"); log("EXPORT: serialized state (inputs, threads, objectives, links, checklists, artifacts)."); };
+
+    $("#globalSearch").addEventListener("input", (e)=>{
+      const q = e.target.value.trim().toLowerCase();
+      if(!q) return;
+      log(`SEARCH: "${q}" (mock) → filter inputs/threads/objectives/links/checklists.`);
+    });
+
+    setView("today");
+    renderInspectorForInput(state.selectedInputId);
+    log("READY: Response 2 Command Center loaded.");
+  }
+
+  init();
+</script>
+</body>
+</html>

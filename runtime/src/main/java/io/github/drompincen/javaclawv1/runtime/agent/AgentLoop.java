@@ -156,7 +156,7 @@ public class AgentLoop {
             persistNewMessages(sessionId, messages.size(), finalState);
 
             updateStatus(sessionId, SessionStatus.COMPLETED, isThread);
-            if (distillerService != null) distillerService.distillAsync(sessionId);
+            // Distiller auto-trigger disabled — superseded by ExtractionService / thread-extractor agent
         } catch (Exception e) {
             log.error("Agent loop error for session {}", sessionId, e);
             boolean failThread = sessionRepository.findById(sessionId).isEmpty();
@@ -182,8 +182,11 @@ public class AgentLoop {
             Map<String, String> msg = allMsgs.get(i);
             String role = msg.getOrDefault("role", "system");
             String content = msg.getOrDefault("content", "");
-            // Skip empty system prompts that were injected during graph execution
-            if ("system".equals(role) && content.length() > 2000) continue;
+
+            // Never persist system prompts — they are internal orchestration
+            if ("system".equals(role)) continue;
+            // Never persist tool results — they are shown via events
+            if ("tool".equals(role)) continue;
 
             MessageDocument doc = new MessageDocument();
             doc.setMessageId(java.util.UUID.randomUUID().toString());
@@ -192,6 +195,12 @@ public class AgentLoop {
             doc.setRole(role);
             doc.setContent(content);
             doc.setTimestamp(Instant.now());
+
+            // Tag assistant messages with the producing agent
+            if ("assistant".equals(role)) {
+                doc.setAgentId(finalState.getCurrentAgentId());
+            }
+
             messageRepository.save(doc);
         }
         log.info("Persisted {} new messages for session {}", nextSeq - existingCount - 1, sessionId);

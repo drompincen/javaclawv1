@@ -11,6 +11,8 @@ public record IdeaDto(
         List<String> tags,
         IdeaStatus status,
         String promotedToTicketId,
+        String threadId,
+        String sourceUploadId,
         Instant createdAt,
         Instant updatedAt
 ) {

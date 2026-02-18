@@ -10,9 +10,17 @@ public record TicketDto(
         String description,
         TicketStatus status,
         TicketPriority priority,
+        TicketType type,
+        String parentTicketId,
         String assignedResourceId,
         List<String> linkedThreadIds,
         List<String> blockedBy,
+        List<String> objectiveIds,
+        String phaseId,
+        List<String> evidenceLinks,
+        String externalRef,
+        String owner,
+        Instant lastExternalSync,
         Instant createdAt,
         Instant updatedAt
 ) {

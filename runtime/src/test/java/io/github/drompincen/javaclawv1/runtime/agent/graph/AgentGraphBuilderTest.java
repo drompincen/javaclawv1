@@ -62,7 +62,7 @@ class AgentGraphBuilderTest {
         builder = new AgentGraphBuilder(
                 llmService, toolRegistry, eventService, approvalService,
                 checkpointSaver, agentRepository, logService, objectMapper,
-                reminderAgentService);
+                reminderAgentService, null);
 
         controller = makeAgent("controller", AgentRole.CONTROLLER, "You are the controller.");
         generalist = makeAgent("generalist", AgentRole.SPECIALIST, "You are the generalist.");

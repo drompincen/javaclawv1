@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 2,
+  "projectName": "JavaClaw v1",
+  "description": "V2 Filesystem tools: list_directory and search_files with assertions",
+  "defaults": {
+    "maxWaitMs": 30000,
+    "requireCheckerPass": false
+  },
+  "steps": [
+    {
+      "name": "set-project-context",
+      "type": "context",
+      "userQuery": "use project JavaClaw v1",
+      "description": "Context command — no LLM call needed",
+      "expects": {
+        "sessionStatus": "COMPLETED"
+      }
+    },
+    {
+      "name": "list-root-directory",
+      "type": "tool-call",
+      "userQuery": "list the files in the current directory",
+      "description": "Coder uses list_directory to show project root",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"list files in current directory\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll list the files in the current directory.\n\n<tool_call>\n{\"name\": \"list_directory\", \"args\": {\"path\": \".\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder listed directory contents successfully\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "events": {
+          "containsTypes": ["TOOL_CALL_STARTED", "TOOL_RESULT"],
+          "minCounts": {
+            "TOOL_CALL_STARTED": 1,
+            "TOOL_RESULT": 1
+          }
+        },
+        "messages": {
+          "anyAssistantContains": "list"
+        }
+      }
+    },
+    {
+      "name": "search-test-files",
+      "type": "tool-call",
+      "userQuery": "find all Java test files in the project",
+      "description": "Coder uses search_files with glob pattern",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"find all Java test files\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll search for all Java test files.\n\n<tool_call>\n{\"name\": \"search_files\", \"args\": {\"pattern\": \"**/*Test.java\", \"path\": \".\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder found Java test files using glob search\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "events": {
+          "containsTypes": ["TOOL_CALL_STARTED", "TOOL_RESULT"]
+        },
+        "messages": {
+          "anyAssistantContains": "search"
+        }
+      }
+    },
+    {
+      "name": "list-tools-directory",
+      "type": "tool-call",
+      "userQuery": "list the tools source directory",
+      "description": "Coder uses list_directory on a subdirectory",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"coder\", \"subTask\": \"list tools source directory\"}"
+        },
+        {
+          "agentName": "coder",
+          "responseFallback": "I'll list the tools source directory.\n\n<tool_call>\n{\"name\": \"list_directory\", \"args\": {\"path\": \"tools/src/main/java/io/github/drompincen/javaclawv1/tools\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Coder listed tools directory contents\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "events": {
+          "containsTypes": ["TOOL_RESULT"]
+        }
+      }
+    }
+  ]
+}

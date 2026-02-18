@@ -80,8 +80,10 @@ public class TicketController {
 
     private TicketDto toDto(TicketDocument doc) {
         return new TicketDto(doc.getTicketId(), doc.getProjectId(), doc.getTitle(), doc.getDescription(),
-                doc.getStatus(), doc.getPriority(), doc.getAssignedResourceId(),
-                doc.getLinkedThreadIds(), doc.getBlockedBy(),
+                doc.getStatus(), doc.getPriority(), doc.getType(), doc.getParentTicketId(),
+                doc.getAssignedResourceId(), doc.getLinkedThreadIds(), doc.getBlockedBy(),
+                doc.getObjectiveIds(), doc.getPhaseId(), doc.getEvidenceLinks(),
+                doc.getExternalRef(), doc.getOwner(), doc.getLastExternalSync(),
                 doc.getCreatedAt(), doc.getUpdatedAt());
     }
 }

@@ -92,7 +92,16 @@ public class javaclaw {
                 case "--testmode" -> System.setProperty("javaclaw.llm.provider", "test");
                 case "--scenario" -> {
                     if (i + 1 < args.length) {
-                        System.setProperty("javaclaw.scenario.file", args[++i]);
+                        String scenarioArg = args[++i];
+                        // Accumulate multiple --scenario flags into comma-separated list
+                        String existing = System.getProperty("javaclaw.scenario.files");
+                        if (existing != null && !existing.isBlank()) {
+                            System.setProperty("javaclaw.scenario.files", existing + "," + scenarioArg);
+                        } else {
+                            System.setProperty("javaclaw.scenario.files", scenarioArg);
+                        }
+                        // Set single-file property for @ConditionalOnProperty activation
+                        System.setProperty("javaclaw.scenario.file", scenarioArg);
                         System.setProperty("javaclaw.llm.provider", "test"); // scenario implies test mode
                     }
                 }

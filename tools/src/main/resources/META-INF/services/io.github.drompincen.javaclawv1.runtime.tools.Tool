@@ -14,3 +14,6 @@ io.github.drompincen.javaclawv1.tools.MemoryTool
 io.github.drompincen.javaclawv1.tools.ExcelTool
 io.github.drompincen.javaclawv1.tools.PythonExecTool
 io.github.drompincen.javaclawv1.tools.HumanSearchTool
+io.github.drompincen.javaclawv1.tools.ReadThreadMessagesTool
+io.github.drompincen.javaclawv1.tools.CreateReminderTool
+io.github.drompincen.javaclawv1.tools.CreateChecklistTool

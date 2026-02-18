@@ -1,0 +1,187 @@
+JavaClaw — Improved Scenario Testing Plan (TODO)
+
+Goal
+Make scenario testing validate real outcomes for agent workflows (threads, plans, objectives, reminders, resourcing, reconciliation),
+not just that the controller→specialist→reviewer loop ran.
+
+--------------------------------------------------------------------------------
+0) Foundations (determinism + testability)
+[ ] Inject a Clock abstraction everywhere time is used (runtime + reminders + scheduler)
+    - Interface: Clock { Instant now(); }
+    - ProdClock uses Instant.now()
+    - TestClock uses fixed "now" from scenario file
+[ ] Add deterministic ID strategy for scenario mode (avoid brittle UUID randomness)
+    - Option A: UUIDv5(namespace, scenarioId + stepName + entityType + ordinal)
+    - Option B: Keep random IDs but assert by stable fields only (titleRegex, projectId, etc.)
+[ ] Ensure tool execution can be mocked deterministically in scenario mode
+    - ToolMockRegistry: toolName + args matcher -> ToolResult fixture
+    - Support match types: exact, subset, regex, jsonpath
+[ ] Add “maxWaitMs” handling with robust completion polling (session/thread status)
+[ ] Define and document what “PASS” means at system level:
+    - reviewer pass required by default
+    - expected event types
+    - expected Mongo state deltas
+
+--------------------------------------------------------------------------------
+1) Scenario schema v2 (file format)
+[ ] Create schemaVersion=2 format with:
+    - now (fixed time), defaults (strictness), steps[]
+    - per-step: name, type (command/intake/message/import/reconcile), userQuery
+    - agentResponses[]: (agentName, responseFallback)
+    - toolMocks[]: (tool, match, result)
+    - expects: events + mongo assertions + optional message assertions
+[ ] Publish JSON schema (draft-07 or 2020-12) under runtime/src/test/resources/schema/scenario-v2.schema.json
+[ ] Write 2-3 fully worked examples:
+    - scenario-intake-threads-v2.json
+    - scenario-reminders-v2.json
+    - scenario-reconcile-v2.json
+
+--------------------------------------------------------------------------------
+2) Scenario runner + assertions engine
+[ ] Implement ScenarioRunnerService (runtime)
+    - Loads scenario file, creates/uses project, plays steps
+    - For each step:
+      - send message to session/thread (or context command)
+      - run agent loop (thread or session)
+      - wait for terminal status (COMPLETED/FAILED)
+      - execute assertions
+      - write per-step report
+[ ] Implement ScenarioAsserts engine
+    - Mongo assertions:
+      - countEq/countGte/countLte
+      - exists (true/false)
+      - anyMatch (field regex / contains)
+      - pathEq/pathGte/pathLte (JSONPath-like)
+      - deltaFromBefore (count changes, new docs detected)
+    - Event assertions:
+      - containsTypes (subset)
+      - orderContains (relative ordering)
+      - minCounts/exactCounts
+[ ] Add scenario reporting artifact:
+    - JSON report per run with step pass/fail, timings, failures, diffs
+    - Optional text summary for console
+[ ] Add CLI flags:
+    - --scenario <file> (existing) -> use v2 when schemaVersion=2
+    - --scenario-report <dir>
+    - --scenario-assert-strict (tighten message/text assertions)
+    - --scenario-record <out.json> (record+freeze mode)
+
+--------------------------------------------------------------------------------
+3) Data model readiness (Mongo collections for asserts)
+[ ] Confirm/extend documents to support outcome assertions:
+    - threads: projectId, title, status, evidenceRefs[], ideaIds[], objectiveIds[], updatedAt
+    - objectives: projectId, sprint, title, definitionOfDone, ticketIds[], coveragePct, unmappedTicketCount
+    - plans: projectId, name, phases[] {name, entryCriteria[], exitCriteria[], milestones[]}, linkedTicketIds[]
+    - reminders: projectId, title, schedule(normalized), fireTimes[], status
+    - resources: resourceId, name, capacityPct
+    - resource_assignments: resourceId, ticketId, sprint, allocationPct
+    - reconciliation_reports: projectId, sourceRefs, deltas[], stats
+[ ] Add indexes needed for fast scenario querying:
+    - projectId + title (threads/plans)
+    - projectId + sprint (objectives)
+    - projectId + nextFireTime (reminders)
+    - projectId + createdAt (events/messages)
+[ ] Add a computed Scorecard doc updates for drift metrics (optional but recommended)
+    - resourcing.overloadCount
+    - objectives.unmappedTicketCount
+    - plans.dateDriftCount
+    - reconciliation.deltaCount
+
+--------------------------------------------------------------------------------
+4) Built-in scenario suites (acceptance criteria)
+A) Threads from Intake
+[ ] Scenario: intake paste creates 1+ threads
+    - assert threads.countGte(1)
+    - assert any thread.titleRegex matches expected topic
+    - assert evidenceRefs.countGte(1)
+[ ] Scenario: multiple intake items cluster into same thread
+    - assert thread updatedAt changes
+    - assert evidenceRefs increases
+
+B) Plan creation
+[ ] Scenario: intake with phases generates plan with phases[]
+    - assert plans.countEq(1)
+    - assert phases contain expected names
+    - assert milestones parsed relative to fixed clock
+
+C) Reminder extraction
+[ ] Scenario: “due date + remind 3 days before + day-of”
+    - assert reminders.countEq(2)
+    - assert schedule normalized (ONE_SHOT or RRULE-like)
+    - assert nextFireTime matches fixed clock math
+
+D) Objective alignment
+[ ] Scenario: tickets imported + sprint objective created
+    - assert objective exists for sprint
+    - assert coveragePct >= threshold
+    - assert unmappedTicketCount == expected
+
+E) Resourcing oversight
+[ ] Scenario: capacity sheet + assignments -> overload detection
+    - assert overloadCount >= 1
+    - assert a specific resource allocationPct sum > 100 triggers flag
+
+F) Smartsheet ↔ Tickets reconciliation
+[ ] Scenario: smartsheet dump + ticket dump -> reconciliation report
+    - assert reconciliation_reports.countEq(1)
+    - assert deltaCount >= 1
+    - assert expected delta types (MISSING_TICKET, DATE_DRIFT, OWNER_MISMATCH)
+
+--------------------------------------------------------------------------------
+5) Tool mocking fixtures (common)
+[ ] Provide standard fixtures for:
+    - excel tool: read sheet -> returns stable rows
+    - read_file/list_directory/search_files: returns stable file listings/content
+    - human_search: stubbed (no external dependency)
+    - create_ticket/create_idea: deterministic created objects
+[ ] Add arg matchers for mocks:
+    - containsKeys: [..]
+    - pathEq (jsonpath)
+    - regex on string fields
+    - fallback default fixture if no match
+
+--------------------------------------------------------------------------------
+6) Reviewer/Checker validation rules for scenarios
+[ ] In scenario mode, enforce reviewer must PASS unless explicitly expected FAIL
+[ ] Add expects.reviewer:
+    - requirePass (bool)
+    - expectedFailReasonRegex
+[ ] Capture checker loop retries:
+    - assert maxRetries not exceeded
+    - if exceeded, scenario fails with diagnostic
+
+--------------------------------------------------------------------------------
+7) UI support (optional but high leverage)
+[ ] Add “Scenarios” node in Navigator
+[ ] Add run/rerun buttons; show last report pass/fail
+[ ] Add failure viewer:
+    - show failing assertion
+    - show expected vs actual snippet (path + value)
+[ ] Emit scenario events:
+    - SCENARIO_STEP_STARTED
+    - SCENARIO_STEP_PASSED
+    - SCENARIO_STEP_FAILED
+    - SCENARIO_ASSERT_FAILED
+
+--------------------------------------------------------------------------------
+8) CI integration
+[ ] Add Maven profile: -Pscenario-tests
+    - runs ScenarioRunner against bundled scenario suite
+[ ] Make scenario tests fail build on first failure (or summarize all failures)
+[ ] Persist scenario reports as CI artifacts
+
+--------------------------------------------------------------------------------
+9) Developer ergonomics
+[ ] Record-and-freeze mode (--scenario-record):
+    - capture user queries, agent responses, tool calls/results
+    - capture created Mongo entities (snapshot)
+    - output skeleton scenario v2 with expects prefilled
+[ ] Add docs: docs/testing-scenarios.md
+    - how to write scenarios
+    - how to mock tools
+    - how to debug failures (mongo queries + logs)
+
+Definition of Done (overall)
+- At least 6 scenario suites (Threads, Plans, Reminders, Objectives, Resourcing, Reconcile) run deterministically in CI
+- Each step asserts Mongo outcomes + key event types
+- Failures produce actionable diffs (which doc/path mismatched)

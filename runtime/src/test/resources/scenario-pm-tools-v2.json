@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Sprint Tracker",
+  "description": "V2 PM tools: create_ticket and create_idea with assertions",
+  "defaults": {
+    "maxWaitMs": 30000,
+    "requireCheckerPass": false
+  },
+  "steps": [
+    {
+      "name": "set-project-context",
+      "type": "context",
+      "userQuery": "use project Sprint Tracker",
+      "description": "Context command — no LLM call needed",
+      "expects": {
+        "sessionStatus": "COMPLETED"
+      }
+    },
+    {
+      "name": "create-ticket",
+      "type": "tool-call",
+      "userQuery": "create a ticket for database migration to PostgreSQL",
+      "description": "PM uses create_ticket tool",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"create database migration ticket\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "I'll create a ticket for the database migration.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"sprint-tracker\", \"title\": \"Migrate database to PostgreSQL\", \"description\": \"Migrate from MongoDB to PostgreSQL for relational data. Includes schema design, data migration scripts, and connection pool configuration.\", \"priority\": \"HIGH\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM created database migration ticket\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "events": {
+          "containsTypes": ["AGENT_DELEGATED", "TOOL_RESULT"],
+          "minCounts": {
+            "TOOL_CALL_STARTED": 1,
+            "TOOL_RESULT": 1
+          }
+        },
+        "mongo": [
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "sprint-tracker"},
+            "assert": {"countGte": 1}
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "ticket"
+        }
+      }
+    },
+    {
+      "name": "create-idea",
+      "type": "tool-call",
+      "userQuery": "add an idea for implementing dark mode in the UI",
+      "description": "PM uses create_idea tool",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"add dark mode idea\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "I'll add that as an idea for the project.\n\n<tool_call>\n{\"name\": \"create_idea\", \"args\": {\"projectId\": \"sprint-tracker\", \"title\": \"Dark mode support for UI\", \"content\": \"Add dark mode toggle to the Bloomberg terminal-style UI. Use FlatLaf dark theme as base, allow user preference persistence, and ensure all custom components respect the theme.\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM added dark mode idea\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "events": {
+          "containsTypes": ["AGENT_DELEGATED", "TOOL_RESULT"]
+        },
+        "mongo": [
+          {
+            "collection": "ideas",
+            "filter": {"projectId": "sprint-tracker"},
+            "assert": {"countGte": 1}
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "idea"
+        }
+      }
+    },
+    {
+      "name": "create-second-ticket",
+      "type": "tool-call",
+      "userQuery": "create a low priority ticket for updating documentation",
+      "description": "PM uses create_ticket with LOW priority",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"create documentation ticket\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "I'll create a documentation ticket.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"sprint-tracker\", \"title\": \"Update API documentation\", \"description\": \"Update REST API docs to reflect new endpoints added in Sprint 3. Include request/response examples.\", \"priority\": \"LOW\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM created documentation ticket\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "sprint-tracker"},
+            "assert": {"countGte": 2}
+          }
+        ]
+      }
+    }
+  ]
+}

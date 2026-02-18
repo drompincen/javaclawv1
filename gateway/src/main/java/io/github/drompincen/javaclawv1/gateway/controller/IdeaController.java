@@ -95,6 +95,7 @@ public class IdeaController {
     private IdeaDto toDto(IdeaDocument doc) {
         return new IdeaDto(doc.getIdeaId(), doc.getProjectId(), doc.getTitle(), doc.getContent(),
                 doc.getTags(), doc.getStatus(), doc.getPromotedToTicketId(),
+                doc.getThreadId(), doc.getSourceUploadId(),
                 doc.getCreatedAt(), doc.getUpdatedAt());
     }
 }

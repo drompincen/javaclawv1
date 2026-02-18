@@ -26,7 +26,8 @@ public class AgentBootstrapService {
             "coder", "Handles coding tasks: writing code, running/executing code via jbang or python, debugging, code review, 'run it' requests, creating tools/scripts/programs",
             "pm", "Handles project management: sprint planning, tickets, milestones, backlog, resource allocation, deadlines",
             "generalist", "Handles general questions: life advice, brainstorming, knowledge questions, writing help, anything that doesn't fit other agents",
-            "reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization"
+            "reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization",
+            "thread-extractor", "Handles thread content extraction: reads thread messages and extracts reminders, TODOs, checklists, tickets, and ideas from conversations"
     );
 
     public AgentBootstrapService(AgentRepository agentRepository, SessionRepository sessionRepository) {
@@ -58,7 +59,8 @@ public class AgentBootstrapService {
         seedGeneralistAgent();
         seedReminderAgent();
         seedDistillerAgent();
-        log.info("Seeded 7 default agents: controller, coder, reviewer, pm, generalist, reminder, distiller");
+        seedThreadExtractorAgent();
+        log.info("Seeded 8 default agents: controller, coder, reviewer, pm, generalist, reminder, distiller, thread-extractor");
     }
 
     private void ensureMissingAgents() {
@@ -66,6 +68,7 @@ public class AgentBootstrapService {
         if (agentRepository.findById("distiller").isEmpty()) { seedDistillerAgent(); log.info("Seeded missing distiller agent"); }
         if (agentRepository.findById("generalist").isEmpty()) { seedGeneralistAgent(); log.info("Seeded missing generalist agent"); }
         if (agentRepository.findById("reminder").isEmpty()) { seedReminderAgent(); log.info("Seeded missing reminder agent"); }
+        if (agentRepository.findById("thread-extractor").isEmpty()) { seedThreadExtractorAgent(); log.info("Seeded missing thread-extractor agent"); }
         // Fix agents from older bootstraps that may lack the enabled flag
         agentRepository.findAll().forEach(agent -> {
             if (!agent.isEnabled()) {
@@ -173,6 +176,32 @@ public class AgentBootstrapService {
             REMINDER: <what> | WHEN: <time> | RECURRING: <yes/no interval>
             Then provide a friendly summary after. Use markdown formatting.""";
 
+    private static final String THREAD_EXTRACTOR_PROMPT = """
+            You are a thread extraction agent. Your job is to analyze thread conversations and extract \
+            structured, actionable artifacts from them.
+
+            ## Workflow
+            1. Use `read_thread_messages` to read all messages from the specified thread(s)
+            2. Analyze the conversation content to identify:
+               - **Reminders**: Things to follow up on, deadlines, time-sensitive items
+               - **Checklists/TODOs**: Action items, task lists, steps to complete
+               - **Tickets**: Work items that should be tracked (bugs, features, tasks)
+               - **Ideas**: Suggestions, proposals, or concepts worth capturing
+            3. For each identified item, use the appropriate tool to persist it:
+               - `create_reminder` for time-based or condition-based reminders
+               - `create_checklist` for groups of related action items
+               - `create_ticket` for individual work items
+               - `create_idea` for ideas and suggestions
+               - `memory` to store summaries or key findings
+            4. Always link artifacts back to their source thread using sourceThreadId
+
+            ## Guidelines
+            - Be thorough but avoid duplicates — check if similar items already exist
+            - Prefer checklists over individual tickets for related small tasks
+            - Set appropriate priority levels based on conversation urgency
+            - Include relevant context in descriptions so items are actionable standalone
+            - Summarize what you extracted at the end of processing""";
+
     private void seedController() {
         AgentDocument agent = new AgentDocument();
         agent.setAgentId("controller");
@@ -278,6 +307,22 @@ public class AgentBootstrapService {
                 When you are done with your task, provide a summary of what was distilled.""");
         agent.setSkills(List.of("memory_extraction", "summarization", "knowledge_distillation"));
         agent.setAllowedTools(List.of("memory"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedThreadExtractorAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("thread-extractor");
+        agent.setName("Thread Extractor");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("thread-extractor"));
+        agent.setSystemPrompt(THREAD_EXTRACTOR_PROMPT);
+        agent.setSkills(List.of("extraction", "analysis", "content_processing", "artifact_creation"));
+        agent.setAllowedTools(List.of("read_thread_messages", "create_reminder", "create_checklist",
+                "create_ticket", "create_idea", "memory"));
         agent.setRole(AgentRole.SPECIALIST);
         agent.setEnabled(true);
         agent.setCreatedAt(Instant.now());

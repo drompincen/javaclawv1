@@ -1,0 +1,1121 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>OpenClaw+ — Agentic Project Command Center (Example)</title>
+    <style>
+        :root{
+          --bg:#0b0f17;
+          --panel:#0f1624;
+          --panel2:#0c1220;
+          --text:#e7eefc;
+          --muted:#9ab0d1;
+          --faint:#6f86ab;
+          --good:#24d18f;
+          --warn:#ffcc66;
+          --bad:#ff5a7a;
+          --accent:#7aa2ff;
+          --accent2:#b58cff;
+          --shadow: 0 14px 40px rgba(0,0,0,.35);
+          --radius:16px;
+          --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+          --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        }
+        *{box-sizing:border-box}
+        html,body{height:100%}
+        body{
+          margin:0;
+          font-family:var(--sans);
+          color:var(--text);
+          background:
+            radial-gradient(1200px 800px at 20% -10%, rgba(122,162,255,.18), transparent 60%),
+            radial-gradient(900px 700px at 110% 20%, rgba(181,140,255,.14), transparent 55%),
+            radial-gradient(700px 600px at 20% 110%, rgba(36,209,143,.10), transparent 55%),
+            var(--bg);
+          overflow:hidden;
+        }
+        .app{
+          height:100%;
+          display:grid;
+          grid-template-columns: 280px 1fr 420px;
+          gap:14px;
+          padding:14px;
+        }
+        .sidebar,.main,.right{
+          min-height:0;
+          border:1px solid rgba(255,255,255,.06);
+          background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+          border-radius:var(--radius);
+          box-shadow:var(--shadow);
+          overflow:hidden;
+        }
+        .sidebar{background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)), var(--panel2);}
+        .main{background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)), var(--panel);}
+        .right{background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)), var(--panel2);}
+
+        .bar{
+          display:flex; align-items:center; justify-content:space-between; gap:12px;
+          padding:14px 14px 12px;
+          border-bottom:1px solid rgba(255,255,255,.06);
+          background:rgba(0,0,0,.12);
+          backdrop-filter: blur(10px);
+        }
+        .brand{display:flex; align-items:center; gap:10px; font-weight:800;}
+        .logo{
+          width:34px; height:34px; border-radius:12px;
+          background:
+            radial-gradient(12px 12px at 30% 30%, rgba(255,255,255,.45), transparent 50%),
+            linear-gradient(135deg, rgba(122,162,255,.95), rgba(181,140,255,.85));
+          border:1px solid rgba(255,255,255,.18);
+          box-shadow:0 10px 30px rgba(122,162,255,.18);
+        }
+        .tiny{font-size:11px; color:var(--faint);}
+        .pill{
+          display:inline-flex; align-items:center; gap:8px;
+          padding:6px 10px; border-radius:999px;
+          background:rgba(122,162,255,.10);
+          border:1px solid rgba(122,162,255,.25);
+          font-size:12px;
+          white-space:nowrap;
+        }
+        .btn{
+          cursor:pointer; user-select:none;
+          padding:8px 10px; border-radius:12px;
+          border:1px solid rgba(255,255,255,.10);
+          background:rgba(255,255,255,.04);
+          color:var(--text);
+          font-size:12px;
+          display:inline-flex; align-items:center; gap:8px;
+        }
+        .btn:hover{background:rgba(255,255,255,.06)}
+        .btn.primary{
+          background:linear-gradient(135deg, rgba(122,162,255,.26), rgba(181,140,255,.18));
+          border:1px solid rgba(122,162,255,.32);
+        }
+
+        /* Sidebar nav */
+        .nav{padding:10px; display:flex; flex-direction:column; gap:8px; overflow:auto; height:calc(100% - 58px);}
+        .nav h4{margin:10px 8px 4px; color:var(--muted); font-size:11px; letter-spacing:.8px; text-transform:uppercase;}
+        .navItem{
+          display:flex; align-items:center; gap:10px;
+          padding:10px 10px; border-radius:14px;
+          border:1px solid rgba(255,255,255,.06);
+          background:rgba(255,255,255,.02);
+          cursor:pointer;
+        }
+        .navItem:hover{background:rgba(255,255,255,.04)}
+        .navItem.active{
+          background:linear-gradient(135deg, rgba(122,162,255,.18), rgba(181,140,255,.10));
+          border:1px solid rgba(122,162,255,.28);
+        }
+        .icon{
+          width:34px; height:34px; border-radius:12px;
+          background:rgba(122,162,255,.10);
+          border:1px solid rgba(122,162,255,.20);
+          display:grid; place-items:center;
+          font-size:16px;
+        }
+        .navMeta{display:flex; flex-direction:column; gap:2px}
+        .navMeta .title{font-weight:750; font-size:13px}
+        .navMeta .desc{font-size:12px; color:var(--muted)}
+        .kpi{
+          margin-top:auto;
+          padding:10px;
+          border-top:1px solid rgba(255,255,255,.06);
+          background:rgba(0,0,0,.10);
+        }
+        .kpiGrid{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px;}
+        .kpiCard{
+          padding:10px; border-radius:14px;
+          border:1px solid rgba(255,255,255,.07);
+          background:rgba(255,255,255,.02);
+        }
+        .kpiCard .n{font-family:var(--mono); font-size:18px; font-weight:800}
+        .kpiCard .l{font-size:11px; color:var(--muted); margin-top:3px}
+
+        /* Main layout */
+        .mainTop{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+        .search{
+          flex:1; display:flex; align-items:center; gap:8px;
+          padding:8px 10px; border-radius:12px;
+          background:rgba(255,255,255,.04);
+          border:1px solid rgba(255,255,255,.08);
+          min-width:180px;
+        }
+        .search input{
+          width:100%;
+          background:transparent; border:0; outline:none;
+          color:var(--text); font-size:13px;
+        }
+        .mainContent{
+          height:calc(100% - 58px);
+          overflow:auto;
+          padding:14px;
+          display:grid;
+          grid-template-columns: 1.25fr .75fr;
+          gap:14px;
+          align-content:start;
+        }
+
+        .card{
+          border:1px solid rgba(255,255,255,.07);
+          background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+          border-radius:var(--radius);
+          overflow:hidden;
+        }
+        .cardHeader{
+          padding:12px 12px 10px;
+          border-bottom:1px solid rgba(255,255,255,.06);
+          display:flex; align-items:center; justify-content:space-between; gap:10px;
+          background:rgba(0,0,0,.12);
+        }
+        .cardHeader .left{display:flex; flex-direction:column; gap:2px; min-width:0;}
+        .h{font-weight:800; font-size:13px; letter-spacing:.2px; display:flex; align-items:center; gap:8px;}
+        .sub{font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+        .cardBody{padding:12px}
+
+        /* Inbox timeline */
+        .dropzone{
+          display:flex; align-items:center; justify-content:space-between; gap:10px;
+          padding:10px; border-radius:14px;
+          border:1px dashed rgba(255,255,255,.18);
+          background:rgba(255,255,255,.02);
+        }
+        .dropzone b{font-weight:850}
+        .seg{display:inline-flex; gap:6px; flex-wrap:wrap;}
+        .chip{
+          font-size:11px; padding:5px 8px; border-radius:999px;
+          background:rgba(255,255,255,.03);
+          border:1px solid rgba(255,255,255,.08);
+          color:rgba(231,238,252,.92);
+          white-space:nowrap;
+        }
+        .chip.good{background:rgba(36,209,143,.10); border-color:rgba(36,209,143,.22)}
+        .chip.warn{background:rgba(255,204,102,.10); border-color:rgba(255,204,102,.22)}
+        .chip.bad{background:rgba(255,90,122,.10); border-color:rgba(255,90,122,.22)}
+        .chip.accent{background:rgba(122,162,255,.10); border-color:rgba(122,162,255,.22)}
+        .timeline{display:flex; flex-direction:column; gap:10px; margin-top:10px;}
+        .event{
+          border:1px solid rgba(255,255,255,.07);
+          background:rgba(255,255,255,.02);
+          border-radius:14px;
+          padding:10px;
+          cursor:pointer;
+        }
+        .event:hover{background:rgba(255,255,255,.04)}
+        .event.active{
+          border-color:rgba(122,162,255,.35);
+          background:linear-gradient(135deg, rgba(122,162,255,.12), rgba(181,140,255,.08));
+        }
+        .eventTop{display:flex; justify-content:space-between; gap:10px; align-items:flex-start;}
+        .eventTitle{font-weight:800; font-size:13px; line-height:1.25}
+        .eventMeta{display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;}
+        .eventDesc{font-size:12px; color:var(--muted); line-height:1.35; margin-top:6px;}
+        .mono{font-family:var(--mono);}
+        .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px;}
+        .row .btn{padding:7px 9px; border-radius:12px}
+
+        /* Objectives by sprint */
+        .sprintBar{
+          display:flex; align-items:center; justify-content:space-between; gap:10px;
+          padding:10px; border-radius:14px;
+          border:1px solid rgba(255,255,255,.07);
+          background:rgba(255,255,255,.02);
+          margin-bottom:10px;
+        }
+        select,textarea,input{
+          width:100%;
+          padding:10px 10px;
+          border-radius:12px;
+          border:1px solid rgba(255,255,255,.10);
+          background:rgba(255,255,255,.03);
+          color:var(--text);
+          outline:none;
+          font-size:12px;
+        }
+        textarea{min-height:70px; resize:vertical}
+        .objGrid{display:grid; grid-template-columns:1fr; gap:10px;}
+        .obj{
+          border:1px solid rgba(255,255,255,.07);
+          background:rgba(255,255,255,.02);
+          border-radius:14px;
+          padding:10px;
+        }
+        .objTop{display:flex; justify-content:space-between; gap:10px; align-items:flex-start;}
+        .objTitle{font-weight:850; font-size:13px}
+        .objDesc{font-size:12px; color:var(--muted); line-height:1.35; margin-top:6px;}
+        .progress{
+          height:10px; border-radius:999px;
+          background:rgba(255,255,255,.06);
+          border:1px solid rgba(255,255,255,.06);
+          overflow:hidden;
+          margin-top:10px;
+        }
+        .progress > div{
+          height:100%;
+          width:50%;
+          background:linear-gradient(90deg, rgba(122,162,255,.75), rgba(181,140,255,.65));
+        }
+
+        /* Right inspector */
+        .rightContent{
+          height:calc(100% - 58px);
+          overflow:auto;
+          padding:14px;
+          display:flex;
+          flex-direction:column;
+          gap:14px;
+        }
+        .log{
+          font-family:var(--mono);
+          font-size:11px;
+          line-height:1.35;
+          padding:10px;
+          border-radius:14px;
+          border:1px solid rgba(255,255,255,.08);
+          background:rgba(0,0,0,.20);
+          max-height:180px;
+          overflow:auto;
+          white-space:pre-wrap;
+        }
+        .hint{font-size:12px; color:var(--muted); line-height:1.35}
+        table{
+          width:100%;
+          border-collapse:separate;
+          border-spacing:0 8px;
+          font-size:12px;
+        }
+        th{
+          text-align:left;
+          color:var(--muted);
+          font-weight:700;
+          font-size:11px;
+          padding:0 8px 4px;
+          text-transform:uppercase;
+          letter-spacing:.7px;
+        }
+        td{
+          padding:10px 10px;
+          background:rgba(255,255,255,.02);
+          border-top:1px solid rgba(255,255,255,.07);
+          border-bottom:1px solid rgba(255,255,255,.07);
+        }
+        tr td:first-child{
+          border-left:1px solid rgba(255,255,255,.07);
+          border-top-left-radius:14px;
+          border-bottom-left-radius:14px;
+        }
+        tr td:last-child{
+          border-right:1px solid rgba(255,255,255,.07);
+          border-top-right-radius:14px;
+          border-bottom-right-radius:14px;
+        }
+        .toast{
+          position:fixed;
+          left:50%;
+          bottom:18px;
+          transform:translateX(-50%);
+          padding:10px 12px;
+          border-radius:14px;
+          background:rgba(10,14,22,.84);
+          border:1px solid rgba(255,255,255,.10);
+          box-shadow:var(--shadow);
+          display:none;
+          gap:10px;
+          align-items:center;
+          color:rgba(231,238,252,.95);
+          font-size:12px;
+          max-width:min(860px, calc(100vw - 28px));
+          backdrop-filter: blur(10px);
+        }
+        .toast.show{display:flex}
+        .toast .ticon{
+          width:26px; height:26px; border-radius:10px;
+          display:grid; place-items:center;
+          background:rgba(36,209,143,.12);
+          border:1px solid rgba(36,209,143,.25);
+        }
+
+        /* Reconcile preview */
+        .reconcileGrid{
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap:10px;
+        }
+        .miniList{display:flex; flex-direction:column; gap:8px;}
+        .miniItem{
+          border:1px solid rgba(255,255,255,.07);
+          background:rgba(255,255,255,.02);
+          border-radius:14px;
+          padding:10px;
+          cursor:pointer;
+        }
+        .miniItem:hover{background:rgba(255,255,255,.04)}
+        .miniItem .t{font-weight:800; font-size:12.5px}
+        .miniItem .d{font-size:12px; color:var(--muted); margin-top:6px; line-height:1.35}
+        .badge{
+          font-family:var(--mono);
+          font-size:11px;
+          padding:3px 8px;
+          border-radius:999px;
+          background:rgba(0,0,0,.20);
+          border:1px solid rgba(255,255,255,.10);
+          color:rgba(231,238,252,.9);
+          white-space:nowrap;
+        }
+
+        @media (max-width: 1220px){
+          body{overflow:auto}
+          .app{grid-template-columns: 280px 1fr; grid-template-rows:auto auto; height:auto}
+          .right{grid-column:1 / -1}
+        }
+        @media (max-width: 860px){
+          .app{grid-template-columns: 1fr; }
+          .sidebar{display:none}
+          .mainContent{grid-template-columns:1fr}
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="bar">
+            <div class="brand">
+                <div class="logo"></div>
+                <div>
+                    <div style="font-size:13px;">OpenClaw<span style="opacity:.8;">+</span></div>
+                    <div class="tiny">Inbox → Threads → Objectives → Reconcile</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav" id="nav">
+            <h4>Daily loop</h4>
+            <div class="navItem active" data-view="today">
+                <div class="icon">🧭</div>
+                <div class="navMeta">
+                    <div class="title">Today</div>
+                    <div class="desc">triage → align → execute</div>
+                </div>
+            </div>
+            <div class="navItem" data-view="inbox">
+                <div class="icon">📥</div>
+                <div class="navMeta">
+                    <div class="title">Inbox</div>
+                    <div class="desc">uploads & streams</div>
+                </div>
+            </div>
+            <div class="navItem" data-view="objectives">
+                <div class="icon">🎯</div>
+                <div class="navMeta">
+                    <div class="title">Objectives</div>
+                    <div class="desc">by sprint</div>
+                </div>
+            </div>
+            <div class="navItem" data-view="reconcile">
+                <div class="icon">🔁</div>
+                <div class="navMeta">
+                    <div class="title">Reconcile</div>
+                    <div class="desc">smartsheet ↔ tickets</div>
+                </div>
+            </div>
+
+            <h4>Other</h4>
+            <div class="navItem" data-view="threads">
+                <div class="icon">🧵</div>
+                <div class="navMeta">
+                    <div class="title">Threads</div>
+                    <div class="desc">narratives + decisions</div>
+                </div>
+            </div>
+            <div class="navItem" data-view="phases">
+                <div class="icon">🧱</div>
+                <div class="navMeta">
+                    <div class="title">Phases</div>
+                    <div class="desc">definitions & exits</div>
+                </div>
+            </div>
+            <div class="navItem" data-view="delivery">
+                <div class="icon">🎫</div>
+                <div class="navMeta">
+                    <div class="title">Delivery</div>
+                    <div class="desc">local jira artifacts</div>
+                </div>
+            </div>
+
+            <div class="kpi">
+                <div class="pill" style="width:100%; justify-content:space-between;">
+                    <span>Project</span><b>KYC Modernization</b>
+                </div>
+                <div class="kpiGrid">
+                    <div class="kpiCard">
+                        <div class="n" id="kpiUntriaged">7</div>
+                        <div class="l">untriaged uploads</div>
+                    </div>
+                    <div class="kpiCard">
+                        <div class="n" id="kpiConflicts">4</div>
+                        <div class="l">reconcile conflicts</div>
+                    </div>
+                    <div class="kpiCard">
+                        <div class="n" id="kpiAtRisk">2</div>
+                        <div class="l">objectives at risk</div>
+                    </div>
+                    <div class="kpiCard">
+                        <div class="n" id="kpiReady">11</div>
+                        <div class="l">tickets ready</div>
+                    </div>
+                </div>
+                <div class="tiny" style="margin-top:10px; line-height:1.35;">
+                    Upload messy inputs → agent forms threads → threads drive sprint objectives → objectives drive tickets → reconcile against PM plan.
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+        <div class="bar">
+            <div class="mainTop">
+                <div>
+                    <div style="font-weight:900; font-size:14px;">Command Center</div>
+                    <div class="tiny">Example: date-first inbox + sprint objectives + reconcile preview</div>
+                </div>
+                <span class="pill"><span>View</span> <b id="modeLabel">Today</b></span>
+            </div>
+            <div class="search">
+                <span style="opacity:.8">⌕</span>
+                <input id="globalSearch" placeholder="Search uploads, threads, objectives, tickets…" />
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="btn" id="runThreading">Run Threading Agent</button>
+                <button class="btn primary" id="newUpload">＋ Upload</button>
+            </div>
+        </div>
+
+        <div class="mainContent">
+            <!-- Pane A -->
+            <section class="card" id="paneA">
+                <div class="cardHeader">
+                    <div class="left">
+                        <div class="h" id="paneATitle">Inbox Timeline</div>
+                        <div class="sub" id="paneASub">Chronological inputs with thread suggestions.</div>
+                    </div>
+                    <button class="btn" id="paneAAction">Inbox</button>
+                </div>
+                <div class="cardBody" id="paneABody"></div>
+            </section>
+
+            <!-- Pane B -->
+            <section class="card" id="paneB">
+                <div class="cardHeader">
+                    <div class="left">
+                        <div class="h" id="paneBTitle">Sprint Objectives</div>
+                        <div class="sub" id="paneBSub">Objectives → coverage → risk.</div>
+                    </div>
+                    <button class="btn" id="paneBAction">Manage</button>
+                </div>
+                <div class="cardBody" id="paneBBody"></div>
+            </section>
+
+            <!-- Pane C -->
+            <section class="card" id="paneC" style="grid-column:1 / -1;">
+                <div class="cardHeader">
+                    <div class="left">
+                        <div class="h" id="paneCTitle">Reconcile Preview</div>
+                        <div class="sub" id="paneCSub">Smartsheet plan vs ticket truth.</div>
+                    </div>
+                    <button class="btn" id="paneCAction">Open Reconcile</button>
+                </div>
+                <div class="cardBody" id="paneCBody"></div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Inspector -->
+    <aside class="right">
+        <div class="bar">
+            <div class="brand" style="gap:10px;">
+                <div style="font-weight:900;">Inspector</div>
+                <span class="pill" style="background:rgba(255,255,255,.04); border-color:rgba(255,255,255,.10);">
+            Selected <b id="selectedLabel">Upload</b>
+          </span>
+            </div>
+            <button class="btn" id="export">Export</button>
+        </div>
+
+        <div class="rightContent">
+            <section class="card">
+                <div class="cardHeader">
+                    <div class="left">
+                        <div class="h">Threading Agent</div>
+                        <div class="sub" id="agentSub">Uses dates + content to propose threads and actions.</div>
+                    </div>
+                    <button class="btn primary" id="agentRun">Run</button>
+                </div>
+                <div class="cardBody">
+                    <div class="seg" id="agentChips"></div>
+                    <div class="hint" style="margin-top:10px;">
+                        This agent decides: “Which uploads belong together?” and “Which streams deserve a thread?”
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="cardHeader">
+                    <div class="left">
+                        <div class="h">Artifact Store (Local Jira/Confluence)</div>
+                        <div class="sub">Track “who’s doing what” even without Jira tools.</div>
+                    </div>
+                </div>
+                <div class="cardBody">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Artifact</th>
+                            <th>Owner</th>
+                            <th>Status</th>
+                            <th>Updated</th>
+                        </tr>
+                        </thead>
+                        <tbody id="artifactTable"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="cardHeader">
+                    <div class="left">
+                        <div class="h">Execution Log</div>
+                        <div class="sub">Evidence + decisions + tool outputs (mock)</div>
+                    </div>
+                </div>
+                <div class="cardBody">
+                    <div class="log" id="log"></div>
+                </div>
+            </section>
+        </div>
+    </aside>
+</div>
+
+<div class="toast" id="toast">
+    <div class="ticon">✓</div>
+    <div id="toastText">Saved</div>
+</div>
+
+<script>
+    const $ = (s)=>document.querySelector(s);
+    const $$ = (s)=>Array.from(document.querySelectorAll(s));
+
+    const state = { view: "today", selectedUploadId: "u1" };
+
+    const uploads = [
+      {
+        id:"u1",
+        ts:"2026-02-18 09:12",
+        title:"Meeting notes — KYC-SVC façade & tool annotations",
+        desc:"Discussion: combine transformations, safety, enrichment in one service; expose tool endpoints for agents.",
+        tags:["meeting","design","decision?"],
+        suggestedThreads:[
+          { name:"Thread: KYC-SVC façade", confidence:0.86 },
+          { name:"Thread: Tool schema + policies", confidence:0.72 }
+        ]
+      },
+      {
+        id:"u2",
+        ts:"2026-02-17 16:41",
+        title:"Screenshot — PM Smartsheet plan (Phase 1 dates)",
+        desc:"Smartsheet shows Phase 1 complete Mar 5; tickets indicate Mar 12. Owners differ for integration testing.",
+        tags:["image","smartsheet","date drift"],
+        suggestedThreads:[ { name:"Thread: Reconcile Phase 1 plan", confidence:0.91 } ]
+      },
+      {
+        id:"u3",
+        ts:"2026-02-17 10:06",
+        title:"Slack paste — objectives for Sprint 12",
+        desc:"Objective: durable A2A comms; finalize event model; define DoR/DoD; unblock perf test env.",
+        tags:["objectives","sprint 12"],
+        suggestedThreads:[ { name:"Thread: Sprint 12 focus", confidence:0.78 } ]
+      },
+      {
+        id:"u4",
+        ts:"2026-02-15 14:22",
+        title:"Whiteboard photo — agentic assembly line concept",
+        desc:"Idea: Threading agent → Ticketing agent → Objective agent → Reconcile agent; evidence stored for traceability.",
+        tags:["idea","platform"],
+        suggestedThreads:[ { name:"Thread: Agentic planning platform", confidence:0.88 } ]
+      }
+    ];
+
+    const sprintObjectives = [
+      {
+        sprint:"Sprint 12 (Feb 17–Feb 28)",
+        objs:[
+          { title:"Durable A2A communication design locked", desc:"Pick EventBridge vs Kafka; retries, idempotency, replay, DLQ; publish ADR.", coverage:62, risk:"watch" },
+          { title:"KYC-SVC façade skeleton delivered", desc:"Spring Boot scaffold with transformations/safety/enrichment; tool endpoints stubbed.", coverage:44, risk:"ok" },
+          { title:"Ticket quality rubric live (DoR/DoD)", desc:"Auto-check AC/NFRs/obs hooks; reduce rework.", coverage:30, risk:"risk" }
+        ]
+      }
+    ];
+
+    const reconcile = {
+      summary: { conflicts:4, missingTickets:2, dateDrift:1, ownerMismatch:1 },
+      smartsheetRows: [
+        { id:"S-120", title:"Phase 1 complete", date:"Mar 05", owner:"PMO", mapsTo:"Initiative: Target Architecture", conflict:"date drift" },
+        { id:"S-131", title:"Integration test env ready", date:"Feb 27", owner:"SRE", mapsTo:"Epic: Perf & Observability", conflict:"missing ticket" }
+      ],
+      ticketItems: [
+        { id:"KYC-EPIC-44", title:"Target Architecture", date:"Mar 12", owner:"Architect", conflict:"date drift" },
+        { id:"KYC-STORY-118", title:"Define event model for durable workflows", date:"Feb 22", owner:"Architect", conflict:"ok" },
+        { id:"KYC-STORY-140", title:"Perf test env provisioning", date:"Mar 02", owner:"SRE", conflict:"owner mismatch" }
+      ]
+    };
+
+    const artifacts = [
+      { name:"Initiative — KYC Modernization", owner:"You", status:"Active", updated:"Feb 18" },
+      { name:"Epic — KYC-SVC façade", owner:"Eng Lead", status:"In Progress", updated:"Feb 18" },
+      { name:"Story — Durable event model", owner:"Architect", status:"In Progress", updated:"Feb 17" },
+      { name:"ADR — Eventing choice", owner:"Architect", status:"Draft", updated:"Feb 16" }
+    ];
+
+    function toast(msg){
+      $("#toastText").textContent = msg;
+      $("#toast").classList.add("show");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(()=>$("#toast").classList.remove("show"), 1400);
+    }
+    function log(line){
+      const el = $("#log");
+      const stamp = new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+      el.textContent += `[${stamp}] ${line}\n`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function setView(view){
+      state.view = view;
+      $("#modeLabel").textContent = view.charAt(0).toUpperCase() + view.slice(1);
+      $$("#nav .navItem[data-view]").forEach(x=>x.classList.remove("active"));
+      const active = $(`#nav .navItem[data-view="${view}"]`);
+      if(active) active.classList.add("active");
+
+      if(view === "today"){ renderToday(); }
+      else if(view === "inbox"){ renderInbox(); }
+      else if(view === "objectives"){ renderObjectivesOnly(); }
+      else if(view === "reconcile"){ renderReconcileOnly(); }
+      else { renderPlaceholder(view); }
+
+      toast(`View: ${view}`);
+    }
+
+    function renderPlaceholder(view){
+      $("#paneATitle").textContent = view.charAt(0).toUpperCase() + view.slice(1);
+      $("#paneASub").textContent = "Placeholder. This becomes a full workspace in the real product.";
+      $("#paneAAction").textContent = "Open";
+      $("#paneABody").innerHTML = `
+        <div class="hint">
+          This is where the <b>${view}</b> workspace lives (thread editor, phase definitions, ticket tree, etc.).
+        </div>
+        <div class="dropzone" style="margin-top:10px;">
+          <div><b>Design note</b><div class="tiny">Inspector stays constant: always context-aware.</div></div>
+          <button class="btn">Open</button>
+        </div>
+      `;
+      $("#paneBTitle").textContent = "Context";
+      $("#paneBSub").textContent = "Secondary pane (varies by view).";
+      $("#paneBAction").textContent = "—";
+      $("#paneBBody").innerHTML = `<div class="hint">Secondary pane content for ${view}.</div>`;
+      $("#paneCTitle").textContent = "—";
+      $("#paneCSub").textContent = "";
+      $("#paneCBody").innerHTML = `<div class="hint">—</div>`;
+    }
+
+    function renderUploadTimeline(containerSel, list){
+      const c = $(containerSel);
+      c.innerHTML = `
+        <div class="dropzone">
+          <div>
+            <b>Upload inputs</b>
+            <div class="tiny">Drop docs/images with timestamps. Agent uses dates to form threads.</div>
+          </div>
+          <button class="btn primary" id="uploadBtn">＋ Add</button>
+        </div>
+        <div class="timeline" id="tl"></div>
+      `;
+      const tl = c.querySelector("#tl");
+
+      list.forEach(u=>{
+        const div = document.createElement("div");
+        div.className = "event" + (state.selectedUploadId===u.id ? " active" : "");
+        div.innerHTML = `
+          <div class="eventTop">
+            <div style="min-width:0;">
+              <div class="eventTitle">${u.title}</div>
+              <div class="tiny mono" style="margin-top:4px;">${u.ts}</div>
+            </div>
+            <div class="eventMeta">
+              ${u.tags.map(t=>`<span class="chip accent">${t}</span>`).join("")}
+            </div>
+          </div>
+          <div class="eventDesc">${u.desc}</div>
+          <div class="row">
+            <button class="btn" data-act="thread">Promote → Thread</button>
+            <button class="btn" data-act="objective">Link → Objective</button>
+            <button class="btn" data-act="ticket">Create → Ticket Artifact</button>
+          </div>
+          <div class="row" style="margin-top:6px;">
+            ${u.suggestedThreads.map(st=>`<span class="chip good">🧵 ${st.name} (${Math.round(st.confidence*100)}%)</span>`).join("")}
+          </div>
+        `;
+        div.addEventListener("click", (e)=>{
+          // ignore clicks on the internal buttons (so selection doesn't feel broken)
+          if(e.target && e.target.dataset && e.target.dataset.act) return;
+          state.selectedUploadId = u.id;
+          renderUploadTimeline(containerSel, list);
+          renderInspectorForUpload(u.id);
+        });
+
+        div.querySelectorAll("button[data-act]").forEach(b=>{
+          b.addEventListener("click", (e)=>{
+            e.stopPropagation();
+            const act = e.target.dataset.act;
+            if(act === "thread"){ toast("Promoted to thread (mock)"); log(`THREAD: promoted upload ${u.id} → new/existing thread.`); }
+            if(act === "objective"){ toast("Linked to objective (mock)"); log(`OBJECTIVE: linked upload ${u.id} → sprint objective.`); }
+            if(act === "ticket"){ toast("Ticket artifact created (mock)"); log(`TICKET: created local ticket artifact from upload ${u.id}.`); }
+          });
+        });
+
+        tl.appendChild(div);
+      });
+
+      c.querySelector("#uploadBtn").addEventListener("click", ()=>{
+        toast("Upload (mock)");
+        log("UPLOAD: opened upload dialog (mock).");
+      });
+    }
+
+    function renderObjectivesCard(){
+      $("#paneBTitle").textContent = "Sprint Objectives";
+      $("#paneBSub").textContent = "Objectives by sprint, with ticket coverage and risk.";
+      $("#paneBAction").textContent = "Open";
+      $("#paneBAction").onclick = ()=> setView("objectives");
+
+      const s = sprintObjectives[0];
+      $("#paneBBody").innerHTML = `
+        <div class="sprintBar">
+          <div>
+            <div style="font-weight:900;">${s.sprint}</div>
+            <div class="tiny">Each objective links to tickets + evidence.</div>
+          </div>
+          <div style="width:160px;">
+            <select>
+              <option>${s.sprint}</option>
+              <option>Sprint 13 (Mar 01–Mar 14)</option>
+            </select>
+          </div>
+        </div>
+        <div class="objGrid" id="objGrid"></div>
+      `;
+
+      const grid = $("#paneBBody").querySelector("#objGrid");
+      s.objs.forEach(o=>{
+        const riskChip = o.risk==="ok" ? "good" : (o.risk==="watch" ? "warn" : "bad");
+        const div = document.createElement("div");
+        div.className = "obj";
+        div.innerHTML = `
+          <div class="objTop">
+            <div style="min-width:0;">
+              <div class="objTitle">${o.title}</div>
+              <div class="objDesc">${o.desc}</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+              <span class="chip ${riskChip}">${o.risk}</span>
+              <span class="badge">${o.coverage}% coverage</span>
+            </div>
+          </div>
+          <div class="progress"><div style="width:${o.coverage}%"></div></div>
+          <div class="row">
+            <button class="btn">Open linked tickets</button>
+            <button class="btn" id="askObj">Ask Objective Agent</button>
+          </div>
+        `;
+        div.querySelector("#askObj").addEventListener("click", (e)=>{
+          e.stopPropagation();
+          toast("Objective Agent ran (mock)");
+          log(`OBJECTIVE_AGENT: evaluated "${o.title}" → coverage ${o.coverage}% → propose deltas.`);
+        });
+        grid.appendChild(div);
+      });
+    }
+
+    function renderReconcilePreview(){
+      $("#paneCTitle").textContent = "Reconcile Preview";
+      $("#paneCSub").textContent = "Smartsheet ↔ ticket truth. Conflicts are actionable.";
+      $("#paneCAction").textContent = "Open Reconcile";
+      $("#paneCAction").onclick = ()=> setView("reconcile");
+
+      $("#paneCBody").innerHTML = `
+        <div class="row" style="margin-top:0;">
+          <span class="chip bad">conflicts: ${reconcile.summary.conflicts}</span>
+          <span class="chip warn">missing tickets: ${reconcile.summary.missingTickets}</span>
+          <span class="chip warn">date drift: ${reconcile.summary.dateDrift}</span>
+          <span class="chip warn">owner mismatch: ${reconcile.summary.ownerMismatch}</span>
+        </div>
+        <div class="reconcileGrid" style="margin-top:10px;">
+          <div class="card" style="border-radius:14px;">
+            <div class="cardHeader" style="border-radius:14px 14px 0 0;">
+              <div class="left">
+                <div class="h">Smartsheet rows</div>
+                <div class="sub">What PMs track</div>
+              </div>
+            </div>
+            <div class="cardBody"><div class="miniList" id="ssList"></div></div>
+          </div>
+          <div class="card" style="border-radius:14px;">
+            <div class="cardHeader" style="border-radius:14px 14px 0 0;">
+              <div class="left">
+                <div class="h">Ticket truth</div>
+                <div class="sub">Initiative → Epic → Story → Subtask</div>
+              </div>
+            </div>
+            <div class="cardBody"><div class="miniList" id="tkList"></div></div>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="reconcileAgent">Run Reconciliation Agent</button>
+          <button class="btn" id="applyFixes">Apply suggested deltas</button>
+        </div>
+      `;
+
+      const ssList = $("#paneCBody").querySelector("#ssList");
+      reconcile.smartsheetRows.forEach(r=>{
+        const div = document.createElement("div");
+        div.className = "miniItem";
+        div.innerHTML = `
+          <div style="display:flex; justify-content:space-between; gap:10px;">
+            <div class="t">${r.id} — ${r.title}</div>
+            <span class="chip warn">${r.conflict}</span>
+          </div>
+          <div class="d">date: <span class="mono">${r.date}</span> • owner: ${r.owner}<br/>maps to: <b>${r.mapsTo}</b></div>
+        `;
+        ssList.appendChild(div);
+      });
+
+      const tkList = $("#paneCBody").querySelector("#tkList");
+      reconcile.ticketItems.forEach(r=>{
+        const chip = r.conflict==="ok" ? "good" : "warn";
+        const div = document.createElement("div");
+        div.className = "miniItem";
+        div.innerHTML = `
+          <div style="display:flex; justify-content:space-between; gap:10px;">
+            <div class="t">${r.id} — ${r.title}</div>
+            <span class="chip ${chip}">${r.conflict}</span>
+          </div>
+          <div class="d">date: <span class="mono">${r.date}</span> • owner: ${r.owner}</div>
+        `;
+        tkList.appendChild(div);
+      });
+
+      $("#paneCBody").querySelector("#reconcileAgent").onclick = ()=>{
+        toast("Reconcile agent ran (mock)");
+        log("RECONCILE_AGENT: found 4 conflicts → propose 6 deltas (create 2 stories, shift 1 date, adjust 1 owner).");
+      };
+      $("#paneCBody").querySelector("#applyFixes").onclick = ()=>{
+        toast("Applied deltas (mock)");
+        log("APPLY_DELTAS: created missing tickets; aligned dates; updated owners (mock).");
+      };
+    }
+
+    function renderInspectorForUpload(id){
+      const u = uploads.find(x=>x.id===id) || uploads[0];
+      $("#selectedLabel").textContent = "Upload";
+      $("#agentSub").textContent = `Selected: ${u.title}`;
+      $("#agentChips").innerHTML = `
+        <span class="chip accent">🕒 ${u.ts}</span>
+        ${u.tags.map(t=>`<span class="chip accent">${t}</span>`).join("")}
+        ${u.suggestedThreads.map(st=>`<span class="chip good">🧵 ${st.name} (${Math.round(st.confidence*100)}%)</span>`).join("")}
+      `;
+    }
+
+    function renderArtifacts(){
+      const tb = $("#artifactTable");
+      tb.innerHTML = "";
+      artifacts.forEach(a=>{
+        const statusChip =
+          a.status === "In Progress" || a.status === "Active" ? "good" :
+          a.status === "Draft" ? "warn" : "accent";
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><b>${a.name}</b></td>
+          <td class="tiny" style="color:var(--muted)">${a.owner}</td>
+          <td><span class="chip ${statusChip}">${a.status}</span></td>
+          <td class="mono">${a.updated}</td>
+        `;
+        tb.appendChild(tr);
+      });
+    }
+
+    function runThreadingAgent(){
+      toast("Threading agent ran (mock)");
+      log("THREADING_AGENT: clustered uploads into threads; marked 1 as decision; extracted 5 action items.");
+    }
+
+    function renderToday(){
+      $("#paneATitle").textContent = "Inbox Timeline";
+      $("#paneASub").textContent = "Triage uploads, promote streams into threads, attach evidence to tickets.";
+      $("#paneAAction").textContent = "Open Inbox";
+      $("#paneAAction").onclick = ()=> setView("inbox");
+      renderUploadTimeline("#paneABody", uploads);
+
+      renderObjectivesCard();
+      renderReconcilePreview();
+      renderInspectorForUpload(state.selectedUploadId);
+    }
+
+    function renderInbox(){
+      $("#paneATitle").textContent = "Inbox";
+      $("#paneASub").textContent = "All uploads with date-first organization. Agent proposes threads.";
+      $("#paneAAction").textContent = "Run Agent";
+      $("#paneAAction").onclick = runThreadingAgent;
+      renderUploadTimeline("#paneABody", uploads);
+
+      renderObjectivesCard();
+      renderReconcilePreview();
+      renderInspectorForUpload(state.selectedUploadId);
+    }
+
+    function renderObjectivesOnly(){
+      $("#paneATitle").textContent = "Objectives (by Sprint)";
+      $("#paneASub").textContent = "North-star view. Every ticket maps to an objective.";
+      $("#paneAAction").textContent = "Run Agent";
+      $("#paneAAction").onclick = ()=>{
+        toast("Objective agent ran (mock)");
+        log("OBJECTIVE_AGENT: 1 objective under-covered; propose 3 subtasks + move 1 story into Sprint 12.");
+      };
+
+      const s = sprintObjectives[0];
+      $("#paneABody").innerHTML = `
+        <div class="sprintBar">
+          <div>
+            <div style="font-weight:900;">${s.sprint}</div>
+            <div class="tiny">Objective Agent flags drift and missing coverage.</div>
+          </div>
+          <div style="width:180px;"><select><option>${s.sprint}</option></select></div>
+        </div>
+        <div class="objGrid" id="objGridFull"></div>
+        <div class="dropzone" style="margin-top:10px;">
+          <div><b>Add objective</b><div class="tiny">Define outcome, metric, and links.</div></div>
+          <button class="btn primary" id="addObj">＋ Add</button>
+        </div>
+      `;
+      const grid = $("#paneABody").querySelector("#objGridFull");
+      s.objs.forEach(o=>{
+        const riskChip = o.risk==="ok" ? "good" : (o.risk==="watch" ? "warn" : "bad");
+        const div = document.createElement("div");
+        div.className = "obj";
+        div.innerHTML = `
+          <div class="objTop">
+            <div style="min-width:0;">
+              <div class="objTitle">${o.title}</div>
+              <div class="objDesc">${o.desc}</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+              <span class="chip ${riskChip}">${o.risk}</span>
+              <span class="badge">${o.coverage}% coverage</span>
+            </div>
+          </div>
+          <div class="progress"><div style="width:${o.coverage}%"></div></div>
+          <div class="row">
+            <button class="btn">Link tickets</button>
+            <button class="btn">Create missing</button>
+          </div>
+        `;
+        grid.appendChild(div);
+      });
+
+      $("#paneABody").querySelector("#addObj").onclick = ()=>{
+        toast("Added objective (mock)");
+        log("OBJECTIVE: created new objective draft for current sprint (mock).");
+      };
+
+      // Secondary panes minimal
+      $("#paneBTitle").textContent = "Objective Details";
+      $("#paneBSub").textContent = "Select an objective to inspect tickets/evidence.";
+      $("#paneBAction").textContent = "—";
+      $("#paneBBody").innerHTML = `<div class="hint">Objective details panel (tickets, owners, evidence chain).</div>`;
+      $("#paneCTitle").textContent = "—";
+      $("#paneCSub").textContent = "";
+      $("#paneCBody").innerHTML = `<div class="hint">—</div>`;
+    }
+
+    function renderReconcileOnly(){
+      $("#paneATitle").textContent = "Reconcile (Smartsheet ↔ Tickets)";
+      $("#paneASub").textContent = "Map rows to initiative/epic/story/subtask; resolve conflicts; export deltas.";
+      $("#paneAAction").textContent = "Apply Deltas";
+      $("#paneAAction").onclick = ()=>{
+        toast("Applied deltas (mock)");
+        log("APPLY_DELTAS: aligned Phase 1 date; created missing story for integration env.");
+      };
+
+      // reuse the preview but bigger
+      $("#paneABody").innerHTML = `<div class="hint">This view becomes a 3-pane diff (Smartsheet | Mapping | Tickets). Preview below:</div>`;
+      renderReconcilePreview();
+
+      // make paneB an agent reasoning panel
+      $("#paneBTitle").textContent = "Reconciliation Agent";
+      $("#paneBSub").textContent = "Explains conflicts and suggests actions with confidence.";
+      $("#paneBAction").textContent = "Run";
+      $("#paneBAction").onclick = ()=>{
+        toast("Agent reasoning (mock)");
+        log("RECONCILE_REASONING: date drift due to dependency chain; owner mismatch due to handoff.");
+      };
+      $("#paneBBody").innerHTML = `
+        <div class="hint">
+          <b>Conflict taxonomy</b><br/>
+          • Missing in tickets<br/>
+          • Missing in Smartsheet<br/>
+          • Date drift<br/>
+          • Owner mismatch<br/>
+          • Scope mismatch (1 row ↔ many tickets)
+        </div>
+        <div class="dropzone" style="margin-top:10px;">
+          <div><b>Proposed mapping</b><div class="tiny">S-131 “Integration test env” → create Story under Epic “Perf & Observability”.</div></div>
+          <button class="btn primary" id="acceptMap">Accept mapping</button>
+        </div>
+      `;
+      $("#paneBBody").querySelector("#acceptMap").onclick = ()=>{
+        toast("Mapping accepted (mock)");
+        log("MAPPING: accepted Smartsheet row S-131 → new Story (mock).");
+      };
+    }
+
+    function wireNav(){
+      $$("#nav .navItem[data-view]").forEach(it=>{
+        it.addEventListener("click", ()=> setView(it.dataset.view));
+      });
+    }
+
+    function init(){
+      wireNav();
+      renderArtifacts();
+
+      $("#agentRun").onclick = runThreadingAgent;
+      $("#runThreading").onclick = runThreadingAgent;
+      $("#newUpload").onclick = ()=>{ toast("Upload (mock)"); log("UPLOAD: opened upload dialog (mock)."); };
+      $("#export").onclick = ()=>{ toast("Exported (mock)"); log("EXPORT: serialized project state (mock)."); };
+
+      $("#globalSearch").addEventListener("input", (e)=>{
+        const q = e.target.value.trim().toLowerCase();
+        if(!q) return;
+        // lightweight: just log what would happen
+        log(`SEARCH: "${q}" (mock) → filter uploads/threads/objectives/tickets.`);
+      });
+
+      setView("today");
+      log("READY: Command Center loaded.");
+    }
+
+    init();
+</script>
+</body>
+</html>

@@ -20,6 +20,8 @@ public class IdeaDocument {
     private List<String> tags;
     private IdeaDto.IdeaStatus status;
     private String promotedToTicketId;
+    private String threadId;
+    private String sourceUploadId;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -45,6 +47,12 @@ public class IdeaDocument {
 
     public String getPromotedToTicketId() { return promotedToTicketId; }
     public void setPromotedToTicketId(String promotedToTicketId) { this.promotedToTicketId = promotedToTicketId; }
+
+    public String getThreadId() { return threadId; }
+    public void setThreadId(String threadId) { this.threadId = threadId; }
+
+    public String getSourceUploadId() { return sourceUploadId; }
+    public void setSourceUploadId(String sourceUploadId) { this.sourceUploadId = sourceUploadId; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

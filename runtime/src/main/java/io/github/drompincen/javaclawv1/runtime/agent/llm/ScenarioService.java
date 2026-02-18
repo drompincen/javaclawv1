@@ -1,5 +1,6 @@
 package io.github.drompincen.javaclawv1.runtime.agent.llm;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -18,6 +19,8 @@ public class ScenarioService {
 
     private final ObjectMapper objectMapper;
     private ScenarioConfig config;
+    private ScenarioConfigV2 configV2;
+    private boolean v2;
 
     public ScenarioService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -31,11 +34,22 @@ public class ScenarioService {
         }
     }
 
-    void loadScenario(String filePath) {
+    public void loadScenario(String filePath) {
         try {
-            config = objectMapper.readValue(new File(filePath), ScenarioConfig.class);
-            log.info("[Scenario] Loaded scenario '{}' with {} steps from {}",
-                    config.projectName(), config.steps().size(), filePath);
+            File file = new File(filePath);
+            JsonNode root = objectMapper.readTree(file);
+
+            if (root.has("schemaVersion") && root.get("schemaVersion").asInt() == 2) {
+                configV2 = objectMapper.treeToValue(root, ScenarioConfigV2.class);
+                v2 = true;
+                log.info("[Scenario] Loaded V2 scenario '{}' with {} steps from {}",
+                        configV2.projectName(), configV2.steps().size(), filePath);
+            } else {
+                config = objectMapper.treeToValue(root, ScenarioConfig.class);
+                v2 = false;
+                log.info("[Scenario] Loaded scenario '{}' with {} steps from {}",
+                        config.projectName(), config.steps().size(), filePath);
+            }
         } catch (Exception e) {
             log.error("[Scenario] Failed to load scenario from {}: {}", filePath, e.getMessage(), e);
         }
@@ -43,29 +57,44 @@ public class ScenarioService {
 
     /**
      * Looks up a response for the given (userQuery, agentName) pair.
-     * Tries exact match first, then case-insensitive.
+     * Works for both v1 and v2 scenarios (v2 steps reuse AgentResponse).
      */
     public String getResponseForAgent(String userQuery, String agentName) {
-        if (config == null || userQuery == null || agentName == null) return null;
+        if (userQuery == null || agentName == null) return null;
 
-        for (ScenarioConfig.ScenarioStep step : config.steps()) {
-            if (step.agentResponses() == null) continue;
+        List<? extends Object> steps = v2 ? getV2Steps() : getSteps();
+        if (steps == null || steps.isEmpty()) return null;
 
-            // Exact match
-            if (userQuery.equals(step.userQuery())) {
-                return findAgentResponse(step.agentResponses(), agentName);
+        // Exact match
+        for (Object step : steps) {
+            List<ScenarioConfig.AgentResponse> responses = getAgentResponses(step);
+            if (responses == null) continue;
+            if (userQuery.equals(getUserQuery(step))) {
+                return findAgentResponse(responses, agentName);
             }
         }
 
         // Case-insensitive fallback
-        for (ScenarioConfig.ScenarioStep step : config.steps()) {
-            if (step.agentResponses() == null) continue;
-
-            if (userQuery.equalsIgnoreCase(step.userQuery())) {
-                return findAgentResponse(step.agentResponses(), agentName);
+        for (Object step : steps) {
+            List<ScenarioConfig.AgentResponse> responses = getAgentResponses(step);
+            if (responses == null) continue;
+            if (userQuery.equalsIgnoreCase(getUserQuery(step))) {
+                return findAgentResponse(responses, agentName);
             }
         }
 
+        return null;
+    }
+
+    private String getUserQuery(Object step) {
+        if (step instanceof ScenarioConfig.ScenarioStep s) return s.userQuery();
+        if (step instanceof ScenarioConfigV2.Step s) return s.userQuery();
+        return null;
+    }
+
+    private List<ScenarioConfig.AgentResponse> getAgentResponses(Object step) {
+        if (step instanceof ScenarioConfig.ScenarioStep s) return s.agentResponses();
+        if (step instanceof ScenarioConfigV2.Step s) return s.agentResponses();
         return null;
     }
 
@@ -79,6 +108,7 @@ public class ScenarioService {
     }
 
     public String getProjectName() {
+        if (v2) return configV2 != null ? configV2.projectName() : null;
         return config != null ? config.projectName() : null;
     }
 
@@ -86,12 +116,36 @@ public class ScenarioService {
         return config != null ? config.steps() : List.of();
     }
 
+    public boolean isV2() {
+        return v2;
+    }
+
+    public ScenarioConfigV2 getV2Config() {
+        return configV2;
+    }
+
+    public List<ScenarioConfigV2.Step> getV2Steps() {
+        return configV2 != null ? configV2.steps() : List.of();
+    }
+
     public boolean isLoaded() {
-        return config != null;
+        return config != null || configV2 != null;
+    }
+
+    public void reset() {
+        this.config = null;
+        this.configV2 = null;
+        this.v2 = false;
     }
 
     // Package-private for testing
     void setConfig(ScenarioConfig config) {
         this.config = config;
+        this.v2 = false;
+    }
+
+    void setConfigV2(ScenarioConfigV2 configV2) {
+        this.configV2 = configV2;
+        this.v2 = true;
     }
 }

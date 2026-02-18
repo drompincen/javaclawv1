@@ -7,6 +7,7 @@ import io.github.drompincen.javaclawv1.runtime.agent.ReminderAgentService;
 import io.github.drompincen.javaclawv1.runtime.agent.LogService;
 import io.github.drompincen.javaclawv1.runtime.agent.approval.ApprovalService;
 import io.github.drompincen.javaclawv1.runtime.agent.llm.LlmService;
+import io.github.drompincen.javaclawv1.runtime.agent.llm.ToolMockRegistry;
 import io.github.drompincen.javaclawv1.runtime.tools.Tool;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolContext;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolRegistry;
@@ -53,6 +54,7 @@ public class AgentGraphBuilder {
     private final LogService logService;
     private final ObjectMapper objectMapper;
     private final ReminderAgentService reminderAgentService;
+    private final ToolMockRegistry toolMockRegistry;
     private final boolean testMode;
 
     public AgentGraphBuilder(LlmService llmService,
@@ -63,7 +65,9 @@ public class AgentGraphBuilder {
                              AgentRepository agentRepository,
                              LogService logService,
                              ObjectMapper objectMapper,
-                             ReminderAgentService reminderAgentService) {
+                             ReminderAgentService reminderAgentService,
+                             @org.springframework.beans.factory.annotation.Autowired(required = false)
+                             ToolMockRegistry toolMockRegistry) {
         this.llmService = llmService;
         this.toolRegistry = toolRegistry;
         this.eventService = eventService;
@@ -73,6 +77,7 @@ public class AgentGraphBuilder {
         this.logService = logService;
         this.objectMapper = objectMapper;
         this.reminderAgentService = reminderAgentService;
+        this.toolMockRegistry = toolMockRegistry;
         this.testMode = "test".equals(System.getProperty("javaclaw.llm.provider"));
     }
 
@@ -100,8 +105,7 @@ public class AgentGraphBuilder {
 
         // Multi-agent orchestration loop
         for (int retry = 0; retry < MAX_RETRIES; retry++) {
-            // Step 1: Controller decides routing
-            state = state.withAgent(controller.getAgentId());
+            // Step 1: Controller decides routing (isolated — fork discarded)
             eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
                     Map.of("toAgent", controller.getAgentId()));
 
@@ -110,11 +114,11 @@ public class AgentGraphBuilder {
                     .map(a -> a.getAgentId() + ": " + a.getDescription())
                     .collect(Collectors.joining("\n"));
 
-            state = state.withMessage("system", controller.getSystemPrompt()
-                    + "\n\nAvailable specialists:\n" + specialistList);
-
-            String controllerResponse = callLlmForAgentSilent(state, controller);
-            state = state.withMessage("assistant", controllerResponse != null ? controllerResponse : "");
+            AgentState controllerState = state.withAgent(controller.getAgentId())
+                    .withMessage("system", controller.getSystemPrompt()
+                            + "\n\nAvailable specialists:\n" + specialistList);
+            String controllerResponse = callLlmForAgentSilent(controllerState, controller);
+            // controllerState is discarded — main state is unchanged
 
             if (controllerResponse == null || controllerResponse.isBlank()) break;
 
@@ -126,7 +130,7 @@ public class AgentGraphBuilder {
             if (delegateAgentId != null) {
                 log.info("[controller] Delegating to '{}', subTask='{}'",
                         delegateAgentId, parseSubTask(controllerResponse));
-                // Step 2: Delegate to specialist
+                // Step 2: Delegate to specialist (isolated fork, merged back)
                 AgentDocument specialist = agents.stream()
                         .filter(a -> a.getAgentId().equals(delegateAgentId))
                         .findFirst().orElse(null);
@@ -140,15 +144,26 @@ public class AgentGraphBuilder {
                 eventService.emit(state.getThreadId(), EventType.AGENT_DELEGATED,
                         Map.of("targetAgentId", delegateAgentId, "subTask", parseSubTask(controllerResponse)));
 
-                state = state.withAgent(specialist.getAgentId());
                 eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
                         Map.of("fromAgent", controller.getAgentId(), "toAgent", specialist.getAgentId()));
 
-                // Run specialist with tool execution loop
-                state = state.withMessage("system", specialist.getSystemPrompt());
-                state = runAgentSteps(state, specialist);
+                // Fork: specialist operates on isolated state with clean context
+                AgentState specialistState = state.withAgent(specialist.getAgentId())
+                        .withMessage("system", specialist.getSystemPrompt());
 
-                specialistOutput = getLastAssistantMessage(state);
+                // Inject sub-task so specialist knows what to focus on
+                String subTask = parseSubTask(controllerResponse);
+                if (subTask != null && !"delegated task".equals(subTask)) {
+                    specialistState = specialistState.withMessage("system",
+                            "Your current task: " + subTask);
+                }
+
+                specialistState = runAgentSteps(specialistState, specialist);
+                specialistOutput = getLastAssistantMessage(specialistState);
+
+                // Merge ONLY the specialist's final output into main state
+                state = state.withAgent(specialist.getAgentId())
+                        .withMessage("assistant", specialistOutput);
 
                 // Post-process: if reminder agent, extract and save reminders
                 if ("reminder".equals(delegateAgentId) && specialistOutput != null) {
@@ -161,11 +176,14 @@ public class AgentGraphBuilder {
                                 "response", truncate(specialistOutput, 500)));
             } else {
                 specialistOutput = directResponse != null ? directResponse : controllerResponse;
+                // Direct response — attribute to controller
+                state = state.withAgent(controller.getAgentId())
+                        .withMessage("assistant", specialistOutput);
                 eventService.emit(state.getThreadId(), EventType.AGENT_RESPONSE,
                         Map.of("agentId", controller.getAgentId(), "response", truncate(specialistOutput, 500)));
             }
 
-            // Step 3: Checker validates
+            // Step 3: Checker validates (isolated — fork discarded)
             AgentDocument checker = agents.stream()
                     .filter(a -> a.getRole() == AgentRole.CHECKER)
                     .findFirst().orElse(null);
@@ -179,16 +197,16 @@ public class AgentGraphBuilder {
             eventService.emit(state.getThreadId(), EventType.AGENT_CHECK_REQUESTED,
                     Map.of("agentId", checker.getAgentId()));
 
-            state = state.withAgent(checker.getAgentId());
             eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
                     Map.of("toAgent", checker.getAgentId()));
 
-            state = state.withMessage("system", checker.getSystemPrompt());
-            state = state.withMessage("user",
-                    "Review the work completed above. The specialist's final output was:\n" + specialistOutput);
-
-            String checkerResponse = callLlmForAgentSilent(state, checker);
-            state = state.withMessage("assistant", checkerResponse != null ? checkerResponse : "");
+            // Fork: checker operates on its own isolated state
+            AgentState checkerState = state.withAgent(checker.getAgentId())
+                    .withMessage("system", checker.getSystemPrompt())
+                    .withMessage("user",
+                            "Review the work completed above. The specialist's final output was:\n" + specialistOutput);
+            String checkerResponse = callLlmForAgentSilent(checkerState, checker);
+            // checkerState is discarded — main state is unchanged
 
             boolean passed = parseCheckPassed(checkerResponse);
             String summary = parseCheckSummary(checkerResponse);
@@ -204,6 +222,7 @@ public class AgentGraphBuilder {
                         Map.of("agentId", checker.getAgentId(), "feedback", feedback,
                                 "retry", retry + 1, "maxRetries", MAX_RETRIES));
 
+                // Only retry feedback goes into main state (for next specialist iteration)
                 if (retry < MAX_RETRIES - 1) {
                     state = state.withMessage("user",
                             "The reviewer rejected the work with feedback: " + feedback
@@ -465,6 +484,15 @@ public class AgentGraphBuilder {
     }
 
     public ToolResult executeTool(AgentState state, String toolName, JsonNode input) {
+        // Check tool mock registry first (V2 scenario testing)
+        if (toolMockRegistry != null) {
+            Optional<ToolResult> mockResult = toolMockRegistry.tryMatch(toolName, input);
+            if (mockResult.isPresent()) {
+                log.info("[tool] Mock result for {}", toolName);
+                return mockResult.get();
+            }
+        }
+
         Optional<Tool> toolOpt = toolRegistry.get(toolName);
         if (toolOpt.isEmpty()) {
             return ToolResult.failure("Tool not found: " + toolName);

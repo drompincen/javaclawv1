@@ -85,7 +85,7 @@ class AgentGraphBuilderExecFlowTest {
         builder = new AgentGraphBuilder(
                 llmService, toolRegistry, eventService, approvalService,
                 checkpointSaver, agentRepository, logService, objectMapper,
-                reminderAgentService);
+                reminderAgentService, null);
 
         when(llmService.isAvailable()).thenReturn(true);
         when(eventService.emit(any(), any(EventType.class), any())).thenReturn(null);

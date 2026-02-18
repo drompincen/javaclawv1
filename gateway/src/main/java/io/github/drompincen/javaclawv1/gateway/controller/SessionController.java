@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -69,13 +70,20 @@ public class SessionController {
     public ResponseEntity<?> getMessages(@PathVariable String id) {
         if (sessionRepository.findById(id).isEmpty()) return ResponseEntity.notFound().build();
         List<MessageDocument> messages = messageRepository.findBySessionIdOrderBySeqAsc(id);
-        return ResponseEntity.ok(messages.stream().map(m -> Map.of(
-                "messageId", m.getMessageId(),
-                "role", m.getRole(),
-                "content", m.getContent() != null ? m.getContent() : "",
-                "agentId", m.getAgentId() != null ? m.getAgentId() : "",
-                "seq", m.getSeq()
-        )).collect(Collectors.toList()));
+        return ResponseEntity.ok(messages.stream().map(m -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("messageId", m.getMessageId());
+            map.put("role", m.getRole());
+            map.put("content", m.getContent() != null ? m.getContent() : "");
+            map.put("seq", m.getSeq());
+            if (m.getAgentId() != null && !m.getAgentId().isEmpty()) {
+                map.put("agentId", m.getAgentId());
+            }
+            if (m.getApiProvider() != null) map.put("apiProvider", m.getApiProvider());
+            if (m.getDurationMs() != null) map.put("durationMs", m.getDurationMs());
+            map.put("mocked", m.isMocked());
+            return map;
+        }).collect(Collectors.toList()));
     }
 
     @PostMapping("/{id}/messages")

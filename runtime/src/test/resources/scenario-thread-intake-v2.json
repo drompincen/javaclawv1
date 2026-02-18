@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Q1 Planning",
+  "description": "V2 Thread intake: paste long meeting notes, create named thread, process through full agent chain (controller -> PM -> reviewer), assert thread and ticket creation in MongoDB",
+  "defaults": {
+    "maxWaitMs": 30000,
+    "requireCheckerPass": false
+  },
+  "steps": [
+    {
+      "name": "attach-to-project",
+      "type": "context",
+      "userQuery": "use project Q1 Planning",
+      "description": "Context command — attaches standalone session to project, auto-creates a thread",
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {},
+            "assert": {"countGte": 1}
+          }
+        ]
+      }
+    },
+    {
+      "name": "create-named-thread",
+      "type": "context",
+      "userQuery": "use thread Sprint 3 Planning",
+      "description": "Context command — creates a named thread within the project",
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"title": "Sprint 3 Planning"},
+            "assert": {"countEq": 1}
+          }
+        ]
+      }
+    },
+    {
+      "name": "intake-meeting-notes",
+      "type": "message",
+      "userQuery": "Here are the sprint planning meeting notes, please analyze and create tickets for the key action items:\n\n---\nSprint 3 Planning Meeting Notes — February 18, 2026\nAttendees: Alice (Tech Lead), Bob (Backend), Carol (Frontend), Dave (QA), Eve (PM)\n\nAgenda Items:\n\n1. AUTHENTICATION OVERHAUL\n   - Current OAuth2 implementation has token refresh issues (JIRA-142)\n   - Need to migrate to PKCE flow for public clients\n   - Bob estimates 5 story points, needs 3 days\n   - Blocked by: security team review (pending since Feb 10)\n   - Alice: \"Let's add rate limiting to the auth endpoints as well\"\n\n2. DASHBOARD PERFORMANCE\n   - Page load time is 4.2s, target is under 2s\n   - Carol identified 3 problematic React components with unnecessary re-renders\n   - Need to implement React.memo and useMemo for MetricsPanel, ChartContainer, FilterBar\n   - Carol estimates 3 story points, 2 days\n   - Dave: \"Add Lighthouse CI to the pipeline to catch regressions\"\n\n3. DATABASE MIGRATION\n   - PostgreSQL migration from MySQL is 60% complete\n   - Remaining: user_preferences, audit_log, and notification_settings tables\n   - Bob: \"The audit_log table has 50M rows, need to plan downtime window\"\n   - Eve: \"Schedule migration for Saturday 2am-6am, notify stakeholders by Wednesday\"\n   - Risk: rollback plan needs testing before production\n\n4. API DOCUMENTATION\n   - OpenAPI spec is outdated — 12 endpoints missing\n   - Dave volunteered to update using Swagger annotations\n   - Low priority but important for Q2 partner integrations\n   - Estimate: 2 story points, 1 day\n\n5. TEAM CAPACITY\n   - Alice: 80% available (20% on cross-team architecture review)\n   - Bob: 100% available\n   - Carol: 60% available (40% on design system committee)\n   - Dave: 100% available\n   - Total capacity: 34 story points (based on velocity average)\n\nAction Items:\n- Bob: Start auth PKCE migration Monday\n- Carol: Profile dashboard components, PR by Wednesday\n- Eve: Send migration notification email by Wednesday\n- Dave: Update OpenAPI spec, block Friday afternoon\n- Alice: Review auth PR + rate limiting design by Thursday\n\nNext meeting: February 25, 2026\n---",
+      "description": "PM agent processes long meeting notes through full controller -> specialist -> reviewer chain and creates a ticket",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"analyze sprint planning meeting notes and create action item tickets\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "I'll analyze the sprint planning meeting notes and create tickets for the key action items.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"q1-planning\", \"title\": \"Migrate OAuth2 to PKCE flow\", \"description\": \"Current OAuth2 implementation has token refresh issues (JIRA-142). Migrate to PKCE flow for public clients. Add rate limiting to auth endpoints. Bob estimates 5 story points, 3 days. Blocked by security team review pending since Feb 10.\", \"priority\": \"HIGH\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM analyzed sprint meeting notes and created action item tickets\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "events": {
+          "containsTypes": ["AGENT_DELEGATED", "TOOL_CALL_STARTED", "TOOL_RESULT", "AGENT_CHECK_PASSED"],
+          "minCounts": {
+            "AGENT_DELEGATED": 1,
+            "TOOL_RESULT": 1
+          }
+        },
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"title": "Sprint 3 Planning"},
+            "assert": {"exists": true}
+          },
+          {
+            "collection": "messages",
+            "filter": {"sessionId": "{{sessionId}}"},
+            "assert": {"countGte": 3}
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "ticket"
+        }
+      }
+    },
+    {
+      "name": "followup-risks",
+      "type": "message",
+      "userQuery": "Based on those meeting notes, what are the key risks for this sprint?",
+      "description": "Follow-up question tests thread context continuity through agent chain",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"identify key sprint risks from meeting notes\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Based on the Sprint 3 planning meeting notes, here are the key risks:\n\n1. **Authentication migration blocked** — The security team review has been pending since Feb 10. If not unblocked this week, the PKCE migration (5 story points) will slip to Sprint 4, impacting the auth overhaul timeline.\n\n2. **Database migration downtime** — The audit_log table has 50M rows. The Saturday 2am-6am maintenance window needs validation with a dry run. Rollback plan must be tested before production. Eve needs to send stakeholder notifications by Wednesday.\n\n3. **Team capacity constraints** — Alice is at 80% and Carol at 60% availability. Total team capacity is 34 story points against approximately 13 estimated points of committed work. The margin looks comfortable but the database migration is high-risk and could consume more effort than estimated.\n\n4. **Documentation debt for Q2** — While low priority now, the 12 missing OpenAPI endpoints could block Q2 partner integrations if not addressed this sprint. Dave has volunteered but only allocated Friday afternoon."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM identified sprint risks comprehensively from meeting notes context\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "events": {
+          "containsTypes": ["AGENT_DELEGATED", "AGENT_CHECK_PASSED"]
+        },
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"title": "Sprint 3 Planning"},
+            "assert": {"exists": true}
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "risk"
+        }
+      }
+    }
+  ]
+}
