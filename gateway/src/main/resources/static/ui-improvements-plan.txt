@@ -1,0 +1,84 @@
+UI Improvements — Intake, Threads, Objectives, Resources, Polish
+=================================================================
+
+IMPLEMENTED CHANGES
+-------------------
+
+1. Intake — Show Conversations Instead of UUIDs (inspector.js)
+   - Added `case 'session'` to renderInspector() in inspector.js
+   - Loads full conversation via api.sessions.messages(sessionId)
+   - Renders chat-style messages with role pills and agent name chips
+   - File: js/panels/inspector.js
+
+2. Remove On-Demand Agent Buttons (agents.js)
+   - Replaced initAgentPanel() button grid with informational message:
+     "Pipeline handles agents automatically during intake. Use timers below for scheduled runs."
+   - runAgent() export preserved for programmatic use
+   - File: js/panels/agents.js
+
+3. Send Button — Paper Plane Icon (intake.js)
+   - Replaced &#10148; arrow with inline SVG paper plane icon
+   - Added `.btn svg { vertical-align: middle; }` to CSS
+   - Files: js/views/intake.js, css/cockpit.css
+
+4. Agent Tiles — Pulse Green When Running (cockpit.css)
+   - Added @keyframes pulse-green animation (green box-shadow pulse)
+   - Applied to .agent-tile.running class
+   - File: css/cockpit.css
+
+5. Token Counter in Footer (api.js, app.js, index.html)
+   - Added logs.metrics() to api.js (calls GET /api/logs/llm-interactions/metrics)
+   - Added refreshTokenCounter() in app.js that polls every 30s
+   - Updated footer in index.html to show: coin-emoji {tokens} tokens | {calls} calls | avg {ms}ms
+   - Removed old event counter that overwrote the tokenCount element
+   - Files: js/api.js, js/app.js, index.html
+
+6. Objectives — Inline Status Actions (objectives.js)
+   - After renderTable(), injects action buttons into each row's last cell
+   - Three buttons per row: checkmark (Complete/ACHIEVED), warning (At Risk), x (Delete)
+   - Each button calls the appropriate API and re-renders
+   - Date picker inputs for startDate/endDate already present in add form
+   - File: js/views/objectives.js
+
+7. Resources — Busy/Free Indicator (resources.js)
+   - After renderTable(), post-processes availability cells
+   - Appends colored pills: FREE (green, .pill.good) if availability >= 0.5
+   - BUSY (red, .pill.bad) if availability < 0.5
+   - File: js/views/resources.js
+
+FILES MODIFIED (9 total)
+------------------------
+  js/panels/inspector.js   — case 'session' + loadSessionMessages()
+  js/panels/agents.js      — replaced agent buttons with info message
+  js/views/intake.js       — paper plane SVG on send button
+  js/views/objectives.js   — inline Complete/AtRisk/Delete buttons per row
+  js/views/resources.js    — busy/free pill after table render
+  js/api.js                — added logs.metrics() client
+  js/app.js                — token counter polling (30s) + removed event count overwrite
+  index.html               — updated footer for token counter display
+  css/cockpit.css          — pulse-green animation, .btn svg, .agent-tile.running
+
+ALREADY IMPLEMENTED (No Changes Needed)
+----------------------------------------
+  Blindspots in workspace nav     — already in nav.js WORKSPACES array
+  Thread delete menu              — already in threads.js with x buttons
+  Sprint Health section           — already in views/sprinthealth.js
+  Tickets section                 — already in views/tickets.js with status filter
+  Jira paste auto-associate       — handled by intake pipeline PM agent
+  Thread click -> show content    — inspector case 'thread' already loads messages
+  Resource paste dedup            — already in resources.js (existingNames check)
+  Resource project filter         — already in resources.js (projectOnly toggle)
+  Ctrl+Enter to send              — already wired in intake.js
+
+VERIFICATION
+------------
+  1. Open http://localhost:9082/index.html
+  2. Intake: Paste content -> Send -> Recent intake shows conversation title
+     -> Click -> Inspector shows full chat with role pills
+  3. Agent buttons: Right panel shows info message instead of 6 buttons
+  4. Send button: Shows paper plane icon, Ctrl+Enter still works
+  5. Agent tiles: When pipeline runs, active agent tiles pulse green
+  6. Footer: Shows token count, call count, avg latency (updates every 30s)
+  7. Objectives: Add objective with date picker -> Row shows checkmark/warning/x buttons
+     -> Click each to verify status change
+  8. Resources: Table shows FREE/BUSY pills next to availability values
