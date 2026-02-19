@@ -74,6 +74,15 @@ public class BlindspotController {
         }).orElse(ResponseEntity.notFound().build());
     }
 
+    @DeleteMapping("/{blindspotId}")
+    public ResponseEntity<Void> delete(@PathVariable String projectId,
+                                        @PathVariable String blindspotId) {
+        return blindspotRepository.findById(blindspotId).map(doc -> {
+            blindspotRepository.delete(doc);
+            return ResponseEntity.noContent().<Void>build();
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
     private BlindspotDto toDto(BlindspotDocument doc) {
         return new BlindspotDto(
                 doc.getBlindspotId(), doc.getProjectId(), doc.getProjectName(),

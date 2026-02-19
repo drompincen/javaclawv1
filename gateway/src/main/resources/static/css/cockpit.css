@@ -92,10 +92,11 @@ body {
 
 /* ── Forms ── */
 .select {
-  background: rgba(0,0,0,.25); border: 1px solid var(--line); border-radius: 12px;
+  background: #0a1a0c; border: 1px solid var(--line); border-radius: 12px;
   color: var(--text); padding: 8px 10px; outline: none; font-family: var(--mono);
   font-size: 12px; min-width: 220px;
 }
+.select option { background: #0a1a0c; color: var(--text); }
 input[type="text"], input[type="date"] {
   background: rgba(0,0,0,.25); border: 1px solid var(--line); border-radius: 12px;
   color: var(--text); padding: 8px 10px; outline: none; font-family: var(--mono);
@@ -230,10 +231,60 @@ textarea {
 .ask-claw-input { display: flex; gap: 8px; align-items: center; }
 .ask-claw-input input[type="text"] { flex: 1; }
 .ask-results { margin-top: 10px; }
-.ask-collection-group { margin-bottom: 10px; }
-.ask-collection-title { font-weight: 700; font-size: 12px; color: var(--accent); margin-bottom: 4px; }
-.ask-result-item { padding: 4px 0; cursor: pointer; font-size: 12px; }
-.ask-result-item:hover { color: var(--accent); }
+.ask-log-line { font-size: 12px; color: var(--muted); padding: 2px 0; font-family: var(--mono); }
+.ask-log-line .ask-ts { color: var(--muted); opacity: .5; margin-right: 6px; }
+.ask-log-line .ask-tag { color: var(--accent); margin-right: 4px; }
+.ask-log-line .ask-link { cursor: pointer; }
+.ask-log-line .ask-link:hover { color: var(--accent); }
+.ask-answer { white-space: pre-wrap; font-size: 12px; color: var(--text); padding: 8px 0; line-height: 1.5; border-left: 2px solid var(--accent); padding-left: 10px; margin: 6px 0; }
+
+/* ── Help modal ── */
+.help-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+}
+.help-modal {
+  background: var(--bg); border: 1px solid var(--accent); border-radius: 14px;
+  padding: 20px 24px; max-width: 520px; width: 90%; max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 0 40px rgba(0,255,102,.15);
+}
+.help-modal h2 { margin: 0 0 12px; font-size: 16px; color: var(--accent); }
+.help-section { margin-bottom: 14px; }
+.help-section-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.help-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 12px; }
+.help-row .help-key { color: var(--accent); font-weight: 700; min-width: 100px; }
+.help-row .help-desc { color: var(--text); }
+
+/* ── Activity log ── */
+.activity-log { font-family: var(--mono); font-size: 12px; max-height: 200px; overflow-y: auto; }
+.log-line { padding: 2px 0; color: var(--muted); }
+.log-line .log-ts { opacity: .5; margin-right: 6px; }
+.log-line .log-label { margin-right: 4px; }
+.log-line .log-label.good { color: var(--good); }
+.log-line .log-label.warn { color: var(--warn); }
+.log-line .log-label.accent { color: var(--accent); }
+
+/* ── Thread reading pane separator ── */
+.reading-pane-divider {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border-top: 1px solid var(--line); background: rgba(0,0,0,.12);
+  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+}
+.reading-pane-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--line);
+}
+
+/* ── Modal overlay ── */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7); display: flex;
+  align-items: center; justify-content: center; z-index: 999;
+}
+.modal-box {
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 14px; padding: 20px; min-width: 400px; max-width: 500px;
+  box-shadow: 0 0 40px rgba(0,255,102,.15);
+}
 
 /* ── Responsive ── */
 @media (max-width: 1200px) {

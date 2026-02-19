@@ -65,6 +65,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Data-mutation events that should trigger UI refresh
+  const DATA_EVENTS = new Set([
+    'THREAD_CREATED', 'THREAD_RENAMED', 'THREAD_MERGED',
+    'TICKET_CREATED', 'TICKET_UPDATED',
+    'BLINDSPOT_CREATED', 'BLINDSPOT_ACKNOWLEDGED', 'BLINDSPOT_RESOLVED',
+    'OBJECTIVE_UPDATED', 'OBJECTIVE_COVERAGE_COMPUTED',
+    'PHASE_CREATED', 'PHASE_UPDATED',
+    'MILESTONE_CREATED', 'MILESTONE_UPDATED',
+    'CHECKLIST_CREATED', 'CHECKLIST_UPDATED', 'CHECKLIST_COMPLETED',
+    'RESOURCE_ASSIGNED', 'RESOURCE_OVERLOADED',
+    'DELTA_PACK_CREATED',
+    'INTAKE_PIPELINE_COMPLETED',
+    'MEMORY_STORED', 'MEMORY_DISTILLED',
+    'SCHEDULE_CREATED', 'SCHEDULE_UPDATED',
+  ]);
+
+  let _refreshTimer = null;
+  ws.onEvent((msg) => {
+    if (msg.type !== 'EVENT' || !msg.payload) return;
+    const evType = msg.payload.type || '';
+    if (!DATA_EVENTS.has(evType)) return;
+
+    // Debounce: refresh after 1.5s of quiet (avoids rapid re-renders during pipeline)
+    clearTimeout(_refreshTimer);
+    _refreshTimer = setTimeout(() => {
+      refreshNavBadges();
+      renderCurrentView();
+    }, 1500);
+  });
+
   // Load projects into selector
   await loadProjects();
 
@@ -80,6 +110,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Subscribe to project events via WS
       const pid = getState().currentProjectId;
       if (pid) ws.subscribeProject(pid);
+      // Show/hide share button
+      const shareBtn = document.getElementById('shareProject');
+      if (shareBtn) shareBtn.style.display = pid ? '' : 'none';
     }
     if (changeType === 'step') {
       const el = document.getElementById('stepBadge');
@@ -91,24 +124,72 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('runController')?.addEventListener('click', () => {
     toast('controller run');
   });
-  document.getElementById('toggleHelp')?.addEventListener('click', () => {
-    toast('F3 run controller \u2022 Intake: use project <name> \u2022 Right pane: run agents on-demand + timers');
+
+  // Share project link
+  document.getElementById('shareProject')?.addEventListener('click', () => {
+    const pid = getState().currentProjectId;
+    if (!pid) return;
+    const sel = document.getElementById('projectSelect');
+    const name = sel?.options[sel.selectedIndex]?.textContent || pid;
+    const url = `${location.origin}${location.pathname}?project=${encodeURIComponent(name)}`;
+    navigator.clipboard.writeText(url).then(() => toast('link copied to clipboard')).catch(() => toast('copy failed'));
   });
+  // Help modal (F1)
+  const helpOverlay = document.getElementById('helpOverlay');
+  function toggleHelp() {
+    if (!helpOverlay) return;
+    helpOverlay.style.display = helpOverlay.style.display === 'none' ? 'flex' : 'none';
+  }
+  document.getElementById('toggleHelp')?.addEventListener('click', toggleHelp);
+  document.getElementById('helpClose')?.addEventListener('click', toggleHelp);
+  helpOverlay?.addEventListener('click', (e) => { if (e.target === helpOverlay) toggleHelp(); });
 
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.key === 'F7') { e.preventDefault(); setView('intake'); setTimeout(() => document.getElementById('intakeText')?.focus(), 50); }
     if (e.key === 'F3') { e.preventDefault(); document.getElementById('runController')?.click(); }
-    if (e.key === 'F1') { e.preventDefault(); document.getElementById('toggleHelp')?.click(); }
+    if (e.key === 'F1') { e.preventDefault(); toggleHelp(); }
+    if (e.key === 'Escape' && helpOverlay?.style.display !== 'none') { toggleHelp(); }
+    // N = new project (only when not in a text field)
+    if (e.key === 'N' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      createNewProject();
+    }
   });
 
   // Token counter
   refreshTokenCounter();
   setInterval(refreshTokenCounter, 30000);
 
+  // Show share button if project already selected
+  if (getState().currentProjectId) {
+    const shareBtn = document.getElementById('shareProject');
+    if (shareBtn) shareBtn.style.display = '';
+  }
+
   // Render initial view
   renderCurrentView();
 });
+
+// ── New project ──
+async function createNewProject() {
+  const name = prompt('New project name:');
+  if (!name || !name.trim()) return;
+  try {
+    const created = await api.projects.create({ name: name.trim() });
+    toast('project created: ' + name.trim());
+    await loadProjects();
+    const sel = document.getElementById('projectSelect');
+    if (sel && created.projectId) {
+      sel.value = created.projectId;
+      setProject(created.projectId);
+    }
+  } catch (e) {
+    toast('create failed: ' + e.message);
+  }
+}
 
 // ── Project selector ──
 async function loadProjects() {
@@ -125,11 +206,15 @@ async function loadProjects() {
       sel.appendChild(opt);
     });
 
-    // Restore previously selected project
+    // Restore previously selected project (from URL param or localStorage)
     const savedId = getState().currentProjectId;
-    if (savedId && projectList.find(p => p.projectId === savedId)) {
-      sel.value = savedId;
-      setProject(savedId);
+    if (savedId) {
+      // Support both project ID and project name in the URL
+      const match = projectList.find(p => p.projectId === savedId || p.name === savedId);
+      if (match) {
+        sel.value = match.projectId;
+        setProject(match.projectId);
+      }
     }
 
     sel.addEventListener('change', () => {

@@ -52,6 +52,7 @@ public class IntakePipelineService {
     private final MemoryRepository memoryRepository;
     private final EventService eventService;
     private final AgentLoop agentLoop;
+    private final ContentExtractorService contentExtractor;
 
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "intake-pipeline");
@@ -64,13 +65,15 @@ public class IntakePipelineService {
                                  ThreadRepository threadRepository,
                                  MemoryRepository memoryRepository,
                                  EventService eventService,
-                                 AgentLoop agentLoop) {
+                                 AgentLoop agentLoop,
+                                 ContentExtractorService contentExtractor) {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.threadRepository = threadRepository;
         this.memoryRepository = memoryRepository;
         this.eventService = eventService;
         this.agentLoop = agentLoop;
+        this.contentExtractor = contentExtractor;
     }
 
     public IntakePipelineResponse startPipeline(String projectId, String rawContent,
@@ -92,10 +95,12 @@ public class IntakePipelineService {
         return startPipeline(projectId, rawContent, sourceSessionId, List.of());
     }
 
-    private void runPipeline(String pipelineId, String projectId, String rawContent,
+    private void runPipeline(String pipelineId, String projectId, String rawContentParam,
                              String sourceSessionId, List<String> filePaths) {
         String prefix = "[pipeline-" + pipelineId.substring(0, 8) + "]";
         try {
+            String rawContent = rawContentParam;
+
             // ── Phase 0: Store raw content as project memory ──
             log.info("{} Phase 0: Storing raw content as memory", prefix);
             MemoryDocument intakeMemory = new MemoryDocument();
@@ -112,10 +117,30 @@ public class IntakePipelineService {
             memoryRepository.save(intakeMemory);
             log.info("{} Phase 0 complete — raw content saved as memory {}", prefix, intakeMemory.getKey());
 
+            // ── Detect pasted content format ──
+            if (rawContent != null && !rawContent.isBlank()) {
+                String detectedFormat = contentExtractor.detectTextFormat(rawContent);
+                if (!"plain text".equals(detectedFormat)) {
+                    log.info("{} Detected pasted content format: {}", prefix, detectedFormat);
+                    rawContent = "[Detected format: " + detectedFormat + "]\n\n" + rawContent;
+                }
+            }
+
+            // ── Auto-extract file content ──
+            if (!filePaths.isEmpty()) {
+                log.info("{} Extracting content from {} uploaded file(s)", prefix, filePaths.size());
+                String fileContent = contentExtractor.extractContent(filePaths);
+                rawContent = (rawContent != null ? rawContent + "\n\n" : "") + fileContent;
+                log.info("{} File content extracted ({} chars)", prefix, fileContent.length());
+            }
+
+            // Capture as effectively-final for use in lambdas below
+            final String enrichedContent = rawContent;
+
             // ── Phase 1: Triage ──
             log.info("{} Phase 1: Triage", prefix);
             String triageSessionId = createAgentSession(projectId, "intake-triage", pipelineId);
-            seedUserMessage(triageSessionId, buildTriagePrompt(rawContent, projectId, filePaths));
+            seedUserMessage(triageSessionId, buildTriagePrompt(enrichedContent, projectId, filePaths));
             agentLoop.startAsync(triageSessionId);
             waitForCompletion(triageSessionId, TRIAGE_TIMEOUT_MS);
 
@@ -135,7 +160,7 @@ public class IntakePipelineService {
             // ── Phase 2: Thread creation (always runs — content always produces threads) ──
             log.info("{} Phase 2: Thread creation", prefix);
             String threadSessionId = createAgentSession(projectId, "thread-agent", pipelineId);
-            seedUserMessage(threadSessionId, buildThreadAgentPrompt(rawContent, triageOutput, projectId));
+            seedUserMessage(threadSessionId, buildThreadAgentPrompt(enrichedContent, triageOutput, projectId));
             agentLoop.startAsync(threadSessionId);
             waitForCompletion(threadSessionId, THREAD_AGENT_TIMEOUT_MS);
 
@@ -152,7 +177,7 @@ public class IntakePipelineService {
                 pmFuture = CompletableFuture.runAsync(() -> {
                     try {
                         String pmSessionId = createAgentSession(projectId, "pm", pipelineId);
-                        seedUserMessage(pmSessionId, buildPMAgentPrompt(rawContent, triageOutput, filePaths, projectId));
+                        seedUserMessage(pmSessionId, buildPMAgentPrompt(enrichedContent, triageOutput, filePaths, projectId));
                         agentLoop.startAsync(pmSessionId);
                         waitForCompletion(pmSessionId, PM_TIMEOUT_MS);
                         log.info("{} Phase 3 complete — PM agent finished", prefix);
@@ -169,7 +194,7 @@ public class IntakePipelineService {
                 planFuture = CompletableFuture.runAsync(() -> {
                     try {
                         String planSessionId = createAgentSession(projectId, "plan-agent", pipelineId);
-                        seedUserMessage(planSessionId, buildPlanAgentPrompt(rawContent, triageOutput, filePaths, projectId));
+                        seedUserMessage(planSessionId, buildPlanAgentPrompt(enrichedContent, triageOutput, filePaths, projectId));
                         agentLoop.startAsync(planSessionId);
                         waitForCompletion(planSessionId, PLAN_TIMEOUT_MS);
                         log.info("{} Phase 4 complete — Plan agent finished", prefix);
@@ -344,7 +369,11 @@ public class IntakePipelineService {
             sb.append("\nUse `excel` tool to read these files if relevant to your classification.\n\n");
         }
 
-        sb.append("Classify and organize the following raw content. Identify distinct topics and for each topic provide:\n\n")
+        sb.append("The raw content below may be in ANY format: plain text, CSV, TSV, JSON, XML, HTML, Markdown, YAML, ")
+          .append("Jira export, meeting notes, Smartsheet plan data, or a mix. ")
+          .append("A [Detected format: ...] header may appear if the system identified the format. ")
+          .append("Parse the content accordingly.\n\n")
+          .append("Classify and organize the following raw content. Identify distinct topics and for each topic provide:\n\n")
           .append("### Topic: [Topic Name]\n")
           .append("**Type:** [architecture_decision / open_question / action_item / discussion]\n")
           .append("**Decisions:** [list of decisions made]\n")

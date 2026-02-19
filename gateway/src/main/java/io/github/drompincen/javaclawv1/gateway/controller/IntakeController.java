@@ -115,11 +115,23 @@ public class IntakeController {
             doc.setUpdatedAt(Instant.now());
             uploadRepository.save(doc);
 
-            results.add(new UploadInfo(doc.getUploadId(), originalName, dest.toAbsolutePath().toString()));
+            String detectedType = detectContentType(originalName);
+            results.add(new UploadInfo(doc.getUploadId(), originalName, dest.toAbsolutePath().toString(), detectedType));
         }
 
         return ResponseEntity.ok(results);
     }
 
-    record UploadInfo(String uploadId, String fileName, String filePath) {}
+    private String detectContentType(String fileName) {
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return "spreadsheet";
+        if (lower.endsWith(".csv")) return "csv";
+        if (lower.endsWith(".json")) return "json";
+        if (lower.endsWith(".xml")) return "xml";
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
+        if (lower.endsWith(".txt") || lower.endsWith(".md")) return "text";
+        return "unknown";
+    }
+
+    record UploadInfo(String uploadId, String fileName, String filePath, String contentType) {}
 }

@@ -118,6 +118,7 @@ export const blindspots = {
   list:   (pid)        => get(`${projectPath(pid)}/blindspots`),
   get:    (pid, id)    => get(`${projectPath(pid)}/blindspots/${id}`),
   update: (pid, id, d) => put(`${projectPath(pid)}/blindspots/${id}`, d),
+  delete: (pid, id)    => del(`${projectPath(pid)}/blindspots/${id}`),
 };
 
 export const resources = {

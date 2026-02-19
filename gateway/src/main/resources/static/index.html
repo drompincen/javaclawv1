@@ -25,6 +25,7 @@
         <select class="select" id="projectSelect">
           <option value="">— loading —</option>
         </select>
+        <button class="btn ghost" id="shareProject" title="Copy shareable link" style="display:none;padding:6px 8px">&#x1F517;</button>
       </div>
     </div>
 
@@ -154,6 +155,36 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Help modal (F1) -->
+<div class="help-overlay" id="helpOverlay" style="display:none">
+  <div class="help-modal">
+    <h2>Keyboard Shortcuts</h2>
+    <div class="help-section">
+      <div class="help-section-title">Navigation</div>
+      <div class="help-row"><span class="help-key">F1</span><span class="help-desc">Toggle this help</span></div>
+      <div class="help-row"><span class="help-key">F7</span><span class="help-desc">Focus intake textarea</span></div>
+      <div class="help-row"><span class="help-key">F3</span><span class="help-desc">Run controller agent</span></div>
+      <div class="help-row"><span class="help-key">Esc</span><span class="help-desc">Close modal / deselect</span></div>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Projects</div>
+      <div class="help-row"><span class="help-key">N</span><span class="help-desc">New project (when not in text field)</span></div>
+      <div class="help-row"><span class="help-key">—</span><span class="help-desc">Or type <code style="color:var(--accent)">use project &lt;name&gt;</code> in intake</span></div>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Intake</div>
+      <div class="help-row"><span class="help-key">Ctrl+Enter</span><span class="help-desc">Send intake to pipeline</span></div>
+      <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">Submit Ask Claw question</span></div>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Views</div>
+      <div class="help-row"><span class="help-key">Click row</span><span class="help-desc">Select / expand detail</span></div>
+      <div class="help-row"><span class="help-key">Click again</span><span class="help-desc">Deselect / collapse</span></div>
+    </div>
+    <div style="text-align:right;margin-top:10px"><button class="btn ghost" id="helpClose">Close (Esc)</button></div>
+  </div>
+</div>
 
 <script type="module" src="js/app.js"></script>
 </body>
