@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Joe Martinez",
+    "email": "joe@example.com",
+    "role": "Senior Backend Engineer",
+    "skills": ["Java", "Spring Boot", "MongoDB", "React"],
+    "capacity": 1.0,
+    "availability": 0.8
+  },
+  {
+    "name": "Alice Chen",
+    "email": "alice@example.com",
+    "role": "Backend Engineer",
+    "skills": ["Java", "AWS", "S3", "PostgreSQL"],
+    "capacity": 1.0,
+    "availability": 1.0
+  },
+  {
+    "name": "Bob Taylor",
+    "email": "bob@example.com",
+    "role": "Platform Engineer",
+    "skills": ["RabbitMQ", "Docker", "Kubernetes", "Terraform"],
+    "capacity": 1.0,
+    "availability": 0.6
+  }
+]

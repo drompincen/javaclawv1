@@ -38,6 +38,36 @@ function addFiles(fileList) {
   renderChips();
 }
 
+// Common words to filter out of keyword search
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+  'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
+  'on', 'with', 'at', 'by', 'from', 'as', 'into', 'about', 'between',
+  'through', 'during', 'before', 'after', 'and', 'but', 'or', 'nor',
+  'not', 'so', 'if', 'than', 'that', 'this', 'it', 'what', 'which',
+  'who', 'whom', 'how', 'when', 'where', 'why', 'all', 'each', 'every',
+  'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'only',
+  'own', 'same', 'my', 'our', 'your', 'his', 'her', 'its', 'their', 'me'
+]);
+
+function extractKeywords(question) {
+  return question.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+}
+
+function scoreItem(keywords, ...fields) {
+  let score = 0;
+  const text = fields.join(' ').toLowerCase();
+  for (const kw of keywords) {
+    const idx = text.indexOf(kw);
+    if (idx !== -1) score++;
+  }
+  return score;
+}
+
 export async function render() {
   pendingFiles = [];
   const pid = getState().currentProjectId;
@@ -66,6 +96,17 @@ export async function render() {
     <div class="card">
       <div class="cardH"><div><b>Recent intake</b><div class="tiny">select to inspect</div></div></div>
       <div class="cardB"><div class="timeline" id="intakeTimeline"><div class="tiny">Loading...</div></div></div>
+    </div>
+    <div style="height:10px"></div>
+    <div class="card">
+      <div class="cardH"><div><b>\uD83E\uDD80 ASK CLAW</b><div class="tiny">Ask questions about your project data</div></div></div>
+      <div class="cardB">
+        <div class="ask-claw-input">
+          <input type="text" id="askClawInput" placeholder="What are the biggest risks this sprint?">
+          <button class="btn primary" id="askClawBtn">Ask \u2197</button>
+        </div>
+        <div id="askClawResponse" class="ask-results"></div>
+      </div>
     </div>`;
 
   // Ctrl+Enter to send
@@ -132,6 +173,126 @@ export async function render() {
         toast('pipeline failed: ' + e.message);
         addLog('INTAKE_ERROR: ' + e.message, 'bad');
       }
+    });
+  }
+
+  // Ask Claw
+  const askInput = document.getElementById('askClawInput');
+  const askBtn = document.getElementById('askClawBtn');
+
+  async function handleAsk() {
+    const question = (askInput?.value || '').trim();
+    if (!question) { toast('type a question first'); return; }
+    if (!pid) { toast('select a project first'); return; }
+
+    const responseDiv = document.getElementById('askClawResponse');
+    responseDiv.innerHTML = '<div class="tiny">Searching...</div>';
+
+    // Try backend first
+    const backendResult = await api.ask.query(pid, question);
+    if (backendResult && backendResult.answer) {
+      responseDiv.innerHTML = '';
+      const answerDiv = document.createElement('div');
+      answerDiv.className = 'tiny';
+      answerDiv.style.marginBottom = '8px';
+      answerDiv.style.whiteSpace = 'pre-wrap';
+      answerDiv.textContent = backendResult.answer;
+      responseDiv.appendChild(answerDiv);
+
+      if (backendResult.sources && backendResult.sources.length > 0) {
+        backendResult.sources.forEach(src => {
+          const item = document.createElement('div');
+          item.className = 'ask-result-item';
+          item.textContent = `${src.type}: ${src.title || src.id}`;
+          item.addEventListener('click', () => setSelected({ type: src.type, id: src.id, data: src }));
+          responseDiv.appendChild(item);
+        });
+      }
+      return;
+    }
+
+    // Client-side keyword search fallback
+    try {
+      const [threads, objectives, tickets, blindspots] = await Promise.all([
+        api.threads.list(pid).catch(() => []),
+        api.objectives.list(pid).catch(() => []),
+        api.tickets.list(pid).catch(() => []),
+        api.blindspots.list(pid).catch(() => [])
+      ]);
+
+      const keywords = extractKeywords(question);
+      if (keywords.length === 0) {
+        responseDiv.innerHTML = '<div class="tiny">Try a more specific question.</div>';
+        return;
+      }
+
+      const results = {
+        THREADS: threads.map(t => ({
+          item: t,
+          score: scoreItem(keywords, t.title || '', t.content || '', t.summary || ''),
+          label: t.title || 'Untitled',
+          type: 'thread',
+          id: t.threadId
+        })).filter(r => r.score > 0).sort((a, b) => b.score - a.score),
+
+        OBJECTIVES: objectives.map(o => ({
+          item: o,
+          score: scoreItem(keywords, o.outcome || '', o.sprintName || ''),
+          label: `${o.sprintName || ''} \u2014 ${o.outcome || ''}`,
+          type: 'objective',
+          id: o.objectiveId
+        })).filter(r => r.score > 0).sort((a, b) => b.score - a.score),
+
+        TICKETS: tickets.map(t => ({
+          item: t,
+          score: scoreItem(keywords, t.title || '', t.description || '', t.summary || ''),
+          label: t.title || t.key || 'Untitled',
+          type: 'ticket',
+          id: t.ticketId
+        })).filter(r => r.score > 0).sort((a, b) => b.score - a.score),
+
+        BLINDSPOTS: blindspots.map(b => ({
+          item: b,
+          score: scoreItem(keywords, b.title || '', b.description || ''),
+          label: b.title || 'Untitled',
+          type: 'blindspot',
+          id: b.blindspotId
+        })).filter(r => r.score > 0).sort((a, b) => b.score - a.score)
+      };
+
+      const totalResults = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
+
+      responseDiv.innerHTML = '';
+      if (totalResults === 0) {
+        responseDiv.innerHTML = '<div class="tiny">No matching results found.</div>';
+        return;
+      }
+
+      Object.entries(results).forEach(([collection, items]) => {
+        if (items.length === 0) return;
+        const group = document.createElement('div');
+        group.className = 'ask-collection-group';
+        group.innerHTML = `<div class="ask-collection-title">${collection} (${items.length}):</div>`;
+
+        items.slice(0, 5).forEach(r => {
+          const item = document.createElement('div');
+          item.className = 'ask-result-item';
+          item.textContent = `\u2022 ${r.label}`;
+          item.addEventListener('click', () => setSelected({ type: r.type, id: r.id, data: r.item }));
+          group.appendChild(item);
+        });
+
+        responseDiv.appendChild(group);
+      });
+    } catch {
+      responseDiv.innerHTML = '<div class="tiny">Search failed.</div>';
+    }
+  }
+
+  if (askBtn) askBtn.addEventListener('click', handleAsk);
+  if (askInput) {
+    askInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); handleAsk(); }
     });
   }
 

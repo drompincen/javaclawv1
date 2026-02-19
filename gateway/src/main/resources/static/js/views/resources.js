@@ -3,7 +3,10 @@ import { getState, setSelected } from '../state.js';
 import { renderTable } from '../components/table.js';
 import { toast } from '../components/toast.js';
 
+let currentMode = 'all';
+
 export async function render() {
+  currentMode = 'all';
   const pid = getState().currentProjectId;
   document.getElementById('centerTitle').textContent = 'RESOURCES';
   document.getElementById('centerSub').textContent =
@@ -15,6 +18,11 @@ export async function render() {
       <div class="cardH">
         <div><b>Team Resources</b><div class="tiny">click to inspect</div></div>
         <div class="row">
+          <div class="view-tabs">
+            <button class="view-tab active" data-mode="all">All</button>
+            <button class="view-tab" data-mode="capacity">Capacity</button>
+            <button class="view-tab" data-mode="overuse">Overuse</button>
+          </div>
           <label class="toggle" style="padding:4px 8px"><input type="checkbox" id="resourceProjectOnly"/><span class="tiny">This project only</span></label>
         </div>
       </div>
@@ -39,11 +47,14 @@ export async function render() {
     return;
   }
 
-  function renderFiltered(projectOnly) {
-    const filtered = projectOnly && pid
+  function getFiltered(projectOnly) {
+    return projectOnly && pid
       ? allResources.filter(r => r.projectId === pid)
       : allResources;
-    const rows = filtered.map(r => ({
+  }
+
+  function renderAll(resources) {
+    const rows = resources.map(r => ({
       name: r.name || '',
       role: r.role || '',
       capacity: r.capacity != null ? r.capacity : '',
@@ -65,9 +76,9 @@ export async function render() {
       const bodyRows = tableEl.querySelectorAll('tbody tr');
       bodyRows.forEach((tr, i) => {
         const cells = tr.querySelectorAll('td');
-        const availCell = cells[3]; // availability is the 4th column
+        const availCell = cells[3];
         if (!availCell) return;
-        const val = filtered[i]?.availability;
+        const val = resources[i]?.availability;
         if (val != null) {
           const pill = document.createElement('span');
           pill.className = 'pill ' + (val >= 0.5 ? 'good' : 'bad');
@@ -80,10 +91,104 @@ export async function render() {
     }
   }
 
-  renderFiltered(false);
+  function renderCapacity(resources) {
+    const container = document.getElementById('resourceTableContainer');
+    const sorted = [...resources].sort((a, b) => (a.availability || 0) - (b.availability || 0));
 
-  document.getElementById('resourceProjectOnly')?.addEventListener('change', (e) => {
-    renderFiltered(e.target.checked);
+    if (sorted.length === 0) {
+      container.innerHTML = '<div class="tiny">No resources found.</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    const timeline = document.createElement('div');
+    timeline.className = 'timeline';
+
+    sorted.forEach(r => {
+      const util = Math.round((r.availability || 0) * 100);
+      const barColor = util >= 70 ? 'var(--good)' : util >= 30 ? 'var(--warn)' : 'var(--bad)';
+
+      const el = document.createElement('div');
+      el.className = 'event';
+      el.style.cursor = 'pointer';
+      el.innerHTML = `
+        <div class="eventTop">
+          <div style="min-width:0;flex:1">
+            <div class="eventTitle">${esc(r.name || 'Unknown')}</div>
+            <div class="tiny">${esc(r.role || '')} \u2022 Capacity: ${r.capacity != null ? r.capacity : '\u2013'} \u2022 Availability: ${util}%</div>
+          </div>
+        </div>
+        <div class="progress-track" style="margin-top:6px">
+          <div class="progress-fill" style="width:${util}%;background:${barColor}"></div>
+        </div>`;
+      el.addEventListener('click', () => setSelected({ type: 'resource', id: r.resourceId, data: r }));
+      timeline.appendChild(el);
+    });
+
+    container.appendChild(timeline);
+  }
+
+  function renderOveruse(resources) {
+    const container = document.getElementById('resourceTableContainer');
+    const overloaded = resources.filter(r => r.availability != null && r.availability < 0.5);
+
+    if (overloaded.length === 0) {
+      container.innerHTML = '<div class="tiny" style="padding:10px">All resources have healthy capacity.</div>';
+      return;
+    }
+
+    container.innerHTML = `<div class="sectionLabel" style="color:var(--warn);margin-bottom:8px">\u26A0 OVERLOADED RESOURCES</div>`;
+    const timeline = document.createElement('div');
+    timeline.className = 'timeline';
+
+    overloaded.sort((a, b) => (a.availability || 0) - (b.availability || 0)).forEach(r => {
+      const util = Math.round((r.availability || 0) * 100);
+      const barColor = 'var(--bad)';
+
+      const el = document.createElement('div');
+      el.className = 'event';
+      el.style.cursor = 'pointer';
+      el.style.borderLeft = '3px solid var(--bad)';
+      el.innerHTML = `
+        <div class="eventTop">
+          <div style="min-width:0;flex:1">
+            <div class="eventTitle">${esc(r.name || 'Unknown')}</div>
+            <div class="tiny">${esc(r.role || '')} \u2022 Capacity: ${r.capacity != null ? r.capacity : '\u2013'} \u2022 Availability: ${util}%</div>
+          </div>
+          <span class="pill bad">BUSY</span>
+        </div>
+        <div class="progress-track" style="margin-top:6px">
+          <div class="progress-fill" style="width:${util}%;background:${barColor}"></div>
+        </div>`;
+      el.addEventListener('click', () => setSelected({ type: 'resource', id: r.resourceId, data: r }));
+      timeline.appendChild(el);
+    });
+
+    container.appendChild(timeline);
+  }
+
+  function renderView(mode) {
+    const projectOnly = document.getElementById('resourceProjectOnly')?.checked || false;
+    const filtered = getFiltered(projectOnly);
+    if (mode === 'capacity') renderCapacity(filtered);
+    else if (mode === 'overuse') renderOveruse(filtered);
+    else renderAll(filtered);
+  }
+
+  // Tab click handlers
+  document.querySelectorAll('.view-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentMode = tab.dataset.mode;
+      renderView(currentMode);
+    });
+  });
+
+  renderView('all');
+
+  document.getElementById('resourceProjectOnly')?.addEventListener('change', () => {
+    renderView(currentMode);
   });
 
   document.getElementById('addMissingBtn')?.addEventListener('click', async () => {
@@ -113,9 +218,11 @@ export async function render() {
       }
       ta.value = '';
       toast(`added ${missing.length} resource(s)`);
-      renderFiltered(document.getElementById('resourceProjectOnly')?.checked || false);
+      renderView(currentMode);
     } catch (e) {
       toast('add failed: ' + e.message);
     }
   });
 }
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }

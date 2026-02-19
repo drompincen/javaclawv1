@@ -34,7 +34,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to plan-agent for phase and milestone creation from threads."
+          "responseFallback": "{\"delegate\": \"plan-agent\", \"subTask\": \"create phases and milestones from threads\"}"
         },
         {
           "agentName": "plan-agent",

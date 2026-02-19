@@ -49,7 +49,7 @@
           "url": "/api/projects/{{projectId}}/milestones",
           "body": {
             "name": "Evidence Service Ready",
-            "targetDate": "2026-03-15",
+            "targetDate": "2026-03-15T00:00:00Z",
             "owner": "Alice",
             "description": "Evidence API operational in production"
           }
@@ -59,7 +59,7 @@
           "url": "/api/projects/{{projectId}}/milestones",
           "body": {
             "name": "Onboarding Complete",
-            "targetDate": "2026-03-28",
+            "targetDate": "2026-03-28T00:00:00Z",
             "owner": "Bob",
             "description": "Onboarding flow live in production"
           }
@@ -72,7 +72,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to checklist-agent for ORR checklist generation from project state."
+          "responseFallback": "{\"delegate\": \"checklist-agent\", \"subTask\": \"ORR checklist generation from project state\"}"
         },
         {
           "agentName": "checklist-agent",

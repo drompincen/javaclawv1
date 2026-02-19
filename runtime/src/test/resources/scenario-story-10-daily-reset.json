@@ -57,7 +57,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to pm for a summary of scheduled agent executions."
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"summary of scheduled agent executions\"}"
         },
         {
           "agentName": "pm",

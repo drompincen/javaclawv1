@@ -36,6 +36,20 @@ public class ThreadController {
         this.eventService = eventService;
     }
 
+    @PostMapping
+    public ResponseEntity<ThreadDto> create(@PathVariable String projectId, @RequestBody Map<String, Object> body) {
+        ThreadDocument doc = new ThreadDocument();
+        doc.setThreadId(UUID.randomUUID().toString());
+        doc.setProjectIds(List.of(projectId));
+        doc.setTitle((String) body.get("title"));
+        doc.setContent((String) body.get("content"));
+        doc.setSummary((String) body.get("summary"));
+        doc.setCreatedAt(Instant.now());
+        doc.setUpdatedAt(Instant.now());
+        threadRepository.save(doc);
+        return ResponseEntity.status(201).body(toDto(doc));
+    }
+
     @GetMapping
     public List<ThreadDto> list(@PathVariable String projectId) {
         return threadRepository.findByProjectIdsOrderByUpdatedAtDesc(projectId).stream()

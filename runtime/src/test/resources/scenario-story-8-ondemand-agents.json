@@ -85,7 +85,7 @@
           "url": "/api/projects/{{projectId}}/milestones",
           "body": {
             "name": "Auth Migration Complete",
-            "targetDate": "2026-04-01",
+            "targetDate": "2026-04-01T00:00:00Z",
             "owner": "Dana",
             "description": "JWT auth fully operational with refresh tokens and SSO"
           }
@@ -95,7 +95,7 @@
           "url": "/api/projects/{{projectId}}/milestones",
           "body": {
             "name": "Rate Limiting Live",
-            "targetDate": "2026-03-20",
+            "targetDate": "2026-03-20T00:00:00Z",
             "owner": "Eve",
             "description": "Rate limiting active on all public endpoints"
           }
@@ -108,7 +108,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to plan-agent for plan update and artifact generation."
+          "responseFallback": "{\"delegate\": \"plan-agent\", \"subTask\": \"plan update and artifact generation\"}"
         },
         {
           "agentName": "plan-agent",
@@ -155,7 +155,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to reconcile-agent for drift detection and cross-reference analysis."
+          "responseFallback": "{\"delegate\": \"reconcile-agent\", \"subTask\": \"drift detection and cross-reference analysis\"}"
         },
         {
           "agentName": "reconcile-agent",

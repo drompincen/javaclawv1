@@ -185,3 +185,10 @@ export const logs = {
 export const memories = {
   list: (pid) => get(`${projectPath(pid)}/memories`),
 };
+
+export const ask = {
+  query: async (pid, question) => {
+    try { return await post('/api/ask', { projectId: pid, question }); }
+    catch { return null; }
+  }
+};

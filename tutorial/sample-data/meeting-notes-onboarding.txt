@@ -1,0 +1,30 @@
+Client Onboarding Design Session — 2026-02-17, 2:00 PM
+
+Attendees: Joe Martinez, Alice Chen
+
+---
+
+Topic 1: Onboarding Flow Redesign
+
+The current onboarding takes 14 steps across 3 screens. Analytics show 40% drop-off
+at the document upload step. Joe proposed consolidating to a single-page wizard with
+progressive disclosure.
+
+Decision: Reduce to 7 steps. Combine identity verification and document upload into
+one step. Add a progress bar and estimated time remaining.
+
+Action: Joe to create wireframes by Wednesday.
+Action: Alice to update the API to support partial submission (save draft).
+
+---
+
+Topic 2: Document Upload Performance
+
+Alice reported that large PDF uploads (>10MB) are timing out on the current
+synchronous endpoint. We need to switch to async upload with progress tracking.
+
+Decision: Use presigned S3 URLs for direct browser-to-S3 upload, then notify the
+backend via webhook. This removes the file size constraint entirely.
+
+Action: Alice to implement the presigned URL endpoint this sprint.
+Action: Joe to update the frontend upload component to use the new flow.

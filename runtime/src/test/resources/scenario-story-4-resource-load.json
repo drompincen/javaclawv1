@@ -69,7 +69,7 @@
             "sprintName": "Sprint 7",
             "outcome": "Deliver Evidence Service MVP",
             "measurableSignal": "Evidence API passes integration tests",
-            "risks": "Retention policy undecided",
+            "risks": ["Retention policy undecided"],
             "coveragePercent": 50
           }
         },
@@ -80,7 +80,7 @@
             "sprintName": "Sprint 7",
             "outcome": "Complete Onboarding Flow",
             "measurableSignal": "Onboarding wizard passes UAT",
-            "risks": "Dependency on Evidence API",
+            "risks": ["Dependency on Evidence API"],
             "coveragePercent": 0
           }
         },
@@ -89,10 +89,9 @@
           "url": "/api/resources",
           "body": {
             "name": "Alice",
-            "teamName": "Platform",
-            "role": "engineer",
+            "role": "ENGINEER",
             "skills": ["Java", "Spring", "MongoDB"],
-            "capacityPerSprint": 40
+            "capacity": 40
           }
         },
         {
@@ -100,10 +99,9 @@
           "url": "/api/resources",
           "body": {
             "name": "Bob",
-            "teamName": "Platform",
-            "role": "engineer",
+            "role": "ENGINEER",
             "skills": ["React", "TypeScript", "Java"],
-            "capacityPerSprint": 40
+            "capacity": 40
           }
         }
       ]
@@ -114,7 +112,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to resource-agent for resource mapping and capacity analysis."
+          "responseFallback": "{\"delegate\": \"resource-agent\", \"subTask\": \"resource mapping and capacity analysis\"}"
         },
         {
           "agentName": "resource-agent",

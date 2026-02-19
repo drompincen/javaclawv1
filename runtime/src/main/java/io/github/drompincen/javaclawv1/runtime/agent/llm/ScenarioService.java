@@ -82,7 +82,9 @@ public class ScenarioService {
             List<ScenarioConfig.AgentResponse> responses = getAgentResponses(step);
             if (responses == null) continue;
             if (userQuery.equals(getUserQuery(step))) {
-                return findAgentResponse(responses, agentName);
+                String response = findAgentResponse(responses, agentName);
+                if (response != null) return resolveTemplates(response);
+                break; // Step matched but agent exhausted — fall through to pipeline fallback
             }
         }
 
@@ -91,7 +93,9 @@ public class ScenarioService {
             List<ScenarioConfig.AgentResponse> responses = getAgentResponses(step);
             if (responses == null) continue;
             if (userQuery.equalsIgnoreCase(getUserQuery(step))) {
-                return findAgentResponse(responses, agentName);
+                String response = findAgentResponse(responses, agentName);
+                if (response != null) return resolveTemplates(response);
+                break; // Step matched but agent exhausted — fall through to pipeline fallback
             }
         }
 
@@ -150,12 +154,22 @@ public class ScenarioService {
     }
 
     private String findAgentResponse(List<ScenarioConfig.AgentResponse> responses, String agentName) {
+        // Collect all responses for this agent in order
+        List<String> agentResponses = new ArrayList<>();
         for (ScenarioConfig.AgentResponse ar : responses) {
-            if (agentName.equals(ar.agentName())) {
-                return ar.responseFallback();
+            if (agentName.equals(ar.agentName()) && ar.responseFallback() != null) {
+                agentResponses.add(ar.responseFallback());
             }
         }
-        return null;
+        if (agentResponses.isEmpty()) return null;
+
+        // Always use counter-based cycling — this ensures each response is delivered
+        // exactly once, even for single-response agents. When exhausted, return null
+        // so the caller can fall through to pipeline fallback or TestLLMConsumer.
+        AtomicInteger counter = agentResponseCounters.computeIfAbsent(agentName, k -> new AtomicInteger(0));
+        int idx = counter.getAndIncrement();
+        if (idx >= agentResponses.size()) return null; // exhausted — let caller handle fallback
+        return agentResponses.get(idx);
     }
 
     public String getProjectName() {

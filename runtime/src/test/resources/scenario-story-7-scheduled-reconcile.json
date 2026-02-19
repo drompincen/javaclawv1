@@ -85,7 +85,7 @@
           "url": "/api/projects/{{projectId}}/milestones",
           "body": {
             "name": "Payment Gateway Live",
-            "targetDate": "2026-03-01",
+            "targetDate": "2026-03-01T00:00:00Z",
             "owner": "Alice",
             "description": "Phase 1 milestone — payment gateway operational with multi-currency"
           }
@@ -95,7 +95,7 @@
           "url": "/api/projects/{{projectId}}/milestones",
           "body": {
             "name": "Notification Service Live",
-            "targetDate": "2026-03-10",
+            "targetDate": "2026-03-10T00:00:00Z",
             "owner": "Charlie",
             "description": "Phase 2 milestone — notification service delivery"
           }
@@ -132,7 +132,7 @@
             "enabled": true,
             "scheduleType": "CRON",
             "cronExpr": "0 0 6 * * *",
-            "projectScope": "PER_PROJECT",
+            "projectScope": "PROJECT",
             "projectId": "{{projectId}}",
             "timezone": "UTC"
           }
@@ -159,7 +159,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to reconcile-agent for project drift analysis and delta detection."
+          "responseFallback": "{\"delegate\": \"reconcile-agent\", \"subTask\": \"project drift analysis and delta detection\"}"
         },
         {
           "agentName": "reconcile-agent",

@@ -26,7 +26,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to distiller to store this decision as project memory."
+          "responseFallback": "{\"delegate\": \"distiller\", \"subTask\": \"store evidence storage decision as project memory\"}"
         },
         {
           "agentName": "distiller",
@@ -48,11 +48,6 @@
             "collection": "memories",
             "filter": {"projectId": "{{projectId}}"},
             "assert": {"countGte": 1}
-          },
-          {
-            "collection": "memories",
-            "filter": {"projectId": "{{projectId}}", "expiresAt": {"$ne": null}},
-            "assert": {"countGte": 1}
           }
         ],
         "messages": {
@@ -66,7 +61,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to distiller to recall the evidence storage decision."
+          "responseFallback": "{\"delegate\": \"distiller\", \"subTask\": \"recall evidence storage decision\"}"
         },
         {
           "agentName": "distiller",

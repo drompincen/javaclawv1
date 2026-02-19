@@ -17,7 +17,7 @@
         },
         {
           "agentName": "intake-triage",
-          "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** Use S3 for storage, REST API with versioning\n**Open Questions:** Retention policy\n**Key Content:** KYC evidence service API, storage model, validation rules. Owner: Alice. Date: 2026-02-10.\n\n### Topic: Onboarding Flow\n**Type:** action_item\n**Decisions:** 3-step wizard\n**Action Items:** Build upload component (Bob), Integrate KYC check (Alice)\n**Key Content:** Client onboarding steps including identity verification and document upload.\n\nContent types detected: CONFLUENCE_EXPORT, JIRA_DUMP, SMARTSHEET_EXPORT"
+          "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** Use S3 for storage, REST API with versioning\n**Open Questions:** Retention policy\n**Key Content:** KYC evidence service API, storage model, validation rules. Owner: Alice. Date: 2026-02-10.\n\n### Topic: Onboarding Flow\n**Type:** action_item\n**Decisions:** 3-step wizard\n**Action Items:** Build upload component (Bob), Integrate KYC check (Alice)\n**Key Content:** Client onboarding steps including identity verification and document upload.\n\n### Routes\nTHREAD: yes\nTICKETS: yes\nPLAN: yes\nRESOURCES: no"
         },
         {
           "agentName": "thread-agent",
@@ -58,6 +58,14 @@
         {
           "agentName": "reconcile-agent",
           "responseFallback": "Delta pack created with 4 deltas:\n- MISSING_EPIC (HIGH): Evidence Service epic not consistently mapped\n- DATE_DRIFT (MEDIUM): Evidence Service milestone date drift\n- OWNER_MISMATCH (HIGH): Alice vs Bob on Evidence Service\n- ORPHANED_WORK (MEDIUM): J-104 has no epic\n\n1 blindspot flagged for owner mismatch."
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "Analyzing resource allocation.\n\n<tool_call>\n{\"name\": \"read_resources\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"capacity_report\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "No resources found for this project. Resource analysis skipped — seed team members via POST /api/resources to enable capacity tracking."
         }
       ],
       "expects": {

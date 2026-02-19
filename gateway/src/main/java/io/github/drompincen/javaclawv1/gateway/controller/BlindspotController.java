@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @RestController
@@ -20,6 +21,18 @@ public class BlindspotController {
 
     public BlindspotController(BlindspotRepository blindspotRepository) {
         this.blindspotRepository = blindspotRepository;
+    }
+
+    @PostMapping
+    public ResponseEntity<BlindspotDto> create(@PathVariable String projectId,
+                                                @RequestBody BlindspotDocument body) {
+        body.setBlindspotId(UUID.randomUUID().toString());
+        body.setProjectId(projectId);
+        if (body.getStatus() == null) body.setStatus(BlindspotStatus.OPEN);
+        body.setCreatedAt(Instant.now());
+        body.setUpdatedAt(Instant.now());
+        blindspotRepository.save(body);
+        return ResponseEntity.ok(toDto(body));
     }
 
     @GetMapping

@@ -70,7 +70,7 @@
       "agentResponses": [
         {
           "agentName": "controller",
-          "responseFallback": "Routing to objective-agent for sprint objective synthesis and coverage analysis."
+          "responseFallback": "{\"delegate\": \"objective-agent\", \"subTask\": \"sprint objective synthesis and coverage analysis\"}"
         },
         {
           "agentName": "objective-agent",

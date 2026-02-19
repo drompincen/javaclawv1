@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 1 Full Pipeline — Joe Overload",
+  "description": "E2E: Seed 3 resources, then run full pipeline with meeting notes + 7 Jira tickets. Joe is assigned 5/7 tickets and flagged as overloaded.",
+  "defaults": {
+    "maxWaitMs": 60000
+  },
+  "steps": [
+    {
+      "name": "Seed 3 team resources",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Joe",
+            "role": "ENGINEER",
+            "skills": ["Java", "Spring", "MongoDB"],
+            "capacity": 100
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Alice",
+            "role": "ENGINEER",
+            "skills": ["React", "TypeScript"],
+            "capacity": 100
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Bob",
+            "role": "QA",
+            "skills": ["testing", "automation"],
+            "capacity": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": "Full Pipeline — meeting notes + 7 Jira tickets (Joe overloaded)",
+      "type": "pipeline",
+      "pipelineContent": "Meeting: KYC Architecture Review\nDate: 2026-02-15\nAttendees: Joe, Alice, Bob\n\n1. KYC Service Architecture\n- Agreed to event-driven architecture with Kafka\n- Decision: PostgreSQL for primary store, Redis for caching\n- Joe to set up Kafka cluster by Friday\n- Open question: gRPC or REST for inter-service calls?\n\n2. Evidence Service Design\n- Store evidence in S3 with metadata in MongoDB\n- Joe to write the evidence API spec\n- Decision: use versioned document model\n- Question: how do we handle evidence expiry?\n\nJira Export:\n- J-201: Build KYC API endpoint | Epic: KYC Service | Status: In Progress | Owner: Joe | Priority: High\n- J-202: Kafka cluster setup | Epic: KYC Service | Status: Todo | Owner: Joe | Priority: High\n- J-203: Evidence API spec | Epic: Evidence Service | Status: Todo | Owner: Joe | Priority: High\n- J-204: Evidence storage layer | Epic: Evidence Service | Status: Todo | Owner: Joe | Priority: Medium\n- J-205: Evidence validation rules | Epic: Evidence Service | Status: Todo | Owner: Joe | Priority: Medium\n- J-206: KYC UI dashboard | Epic: KYC Service | Status: Todo | Owner: Alice | Priority: Medium\n- J-207: Integration test suite | Epic: (none) | Status: Todo | Owner: Bob | Priority: Low",
+      "agentResponses": [
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Classifying content.\n\n<tool_call>\n{\"name\": \"classify_content\", \"args\": {\"content\": \"Meeting notes: KYC architecture review + Jira export with 7 tickets\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Content classified as **MEETING_NOTES + JIRA_EXPORT**\n\n### Topic: KYC Service Architecture\n**Type:** architecture_decision\n**Decisions:** Event-driven architecture with Kafka, PostgreSQL primary store, Redis caching\n**Open Questions:** gRPC or REST for inter-service calls?\n**Action Items:** Joe to set up Kafka cluster by Friday\n**Key Content:** KYC service architecture using Kafka, PostgreSQL + Redis.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** S3 storage with MongoDB metadata, versioned document model\n**Open Questions:** How to handle evidence expiry?\n**Action Items:** Joe to write evidence API spec\n**Key Content:** Evidence collection and storage design with S3 and MongoDB.\n\n### Routes\nTHREAD: yes\nTICKETS: yes\nPLAN: no\nRESOURCES: yes"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Creating threads from classified topics.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"KYC Service Architecture\", \"content\": \"## KYC Service Architecture\\n\\nArchitecture decisions for KYC service.\\n\\n**Decisions:**\\n- Event-driven architecture with Kafka\\n- PostgreSQL for primary store, Redis for caching\\n\\n**Open Questions:**\\n- gRPC or REST for inter-service calls?\\n\\n**Action Items:**\\n- Joe to set up Kafka cluster by Friday\", \"decisions\": [\"Event-driven architecture with Kafka\", \"PostgreSQL primary store, Redis caching\"], \"actions\": [{\"text\": \"Set up Kafka cluster by Friday\", \"assignee\": \"Joe\"}]}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Evidence Service Design\", \"content\": \"## Evidence Service Design\\n\\nEvidence collection and storage design.\\n\\n**Decisions:**\\n- Store evidence in S3 with metadata in MongoDB\\n- Use versioned document model\\n\\n**Open Questions:**\\n- How to handle evidence expiry?\\n\\n**Action Items:**\\n- Joe to write evidence API spec\", \"decisions\": [\"S3 storage with MongoDB metadata\", \"Versioned document model\"], \"actions\": [{\"text\": \"Write evidence API spec\", \"assignee\": \"Joe\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Created 2 threads:\n1. **KYC Service Architecture** — Kafka event-driven, PostgreSQL + Redis\n2. **Evidence Service Design** — S3 storage, versioned documents"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Processing Jira ticket data.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-201: Build KYC API endpoint\", \"description\": \"Epic: KYC Service | Status: In Progress | Owner: Joe\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-202: Kafka cluster setup\", \"description\": \"Epic: KYC Service | Status: Todo | Owner: Joe\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-203: Evidence API spec\", \"description\": \"Epic: Evidence Service | Status: Todo | Owner: Joe\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-204: Evidence storage layer\", \"description\": \"Epic: Evidence Service | Status: Todo | Owner: Joe\", \"priority\": \"MEDIUM\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-205: Evidence validation rules\", \"description\": \"Epic: Evidence Service | Status: Todo | Owner: Joe\", \"priority\": \"MEDIUM\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-206: KYC UI dashboard\", \"description\": \"Epic: KYC Service | Status: Todo | Owner: Alice\", \"priority\": \"MEDIUM\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-207: Integration test suite\", \"description\": \"Epic: (none) — ORPHANED WORK | Status: Todo | Owner: Bob\", \"priority\": \"LOW\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Created 7 tickets:\n- KYC Service: J-201, J-202 (Joe)\n- Evidence Service: J-203, J-204, J-205 (Joe)\n- KYC Service: J-206 (Alice)\n- No Epic (orphaned): J-207 (Bob)\n\nNote: Joe is assigned 5 of 7 tickets."
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Computing coverage.\n\n<tool_call>\n{\"name\": \"compute_coverage\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Objectives derived:\n- Deliver KYC Service: linked to J-201, J-202, J-206\n- Deliver Evidence Service: linked to J-203, J-204, J-205\n\nCoverage: KYC Service 43%, Evidence Service 43%.\nUnmapped: J-207 (no epic)."
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Cross-referencing all project data.\n\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_objectives\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_phases\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_delta_pack\", \"args\": {\"projectId\": \"{{projectId}}\", \"projectName\": \"Story 1 Full Pipeline — Joe Overload\", \"deltas\": [{\"deltaType\": \"CAPACITY_OVERLOAD\", \"severity\": \"HIGH\", \"title\": \"Joe assigned 5 of 7 tickets\", \"description\": \"Joe is assigned to J-201, J-202, J-203, J-204, J-205 — well beyond 100% capacity\", \"sourceA\": \"Jira\", \"sourceB\": \"Resources\", \"suggestedAction\": \"Redistribute tickets to Alice and Bob\"}, {\"deltaType\": \"ORPHANED_WORK\", \"severity\": \"MEDIUM\", \"title\": \"J-207 has no epic\", \"description\": \"Ticket J-207 (Integration test suite) not mapped to any epic or objective\", \"sourceA\": \"Jira\", \"sourceB\": \"(none)\", \"suggestedAction\": \"Assign to an epic\"}]}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_blindspot\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Joe capacity overload — 5/7 tickets assigned\", \"description\": \"Joe is assigned 5 of 7 tickets across KYC Service and Evidence Service epics. This exceeds reasonable capacity and risks delays on both workstreams.\", \"category\": \"CAPACITY_GAP\", \"severity\": \"HIGH\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Delta pack created with 2 deltas:\n- CAPACITY_OVERLOAD (HIGH): Joe assigned 5 of 7 tickets\n- ORPHANED_WORK (MEDIUM): J-207 has no epic\n\n1 blindspot flagged for Joe capacity overload."
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "Analyzing resource allocation.\n\n<tool_call>\n{\"name\": \"read_resources\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"capacity_report\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "Resource capacity analysis:\n\n**Joe (ENGINEER — Java, Spring, MongoDB)**\n- Capacity: 100%\n- Assigned: J-201, J-202, J-203, J-204, J-205 = 5 tickets\n- Load: ~150% — OVERLOADED\n- Risk: Joe is significantly over-allocated across both KYC and Evidence workstreams.\n\n**Alice (ENGINEER — React, TypeScript)**\n- Capacity: 100%\n- Assigned: J-206 = 1 ticket\n- Load: ~30% — has spare capacity\n\n**Bob (QA — testing, automation)**\n- Capacity: 100%\n- Assigned: J-207 = 1 ticket\n- Load: ~20% — has spare capacity\n\n**Recommendation:** Redistribute J-204 (Evidence storage layer) or J-205 (Evidence validation rules) to Alice or Bob to reduce Joe's load below 100%."
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "memories",
+            "filter": {"projectId": "{{projectId}}", "tags": "intake"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"countEq": 2}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countEq": 7}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "J-201"}
+          },
+          {
+            "collection": "delta_packs",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "blindspots",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          }
+        ]
+      }
+    }
+  ]
+}

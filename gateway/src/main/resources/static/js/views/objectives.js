@@ -1,9 +1,34 @@
 import * as api from '../api.js';
 import { getState, setSelected } from '../state.js';
-import { renderTable } from '../components/table.js';
 import { toast } from '../components/toast.js';
 
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+function classifyObjective(obj) {
+  const now = new Date();
+  const soon = new Date(now.getTime() + 14 * 86400000);
+  const start = obj.startDate ? new Date(obj.startDate) : null;
+  const end = obj.endDate ? new Date(obj.endDate) : null;
+
+  if (obj.status === 'ACHIEVED' || obj.status === 'ARCHIVED') return 'completed';
+  if (obj.status === 'ACTIVE' || obj.status === 'AT_RISK') return 'now';
+  if (start && end && start <= now && end >= now) return 'now';
+  if (start && start <= soon && start > now) return 'approaching';
+  if (end && end <= soon && end > now) return 'approaching';
+  if (!start && !end) return 'now';
+  return 'future';
+}
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const diff = new Date(dateStr).getTime() - Date.now();
+  return Math.max(0, Math.ceil(diff / 86400000));
+}
+
+let completedVisible = false;
+
 export async function render() {
+  completedVisible = false;
   const pid = getState().currentProjectId;
   document.getElementById('centerTitle').textContent = 'OBJECTIVES';
   document.getElementById('centerSub').textContent =
@@ -67,32 +92,78 @@ export async function render() {
 
   try {
     const objs = await api.objectives.list(pid);
-    const rows = objs.map(o => ({
-      sprint: o.sprintName || '',
-      objective: o.outcome || '',
-      coverage: o.coveragePercent != null ? o.coveragePercent + '%' : '\u2013',
-      unmapped: (o.ticketIds || []).length,
-      risk: (o.risks || []).length > 0 ? 'Yes' : 'Low',
-      status: o.status || '',
-      _raw: o
-    }));
-    renderTable(
-      document.getElementById('objTableContainer'),
-      ['sprint', 'objective', 'coverage', 'unmapped', 'risk', 'status', 'actions'],
-      rows,
-      (row) => setSelected({ type: 'objective', id: row._raw.objectiveId, data: row._raw })
-    );
+    const groups = { now: [], approaching: [], future: [], completed: [] };
+    objs.forEach(o => {
+      const cls = classifyObjective(o);
+      if (cls === 'approaching') groups.approaching.push(o);
+      else groups[cls].push(o);
+    });
 
-    // Inject inline action buttons into each row's actions cell
-    const tableEl = document.getElementById('objTableContainer').querySelector('table');
-    if (tableEl) {
-      const bodyRows = tableEl.querySelectorAll('tbody tr');
-      bodyRows.forEach((tr, i) => {
-        const actionsCell = tr.querySelector('td:last-child');
-        if (!actionsCell) return;
-        actionsCell.innerHTML = '';
-        const obj = objs[i];
-        const objId = obj.objectiveId;
+    const container = document.getElementById('objTableContainer');
+    container.innerHTML = '';
+
+    const nowAndApproaching = [...groups.now, ...groups.approaching];
+
+    // Render section
+    function renderSection(label, icon, items, sectionClass, opts = {}) {
+      if (items.length === 0 && !opts.showEmpty) return;
+
+      const header = document.createElement('div');
+      header.className = 'obj-section-header' + (opts.clickable ? ' clickable' : '');
+      header.innerHTML = `<span>${icon} ${label}</span><span class="chip">${items.length} obj</span>`;
+
+      const section = document.createElement('div');
+      section.className = 'timeline';
+      if (opts.hidden) section.style.display = 'none';
+
+      if (opts.clickable) {
+        header.addEventListener('click', () => {
+          const visible = section.style.display !== 'none';
+          section.style.display = visible ? 'none' : 'flex';
+        });
+      }
+
+      container.appendChild(header);
+
+      items.forEach(o => {
+        const el = document.createElement('div');
+        const cls = classifyObjective(o);
+        let borderClass = '';
+        if (cls === 'now') borderClass = 'obj-now';
+        else if (cls === 'approaching') borderClass = 'obj-approaching';
+        else if (cls === 'completed') borderClass = 'obj-completed';
+        el.className = `event ${borderClass}`;
+        el.style.cursor = 'pointer';
+
+        const coverage = o.coveragePercent != null ? o.coveragePercent + '%' : '\u2013';
+        const riskLabel = (o.risks || []).length > 0 ? '\u26A0' : '';
+        const statusClass = o.status === 'AT_RISK' ? 'bad' : o.status === 'ACHIEVED' ? 'good' : o.status === 'ACTIVE' ? '' : '';
+
+        let countdownHtml = '';
+        if (cls === 'approaching') {
+          const d = daysUntil(o.startDate) ?? daysUntil(o.endDate);
+          if (d != null) countdownHtml = ` <span class="countdown-badge">\u23F0 in ${d}d</span>`;
+        }
+
+        el.innerHTML = `
+          <div class="eventTop">
+            <div style="min-width:0;flex:1">
+              <div class="eventTitle">
+                <span class="chip" style="font-size:10px;margin-right:4px">${esc(o.sprintName || '')}</span>
+                ${esc(o.outcome || '')}
+                ${countdownHtml}
+              </div>
+              <div class="tiny">${coverage} coverage ${riskLabel} \u2022 ${(o.ticketIds || []).length} tickets</div>
+            </div>
+            <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+              <span class="pill ${statusClass}">${esc(o.status || '')}</span>
+              <span class="obj-actions" style="display:flex;gap:2px"></span>
+            </div>
+          </div>`;
+
+        // Action buttons
+        const actionsSpan = el.querySelector('.obj-actions');
+        const objId = o.objectiveId;
 
         const mkBtn = (label, cls, handler) => {
           const b = document.createElement('button');
@@ -107,25 +178,41 @@ export async function render() {
           return b;
         };
 
-        actionsCell.style.whiteSpace = 'nowrap';
-        actionsCell.appendChild(mkBtn('\u2713', '', async () => {
-          await api.objectives.update(pid, objId, { ...obj, status: 'ACHIEVED' });
+        actionsSpan.appendChild(mkBtn('\u2713', '', async () => {
+          await api.objectives.update(pid, objId, { ...o, status: 'ACHIEVED' });
           toast('objective marked ACHIEVED');
           render();
         }));
-        actionsCell.appendChild(mkBtn('\u26A0', '', async () => {
-          const risks = [...(obj.risks || []), 'flagged at-risk manually'];
-          await api.objectives.update(pid, objId, { ...obj, status: 'AT_RISK', risks });
+        actionsSpan.appendChild(mkBtn('\u26A0', '', async () => {
+          const risks = [...(o.risks || []), 'flagged at-risk manually'];
+          await api.objectives.update(pid, objId, { ...o, status: 'AT_RISK', risks });
           toast('objective marked AT_RISK');
           render();
         }));
-        actionsCell.appendChild(mkBtn('\u2715', 'danger', async () => {
+        actionsSpan.appendChild(mkBtn('\u2715', 'danger', async () => {
           if (!confirm('Delete this objective?')) return;
           await api.objectives.delete(pid, objId);
           toast('objective deleted');
           render();
         }));
+
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('button')) return;
+          setSelected({ type: 'objective', id: objId, data: o });
+        });
+
+        section.appendChild(el);
       });
+
+      container.appendChild(section);
+    }
+
+    renderSection('NOW & APPROACHING', '\uD83D\uDD34', nowAndApproaching, 'now');
+    renderSection('FUTURE', '\uD83D\uDCC5', groups.future, 'future');
+    renderSection('COMPLETED', '\u2705', groups.completed, 'completed', { clickable: true, hidden: true });
+
+    if (objs.length === 0) {
+      container.innerHTML = '<div class="tiny">No objectives yet. Use the form above to add one.</div>';
     }
   } catch {
     document.getElementById('objTableContainer').innerHTML = '<div class="tiny">Could not load objectives.</div>';

@@ -4,13 +4,17 @@
 
 ## The Story
 
-David opens JavaClaw early in the morning. He pastes his meeting notes — a mix of architecture decisions, open questions, and action items — into the Intake panel and hits enter. Within seconds, the system organizes the chaos into structured threads: "KYC-SVC Phase 1 Architecture", "Evidence Service Discussion", "Operational Readiness (ORR)". Each thread has a clean title, grouped related thoughts, and merged duplicates.
+David opens JavaClaw early in the morning. He pastes his meeting notes — a mix of architecture decisions, open questions, and action items — into the Intake panel and hits enter. The system first saves the raw content as project memory, then the Triage agent — reading memories from yesterday's intakes — classifies the content, organizes it into topics, and decides which downstream agents should process it. No keyword matching, no hardcoded rules — the LLM reasons about the content.
 
-Later, he pastes a Jira export, a Confluence design page, and a Smartsheet plan. The system layers intelligence: tickets are grouped, phases are extracted, objectives are synthesized, and a Delta Pack appears showing "Missing Epic: Evidence Service", "Milestone drift: March 8 -> March 15", "Owner mismatch: Alice vs Bob", "Unmapped tickets: 6". The system isn't just organizing — it's challenging inconsistencies across sources.
+The Thread agent takes over. It sees the existing threads for this project, recognizes that "Evidence Service" was discussed yesterday, and appends the new decisions to the existing thread instead of creating a duplicate. For genuinely new topics — "KYC-SVC Phase 1 Architecture", "Operational Readiness (ORR)" — it creates new threads with distilled key points, decisions, and action items.
 
-The next morning, David asks "What are our objectives for this sprint?" The system computes — not guesses — and responds: "Deliver KYC-SVC facade and tooling — 72% covered. Prepare operational readiness — 40% covered, high risk." He asks "Who is working on what?" and learns Alice is overloaded while Bob has capacity. He asks "Create a plan from the current threads" and a three-phase execution path emerges with entry conditions, exit criteria, and linked milestones.
+Later, he pastes a Jira export, a Confluence design page, and a Smartsheet plan. The Triage agent recognizes ticket data, timeline milestones, and design content — routing each to the right specialist. The system layers intelligence: tickets are grouped, phases are extracted, objectives are synthesized, and a Delta Pack appears showing "Missing Epic: Evidence Service", "Milestone drift: March 8 -> March 15", "Owner mismatch: Alice vs Bob", "Unmapped tickets: 6". The system isn't just organizing — it's challenging inconsistencies across sources.
 
-Days pass. The scheduler triggers the Reconcile Agent overnight. When David returns, new insights appear: a milestone slipped, a ticket was added without an objective, a duplicate thread was created. The system kept the project honest without him.
+The next morning, David asks "What are our objectives for this sprint?" The Objective agent doesn't just count tickets — it reads the "train of thought" in the threads. While there are 10 tickets for "KYC Facade," the threads show the team is stuck on "Evidence API." It marks that objective as AT_RISK despite the good ticket count. David asks "Who is working on what?" and the Resource agent — remembering Alice's last three "overloaded" flags — suggests a permanent reassignment to Bob. He asks "Create a plan from the current threads" and a three-phase execution path emerges with entry conditions, exit criteria, and linked milestones.
+
+Days pass. The scheduler triggers the Reconcile Agent overnight. It reads its own memory from last week's reconciliation: "MISSING_EPIC for J-104 was flagged." It checks again — still unresolved. It escalates the severity. A new delta appears: "The Triage agent just processed a note saying 'Vendor delayed by 2 weeks.' DATE_DRIFT detected." The system kept the project honest without David.
+
+Weeks later, David notices the system uses consistent naming, recalls past decisions, and avoids repeating earlier mistakes. Overnight, the memory janitor noticed two conflicting dates for the KYC launch — the older "tentative" date is now contradicted by a confirmed date in the latest thread. It purged the stale memory. This morning, the system only references the truth. After a week of heavy brainstorming, 150 small memories accumulated. The distiller ran a compression pass — synthesizing them into 10 executive summaries and deleting the fragments. The system's intelligence stays sharp.
 
 David never "manages tickets." He pastes information, asks questions, triggers intent. The system structures, aligns, challenges, and executes.
 
@@ -55,7 +59,7 @@ David never "manages tickets." He pastes information, asks questions, triggers i
 |---|---|
 | **protocol** | Shared DTOs (Java records), enums (AgentRole, SessionStatus, TicketStatus, MilestoneStatus, etc.), event types (40+), WebSocket message contracts. Pure Java — no Spring dependencies. |
 | **persistence** | 32 MongoDB document classes, 35 repository interfaces, `ChangeStreamService` for real-time reactive streaming. Covers agents, projects, threads, tickets, objectives, phases, milestones, checklists, resources, delta packs, blindspots, schedules, and more. |
-| **runtime** | Multi-agent engine: `AgentLoop` orchestrates sessions, `AgentGraphBuilder` runs the controller→specialist→checker loop, `IntakePipelineService` chains triage→thread creation→distillation, scheduler engine for automated agent runs, scenario test framework with 36 E2E tests. |
+| **runtime** | Multi-agent engine: `AgentLoop` orchestrates sessions, `AgentGraphBuilder` runs the controller→specialist→checker loop, `IntakePipelineService` chains memory-first ingest→LLM-driven triage→context-aware thread creation→alignment→reconciliation, scheduler engine for automated agent runs, scenario test framework with 38 E2E tests. |
 | **tools** | 46 built-in tools loaded via Java SPI: file I/O, shell, git, JBang, Python, Excel, memory, HTTP, project management (tickets, phases, milestones, objectives, checklists, resources, delta packs, blindspots). |
 | **gateway** | Spring Boot REST + WebSocket server. 24 controllers for all domain objects. Serves the web cockpit UI as static assets. |
 
@@ -73,60 +77,90 @@ JavaClaw uses a **controller → specialist → checker** orchestration pattern.
 | `pm` | SPECIALIST | Project management — tickets, planning, stakeholder tracking | create_ticket, create_idea, memory, excel |
 | `generalist` | SPECIALIST | General questions, brainstorming, advice | memory, read_file |
 | `reminder` | SPECIALIST | Natural language timer/reminder creation | memory, read_file |
-| `distiller` | SPECIALIST | Distills completed sessions into persistent memories | memory |
+| `distiller` | SPECIALIST | Session-level auto-distillation + nightly memory compression and cleanup (pipeline thread distillation handled by thread-agent) | memory |
 | `thread-extractor` | SPECIALIST | Extracts action items, ideas, and tickets from threads | read_thread_messages, create_ticket, create_idea |
-| `thread-agent` | SPECIALIST | Creates, renames, merges threads; attaches evidence | create_thread, rename_thread, merge_threads |
-| `objective-agent` | SPECIALIST | Derives sprint objectives, computes ticket coverage | compute_coverage, update_objective |
+| `thread-agent` | SPECIALIST | Context-aware thread management — sees existing threads + memories, distills content into threads directly, merges overlapping topics, appends to existing threads on re-intake | create_thread, rename_thread, merge_threads |
+| `objective-agent` | SPECIALIST | Reads thread content + ticket state + memories of past analyses; reasons about actual risk beyond ticket counts; tracks coverage trends across runs | compute_coverage, update_objective, memory |
 | `checklist-agent` | SPECIALIST | Generates ORR and release readiness checklists | create_checklist, checklist_progress |
-| `intake-triage` | SPECIALIST | Classifies intake content and dispatches to agents | classify_content, dispatch_agent |
+| `intake-triage` | SPECIALIST | Classifies raw content and decides routing via structured output block (THREAD/TICKETS/PLAN/RESOURCES); reads project memories to recognize updates to prior topics | classify_content, memory |
 | `plan-agent` | SPECIALIST | Creates execution phases and milestones from threads | create_phase, create_milestone, generate_plan_artifact |
-| `reconcile-agent` | SPECIALIST | Detects drift, mismatches, and gaps across data sources | read_tickets, read_objectives, create_delta_pack |
-| `resource-agent` | SPECIALIST | Maps people to tickets, computes capacity and load | read_resources, capacity_report, suggest_assignments |
+| `reconcile-agent` | SPECIALIST | System Auditor — reads all agent memories, tracks deltas over time, identifies recurring vs. resolved findings, correlates intake content with milestone/plan state | read_tickets, read_objectives, create_delta_pack, memory |
+| `resource-agent` | SPECIALIST | Tracks historical load patterns across runs, suggests structural reassignments, detects chronic overload via memory of past capacity snapshots | read_resources, capacity_report, suggest_assignments, memory |
 
 Agents are defined in MongoDB and auto-seeded on first startup. Missing agents are backfilled on subsequent starts.
 
+### The Contextual Specialist Pattern (Stateful Intelligence Loop)
+
+This design shifts JavaClaw from a series of "blind" scripts to a **Stateful Intelligence Loop**. Every specialist agent follows the same 4-step execution pattern — whether invoked by the intake pipeline, triggered by the scheduler, or called on-demand by a user:
+
+| Step | Action | Benefit |
+|---|---|---|
+| **1. Context Prep** | Load current DB entities + relevant project memories into the prompt | No more "fresh start" syndrome — the agent knows what happened yesterday |
+| **2. Reasoning** | LLM compares new input vs. existing state | Recognizes that a new paste is an update to a prior topic, not a new topic |
+| **3. Structured Output** | Agent returns parseable blocks with intent, updates, and routing decisions | Java code simply executes the "orders" — no hardcoded if/else routing |
+| **4. Feedback Loop** | Agent saves its own analysis summary back to memory | Other agents can see what this one found; next run builds on the last |
+
+**Project Memory as the "subconscious":** The `memories` collection acts as the system's accumulated intelligence. Every intake saves raw content as memory. Every agent reads relevant memories before acting. Every agent writes what it learned after acting. This creates a feedback loop where each interaction makes the system smarter about the project.
+
+**LLMs make ALL routing decisions:** No Java code decides what type of content was pasted. The triage agent reasons about the content with full context and outputs structured routing decisions. The pipeline is a pure executor of LLM decisions.
+
+**Agents build on each other's work:** The objective agent can see that the reconciler flagged a coverage gap yesterday. The reconciler can see that the objective agent created a new objective this morning. The resource agent remembers that Alice was overloaded for 3 consecutive runs. This cross-agent memory sharing is what turns isolated tool calls into continuous project intelligence.
+
 ### Intake Pipeline — How Content Reaches the Right Collections
 
-The intake pipeline is the primary way data enters JavaClaw. A user pastes raw content — meeting notes, Confluence pages, Jira exports, Smartsheet plans, or any combination — into the Intake panel and hits enter. The system then runs up to 7 phases, each handled by a specialist agent that writes to specific MongoDB collections using tools.
+The intake pipeline is the primary way data enters JavaClaw. A user pastes raw content — meeting notes, Confluence pages, Jira exports, Smartsheet plans, or any combination — into the Intake panel and hits enter. The system follows a **memory-first** architecture: content is always saved as project memory before any agent processes it. The triage agent — not keyword matching — decides which downstream agents run. The pipeline executes up to 6 phases, each following the Contextual Specialist Pattern.
 
 #### Entry Point
 
 `POST /api/intake/pipeline` with `{projectId, content, filePaths[]}` triggers `IntakePipelineService.startPipeline()`. This creates a source session for UI tracking and launches the pipeline asynchronously. Files can also be uploaded via `POST /api/intake/upload` (multipart), which saves them to disk and creates `uploads` documents with status `INBOX`.
 
+#### Phase 0: Memory-First Ingest (always)
+
+Before any agent runs, the pipeline saves the raw content as a `PROJECT`-scoped memory with 7-day TTL. This is the "memory-first" principle — nothing enters the system without being remembered. Subsequent intakes accumulate as memories, giving the triage agent and all downstream agents visibility into what the project has received before.
+
+**Collections written:**
+- `memories` — One document per intake. Fields: `scope: PROJECT`, `key: intake-{pipelineId}`, `tags: [intake, raw-content]`, `expiresAt: now + 7 days`
+
 #### Phase 1: Triage (intake-triage agent)
 
-The triage agent receives the raw content and calls `classify_content` — a pattern-matching tool that detects the content type without LLM assistance:
+The triage agent receives the raw content along with **existing project memories** from prior intakes. It calls `classify_content` — a pattern-matching tool that detects content type and extracts metadata (dates, people, Jira keys). The LLM then reasons about the content with full context: it can recognize that a new paste is an update to a topic from yesterday's intake, not a brand new topic.
 
-| Pattern Detected | Classification |
-|---|---|
-| Jira keys (ABC-123) + status headers | `JIRA_DUMP` |
-| "Confluence" or "space key" or structured decisions | `CONFLUENCE_EXPORT` |
-| "milestone" + "owner" + "status" | `SMARTSHEET_EXPORT` |
-| "meeting" + "attendees" or "agenda" | `MEETING_NOTES` |
-| "background" + "proposal" + "alternatives" | `DESIGN_DOC` |
-| 3+ lines starting with "http" | `LINK_LIST` |
-| None of the above | `FREE_TEXT` |
+The triage agent organizes content into distinct topics (decisions, open questions, action items per topic) and outputs a **structured routing block**:
 
-The tool also extracts dates (regex `\d{4}-\d{2}-\d{2}`), people (via `@Name` or `Assignee: Name` patterns), and Jira project keys. The triage agent then organizes the content into distinct topics with structured output (decisions, open questions, action items per topic).
+```
+### Routes
+THREAD: yes/no — topics, ideas, architecture discussions, meeting notes, designs
+TICKETS: yes/no — Jira exports, task lists, bug reports, ticket dumps
+PLAN: yes/no — Smartsheet plans, milestone schedules, phase definitions, timelines
+RESOURCES: yes/no — team assignments, capacity data, allocation spreadsheets
+```
 
-**Collections written:** None directly. The triage output is a text classification passed to subsequent phases. The triage agent's session and messages are written to `sessions`, `messages`, and `events`.
+This routing block drives which downstream phases run. The LLM decides — not Java code. No keyword matching (`contains("JIRA")`), no hardcoded rules. File path hints (e.g., `.xlsx` files) are included in the prompt as context for the LLM, not as routing overrides.
 
-#### Phase 2: Thread Creation (thread-agent)
+**Collections written:** None directly. The triage output is a text classification + routing decision passed to subsequent phases. The triage agent's session and messages are written to `sessions`, `messages`, and `events`.
 
-The thread agent receives the raw content + triage output and calls `create_thread` once per distinct topic. For example, meeting notes about "KYC Architecture", "Evidence Service", and "Operational Readiness" produce 3 threads.
+#### Phase 2: Thread Creation (thread-agent) — always runs
+
+The thread agent receives the raw content + triage output, along with **existing threads for the project** and **project memories from recent intakes**. This context allows it to make intelligent decisions:
+
+- If a topic matches an existing thread's title/subject, it calls `create_thread` with the SAME title — the tool automatically appends distilled key points to the existing thread and merges new decisions and actions
+- If a topic is genuinely new, it creates a new thread with distilled content
+- If topics overlap significantly, it merges them into a single thread
+
+The thread agent **distills** content directly — it doesn't just pass raw text through. It extracts concise key points, decisions, and action items, writing organized markdown into the thread's `content` field. This replaces the need for a separate distillation phase.
 
 Each `create_thread` call:
-1. Checks for duplicates by title (case-insensitive) — if a thread with the same title already exists in the project, it appends the new content to the existing thread and merges decisions and actions, returning `updated_existing`
-2. Creates a `ThreadDocument` with `projectIds`, `title`, `lifecycle: ACTIVE`, `decisions[]`, and `actions[]`
+1. Checks for duplicates by title (case-insensitive) — returns `updated_existing` if appending to an existing thread
+2. Creates a `ThreadDocument` with `projectIds`, `title`, `lifecycle: ACTIVE`, `content` (distilled markdown), `decisions[]`, and `actions[]`
 3. Seeds the organized markdown as the first message in the thread (stored in `messages` with `sessionId == threadId`, `role: assistant`, `agentId: thread-agent`)
 
 **Collections written:**
-- `threads` — One document per topic. Fields populated: `threadId`, `projectIds[]`, `title`, `lifecycle`, `decisions[]` (text + date), `actions[]` (text + assignee + status=OPEN), `createdAt`
+- `threads` — One document per topic (or updated existing). Fields populated: `threadId`, `projectIds[]`, `title`, `lifecycle`, `content` (distilled markdown), `decisions[]` (text + date), `actions[]` (text + assignee + status=OPEN), `createdAt`
 - `messages` — One seed message per thread with the organized content
 
-#### Phase 3: PM Agent (conditional — runs if Jira data detected)
+#### Phase 3: PM Agent (conditional — runs if triage routed TICKETS: yes)
 
-The pipeline inspects the triage output for Jira signals (`JIRA`, `JIRA_DUMP`, `TICKET` keywords, or `.xlsx`/`.xls` file paths). If detected, the PM agent processes Jira ticket data.
+The triage agent's routing block determines whether ticket data was identified. If `TICKETS: yes`, the PM agent processes the ticket data.
 
 If file paths are provided, the agent first calls `excel` to read the spreadsheet. Then it calls `create_ticket` once per ticket found.
 
@@ -135,28 +169,35 @@ Each `create_ticket` call creates a `TicketDocument` with the original Jira key 
 **Collections written:**
 - `tickets` — One document per ticket. Fields populated: `ticketId`, `projectId`, `title` (includes Jira key), `description` (epic, status, owner info), `priority` (HIGH/MEDIUM/LOW), `status: TODO`, `createdAt`
 
-#### Phase 4: Plan Agent (conditional — runs if Smartsheet data detected)
+#### Phase 4: Plan Agent (conditional — runs if triage routed PLAN: yes)
 
-Runs in parallel with Phase 3 if Smartsheet/milestone data is detected. The plan agent calls `create_phase` for each phase and `create_milestone` for each milestone.
+Runs in parallel with Phase 3 if the triage agent identified plan/timeline data (`PLAN: yes`). The plan agent calls `create_phase` for each phase and `create_milestone` for each milestone.
 
 **Collections written:**
 - `phases` — One document per phase. Fields: `phaseId`, `projectId`, `name`, `description`, `sortOrder`, `status: PENDING`, `createdAt`
 - `milestones` — One document per milestone. Fields: `milestoneId`, `projectId`, `name`, `targetDate`, `owner`, `status: UPCOMING`, `createdAt`
 
-#### Phase 5: Objective Agent (conditional — runs if Phases 3 or 4 ran)
+#### Phase 5: Objective Agent (conditional — runs when project state warrants alignment analysis)
 
-After PM and Plan agents complete, the objective agent synthesizes sprint objectives from the ticket and thread data. It calls `compute_coverage` which reads all tickets and objectives for the project, then computes what percentage of each objective is backed by tickets.
+After PM and Plan agents complete (or when triggered by the scheduler), the objective agent follows the Contextual Specialist Pattern:
 
-The agent derives high-level objectives (e.g., "Deliver Evidence Service", "Complete Onboarding Flow") and maps existing tickets to them, reporting coverage percentages and flagging unmapped tickets.
+1. **Context Prep:** Loads existing objectives, existing threads (titles + content summaries), existing tickets, and memories tagged `coverage-analysis` from prior runs
+2. **Reasoning:** The LLM doesn't just count tickets — it reads the "train of thought" in threads. It can realize that while there are 10 tickets for "KYC Facade," the threads show the team is stuck on "Evidence API," marking that objective as AT_RISK despite the good ticket count
+3. **Structured Output:** Calls `compute_coverage` to get raw numbers, then creates/updates objectives with reasoned assessments, flagging blindspots and gaps
+4. **Feedback Loop:** Saves a `coverage-analysis` memory so the next run can track trends ("coverage improved from 60% to 72%")
 
 **Collections written:**
 - `objectives` — One document per derived objective. Fields: `objectiveId`, `projectId`, `outcome`, `ticketIds[]`, `threadIds[]`, `coveragePercent`, `status: PROPOSED`, `createdAt`
+- `memories` — Coverage analysis summary for next run
 
-#### Phase 6: Reconcile Agent (conditional — runs if Phase 5 ran)
+#### Phase 6: Reconcile Agent (conditional — System Auditor)
 
-The reconcile agent cross-references all project data by calling `read_tickets`, `read_objectives`, and `read_phases` to load everything, then analyzes mismatches.
+The reconcile agent is the most powerful agent in the system because it has access to the memory of all other agents. It follows the Contextual Specialist Pattern:
 
-It calls `create_delta_pack` with all detected deltas. A delta pack is a structured report containing individual deltas, each with a type, severity, title, description, the two conflicting sources, and a suggested action. For critical findings, it also calls `create_blindspot` to flag individual risk items.
+1. **Context Prep:** Loads all project data (tickets, objectives, phases, milestones) plus memories from **previous reconciliation runs** and **other agents' recent outputs** (e.g., the objective agent's coverage analysis from Phase 5)
+2. **Reasoning:** Cross-references sources and reasons about mismatches. Can correlate a triage intake note ("vendor delayed 2 weeks") with a milestone date to detect DATE_DRIFT. Can track recurring deltas ("this OWNER_MISMATCH was flagged 3 consecutive runs — escalating severity")
+3. **Structured Output:** Calls `create_delta_pack` with all detected deltas, including resolution status for previously flagged items. For critical findings, calls `create_blindspot`
+4. **Feedback Loop:** Saves a `reconciliation-summary` memory so the next run knows what was found, what was resolved, and what persists
 
 Example deltas from the Story 2 pipeline test:
 - **MISSING_EPIC** (HIGH): "J-104 has no epic assignment" — Jira vs Jira
@@ -167,21 +208,7 @@ Example deltas from the Story 2 pipeline test:
 **Collections written:**
 - `delta_packs` — One document per reconciliation run. Fields: `deltaPackId`, `projectId`, `deltas[]` (deltaType, severity, title, description, sourceA, sourceB, suggestedAction), `summary` (totalDeltas, bySeverity, byType), `status: FINAL`, `createdAt`
 - `blindspots` — One document per critical finding. Fields: `blindspotId`, `projectId`, `title`, `category` (e.g., MISSING_OWNER), `severity`, `description`, `status: OPEN`, `createdAt`
-
-#### Phase 7: Distillation (DistillerService)
-
-The pipeline queries `threads` for all threads created during this pipeline run (by comparing `createdAt` against the pipeline start time). For each new thread, `DistillerService.distillThread()` writes distilled content back to the thread's `content` field (persistent knowledge) and creates a THREAD-scoped memory with a 7-day TTL (expiring summary).
-
-The distiller extracts:
-- Thread title and summary
-- All decisions (text + who decided)
-- All action items (text + assignee)
-- Thread message content (truncated to 500 chars per message)
-
-This is stored as a single `MemoryDocument` with scope `THREAD`, tagged `auto-distilled, thread-decisions, intake-pipeline`.
-
-**Collections written:**
-- `memories` — One document per thread. Fields: `memoryId`, `scope: THREAD`, `threadId`, `projectId`, `key` (e.g., "thread-distill-abc12345"), `content` (structured markdown), `tags`, `createdBy: distiller`, `createdAt`
+- `memories` — Reconciliation summary for next run
 
 #### Complete Data Flow Diagram
 
@@ -195,19 +222,28 @@ POST /api/intake/pipeline
         ├─ creates → messages (raw content as first user message)
         │
         ▼
-Phase 1: intake-triage
-        │  calls classify_content (pattern matching, no DB write)
-        │  produces structured topic list
+Phase 0: memory-first ingest
+        │  saves raw content as PROJECT memory (7-day TTL)
+        ├─ creates → memories (raw-content, scope: PROJECT)
         │
         ▼
-Phase 2: thread-agent
-        │  calls create_thread per topic
-        ├─ creates → threads (one per topic, with decisions[] and actions[])
-        ├─ creates → messages (seed content per thread, sessionId = threadId)
+Phase 1: intake-triage (LLM-driven routing)
+        │  loads project memories for context
+        │  calls classify_content (metadata extraction)
+        │  LLM organizes topics + outputs routing block
+        │  (THREAD: yes/no, TICKETS: yes/no, PLAN: yes/no, RESOURCES: yes/no)
+        │
+        ▼
+Phase 2: thread-agent (always runs)
+        │  loads existing threads + project memories
+        │  distills content into threads directly
+        │  calls create_thread per topic (appends if existing)
+        ├─ creates/updates → threads (distilled content, decisions[], actions[])
+        ├─ creates → messages (seed content per thread)
         │
         ├──────────────────────────────────────────────┐
         ▼                                              ▼
-Phase 3: pm (if Jira data)              Phase 4: plan-agent (if Smartsheet)
+Phase 3: pm (TICKETS: yes)              Phase 4: plan-agent (PLAN: yes)
         │  calls create_ticket                    │  calls create_phase
         ├─ creates → tickets                      ├─ creates → phases
         │                                         │  calls create_milestone
@@ -216,21 +252,20 @@ Phase 3: pm (if Jira data)              Phase 4: plan-agent (if Smartsheet)
         └──────────────┬───────────────────────────┘
                        ▼
              Phase 5: objective-agent
-                       │  calls compute_coverage
+                       │  loads existing objectives + threads + memories
+                       │  calls compute_coverage, reasons about risk
                        ├─ creates → objectives (with coveragePercent)
+                       ├─ creates → memories (coverage-analysis summary)
                        │
                        ▼
-             Phase 6: reconcile-agent
-                       │  reads tickets, objectives, phases
+             Phase 6: reconcile-agent (System Auditor)
+                       │  loads all data + previous reconciliation memories
+                       │  reasons about deltas, tracks recurring findings
                        │  calls create_delta_pack
                        ├─ creates → delta_packs (drift report)
                        │  calls create_blindspot (for critical items)
                        ├─ creates → blindspots (risk flags)
-                       │
-                       ▼
-             Phase 7: distiller
-                       │  reads new threads from Phase 2
-                       ├─ creates → memories (THREAD-scoped, one per thread)
+                       ├─ creates → memories (reconciliation summary)
                        │
                        ▼
              Pipeline complete
@@ -249,20 +284,23 @@ The web cockpit fetches data from the same REST endpoints that the pipeline wrot
 - **Blindspots panel** (`GET /api/projects/{pid}/blindspots`) — Shows risk items from Phase 6
 - **Schedule panel** (`GET /api/schedules`) — Shows when agents will run again automatically
 
-The scenario test framework validates this end-to-end: `scenario-story-2-pipeline.json` runs the full 7-phase pipeline with mock LLM responses and asserts that threads, tickets, phases, milestones, objectives, delta packs, and blindspots all appear in the correct collections with the expected data.
+The scenario test framework validates this end-to-end: `scenario-story-2-pipeline.json` runs the full pipeline with mock LLM responses and asserts that threads, tickets, phases, milestones, objectives, delta packs, and blindspots all appear in the correct collections with the expected data. `scenario-story-1-intake.json` tests pure meeting-note intake (3 topics, THREAD-only routing), and `scenario-story-1-reintake.json` tests the append-to-existing-thread flow (memory-first context enables update recognition).
 
 ### Scheduled Agent Execution
 
-Six default schedules are seeded on startup:
+Seven default schedules are seeded on startup:
 
-| Agent | Schedule | Priority |
-|---|---|---|
-| reconcile-agent | 9am weekdays | 6 (highest) |
-| resource-agent | 9am weekdays | 5 |
-| objective-agent | 9am weekdays | 5 |
-| checklist-agent | 9am weekdays | 5 |
-| plan-agent | 10am Mondays | 4 |
-| thread-extractor | 6pm weekdays | 4 |
+| Agent | Schedule | Priority | Purpose |
+|---|---|---|---|
+| distiller (cleanup) | 1am daily | 7 (highest) | Memory janitor — purges contradicted/stale memories, compresses fragments into executive summaries |
+| reconcile-agent | 9am weekdays | 6 | Drift detection — reads previous reconciliation memory, tracks recurring vs. resolved deltas |
+| resource-agent | 9am weekdays | 5 | Capacity check — reads past capacity snapshots, detects chronic overload patterns |
+| objective-agent | 9am weekdays | 5 | Coverage analysis — reads thread content + past analyses, tracks coverage trends |
+| checklist-agent | 9am weekdays | 5 | Stale checklist detection |
+| plan-agent | 10am Mondays | 4 | Weekly milestone/phase status check |
+| thread-extractor | 6pm weekdays | 4 | End-of-day unextracted artifact sweep |
+
+Scheduled agents follow the same **Contextual Specialist Pattern** as pipeline agents — they load context + memories before executing. The 9am reconcile run can see what the 9am objective run found 5 minutes earlier. The 1am distiller cleanup reads all recent memories and compresses or purges them so the morning agents start with clean, sharp context.
 
 Schedules support CRON expressions, fixed times, intervals, and immediate execution. The scheduler engine computes future executions, acquires distributed locks, and tracks results in `past_executions`.
 
@@ -381,7 +419,7 @@ Story 7 tests scheduled reconciliation — the reconcile-agent runs automaticall
 
 | Collection | Document | Purpose | Key Fields |
 |---|---|---|---|
-| `memories` | MemoryDocument | Expiring conversation summaries (full-text searchable) | memoryId, scope (GLOBAL/PROJECT/SESSION/THREAD), key, content, tags[], projectId, sessionId, threadId, createdBy, expiresAt (TTL) |
+| `memories` | MemoryDocument | Project intelligence store — agent outputs, intake snapshots, analysis summaries (full-text searchable) | memoryId, scope (GLOBAL/PROJECT/SESSION/THREAD), key, content, tags[], projectId, sessionId, threadId, createdBy, expiresAt (TTL), lastEvaluatedAt |
 
 **Four memory scopes with TTL:**
 - **GLOBAL** — Shared across all projects (e.g., "user prefers Java 21") — **never expires**
@@ -389,9 +427,26 @@ Story 7 tests scheduled reconciliation — the reconcile-agent runs automaticall
 - **SESSION** — Tied to a standalone session — **expires after 24 hours**
 - **THREAD** — Tied to a thread (e.g., "sprint planning decisions") — **expires after 7 days**
 
-**Threads vs Memories:** Threads are the persistent knowledge store — content comes in, gets distilled, and old ideas are replaced by new ones via the `content` field. Memories are expiring conversation summaries that rotate and disappear via MongoDB TTL indexes. The distiller writes content back to threads (persistent) and creates memories as temporary summaries (expiring).
+**Threads vs Memories:** Threads are the persistent knowledge store — content comes in, gets distilled, and old ideas are replaced by new ones via the `content` field. Memories are expiring summaries, analysis outputs, and intake snapshots that rotate and disappear via MongoDB TTL indexes.
 
-The distiller agent automatically runs after each session completes, extracting summaries and storing them as scoped memories with TTL. Story 9 tests memory persistence — the distiller stores an S3 storage decision and later recalls it when asked "What did we decide about evidence storage?"
+**Memory-First Intake:** All raw content entering the intake pipeline is first saved as a PROJECT-scoped memory with 7-day TTL (Phase 0). This means the triage agent and all downstream agents can reference prior intakes when classifying and organizing new content. Each subsequent intake builds on the project's accumulated context.
+
+**Agent Feedback Loop:** Every specialist agent writes what it learned back to memory after running. This creates **cumulative intelligence** where each run builds on the last:
+- **Objective agent** saves `coverage-analysis` memories — next run can track trends ("coverage improved from 60% to 72%")
+- **Reconciler** saves `reconciliation-summary` memories — next run knows which deltas were previously flagged, which are resolved, which are recurring
+- **Resource agent** saves `capacity-snapshot` memories — detects chronic overload patterns ("Alice flagged overloaded 3 consecutive runs")
+- **Triage agent** reads all of these when classifying new content — can correlate a new intake note with a recently flagged delta
+
+**Memory Lifecycle — Ingest, Accumulate, Compress, Forget, Expire:**
+1. **Ingest** — Raw content saved as memory on every intake (Phase 0)
+2. **Accumulate** — Agents write analysis summaries, creating a growing knowledge base
+3. **Compress** — The distiller runs a nightly "Compression Pass" (1 AM): reads all recent fragments, synthesizes into executive summaries, deletes the fragments. Keeps the context window sharp and prevents bloat from heavy brainstorming days
+4. **Forget** — The memory janitor (same nightly run) identifies counter-factual memories — e.g., an old "tentative date" contradicted by a newer confirmed date in a thread — and purges them. The system only references truth, not stale context
+5. **Expire** — MongoDB TTL indexes automatically remove memories past their `expiresAt` timestamp
+
+The `lastEvaluatedAt` field tracks when the memory janitor last reviewed each memory, preventing redundant evaluation.
+
+Story 9 tests memory persistence — the distiller stores an S3 storage decision and later recalls it when asked "What did we decide about evidence storage?"
 
 #### Scheduling and Execution
 

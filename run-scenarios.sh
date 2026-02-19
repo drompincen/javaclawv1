@@ -31,6 +31,9 @@ SCENARIOS=(
   scenario-reconcile-agent
   scenario-resource-agent
   scenario-intake-pipeline
+  scenario-story-1-intake
+  scenario-story-1-reintake
+  scenario-story-1-full-pipeline
   scenario-story-2-alignment
   scenario-story-2-pipeline
   scenario-story-3-sprint-objectives
@@ -64,7 +67,7 @@ if command -v cmd.exe &>/dev/null && [ -z "$USE_JBANG" ]; then
   for S in "${SCENARIOS[@]}"; do
     SCENARIO_ARGS_WIN="$SCENARIO_ARGS_WIN --scenario runtime\\src\\test\\resources\\${S}.json"
   done
-  cmd.exe /c "jbang.cmd javaclaw.java --testmode --port $PORT $SCENARIO_ARGS_WIN"
+  cmd.exe /c "jbang.cmd --fresh javaclaw.java --testmode --port $PORT $SCENARIO_ARGS_WIN"
 else
   # WSL / Linux native
   jbang javaclaw.java --testmode --port $PORT $SCENARIO_ARGS

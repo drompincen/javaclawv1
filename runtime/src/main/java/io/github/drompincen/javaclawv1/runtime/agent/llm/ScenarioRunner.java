@@ -302,6 +302,12 @@ public class ScenarioRunner implements ApplicationRunner {
                                 int stepNum, int totalSteps) {
         String stepName = step.name() != null ? step.name() : step.userQuery();
         try {
+            // Reset scenario response counters and set project ID for template resolution
+            scenarioService.resetCounters();
+            if (scenarioProjectId != null) {
+                scenarioService.setProjectId(scenarioProjectId);
+            }
+
             // Record current max event seq for scoping assertions
             long stepStartEventSeq = getMaxEventSeq(baseUrl, sessionId);
 

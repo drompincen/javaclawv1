@@ -1,0 +1,46 @@
+the intake ids are useless, they should show the entire conversations and contents (they will get wiped out on restart)
+Recent intake
+select to inspect
+14969e6a-8199-4d86-882b-2ad7072650fd
+8:08:01 PM
+COMPLETED
+ce7da993-8ca7-4b58-9cde-22ec4f59e65a
+8:08:01 PM
+COMPLETED
+7c62b6b3-4962-4801-af83-ed5732a2411f
+8:07:45 PM
+COMPLETED
+
+the threads, when you click on them should show the contents
+what is a thread.... is a shorten version of the intake conversation that has the key points needed to be remembered
+
+remove these button below
+Thread Agent
+Extract ideas
+Create/update plan
+Align objectives
+Create reminders
+Create checklists
+Reconcile everything
+Send
+
+The send should be replace with a paper plane logo or ctrl-enter shortcut
+There should be a section in workspaces for blindspots
+
+for threads, ensure to have a menu to remove them
+ensure agent icons are blinking or green bright when they are doing work
+
+at the bottom at a counter of tokens used
+
+in workspaces add section for sprint health and show current and past
+also add a ticket section
+also add a resources section and show which people are busy vs free for this sprint
+
+if I upload a list of names under a resources banner, it should add the ones that are not there
+resources can be across projects, but they can be tagged to the current project... add an option to filter
+
+when I paste a list of jira ticket exports, the tickets and assignees will be associated with this project
+
+when I click on objectives, add a button to add objective for this sprint (give it a date picker) and add actions for flag them completed, at risk or remove them
+
+

@@ -1,0 +1,375 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Ask Claw Test",
+  "description": "E2E: Seed project data into all collections, then POST /api/ask and verify the generalist LLM receives full project context",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed threads, objectives, tickets, blindspots, resources, and memories",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Evidence Service Design",
+            "content": "Define evidence service API, storage model, and validation rules. Retention policy decided: 7 years.",
+            "summary": "Evidence service architecture and storage decisions"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "KYC Onboarding Flow",
+            "content": "Client onboarding steps including identity verification and document upload. 3-step wizard decided.",
+            "summary": "KYC onboarding wizard design"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 7",
+            "outcome": "Deliver Evidence Service MVP",
+            "measurableSignal": "Evidence API passes integration tests",
+            "status": "COMMITTED",
+            "risks": ["Retention policy undecided", "Alice overloaded"],
+            "coveragePercent": 50,
+            "startDate": "2026-02-10T00:00:00Z",
+            "endDate": "2026-02-28T00:00:00Z"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 7",
+            "outcome": "Complete KYC Onboarding Flow",
+            "measurableSignal": "Onboarding wizard passes UAT",
+            "status": "PROPOSED",
+            "risks": ["Dependency on Evidence API", "Bob unavailable next week"],
+            "coveragePercent": 25,
+            "startDate": "2026-02-10T00:00:00Z",
+            "endDate": "2026-02-28T00:00:00Z"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-201: Build Evidence API",
+            "description": "Epic: Evidence Service | Implement REST endpoints for evidence CRUD | Owner: Alice",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-202: Evidence validation rules",
+            "description": "Epic: Evidence Service | Implement field-level validation for evidence documents | Owner: Alice",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-203: Onboarding wizard UI",
+            "description": "Epic: Onboarding | Build 3-step wizard React components | Owner: Bob",
+            "priority": "MEDIUM"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-204: Integrate KYC check",
+            "description": "Epic: Onboarding | Wire up identity verification service call | Owner: Charlie",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/blindspots",
+          "body": {
+            "title": "Owner mismatch on Evidence Service",
+            "description": "Alice owns Jira tickets but milestone owner is Bob. Unclear accountability for delivery.",
+            "category": "MISSING_OWNER",
+            "severity": "HIGH",
+            "status": "OPEN"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/blindspots",
+          "body": {
+            "title": "Missing test strategy for Evidence API",
+            "description": "No integration test plan exists for the Evidence Service despite it being the sprint objective.",
+            "category": "MISSING_TEST_SIGNAL",
+            "severity": "CRITICAL",
+            "status": "OPEN"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Alice",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.3,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Bob",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.8,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Charlie",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.6,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/memories",
+          "body": {
+            "scope": "PROJECT",
+            "key": "sprint-7-goal",
+            "content": "Sprint 7 goal: ship Evidence Service MVP and KYC onboarding flow. Key risk is Alice being overloaded across both epics.",
+            "projectId": "{{projectId}}",
+            "tags": ["sprint", "goal", "risk"]
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/memories",
+          "body": {
+            "scope": "PROJECT",
+            "key": "tech-decisions",
+            "content": "Evidence service uses S3 for storage with 7-year retention. REST API with versioning. Onboarding uses 3-step wizard pattern.",
+            "projectId": "{{projectId}}",
+            "tags": ["architecture", "decisions"]
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "objectives",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 4}
+          },
+          {
+            "collection": "blindspots",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ask Claw: how is this sprint",
+      "type": "seed",
+      "agentResponses": [
+        {
+          "agentName": "generalist",
+          "responseFallback": "## Sprint 7 Status Report\n\n**Overall: NEEDS ATTENTION**\n\n### Objectives\n1. **Deliver Evidence Service MVP** — COMMITTED, 50% coverage\n   - 2 tickets assigned to Alice (J-201, J-202)\n   - Risk: Alice is overloaded (30% availability)\n   - Blindspot: Missing test strategy for Evidence API (CRITICAL)\n\n2. **Complete KYC Onboarding Flow** — PROPOSED, 25% coverage\n   - J-203 assigned to Bob, J-204 to Charlie\n   - Risk: Dependency on Evidence API, Bob unavailable next week\n\n### Key Risks\n- Alice at 30% availability with 2 HIGH priority tickets\n- Owner mismatch: Alice owns Evidence tickets but Bob owns milestone\n- No integration test plan for Evidence Service\n- Onboarding depends on Evidence API being ready first\n\n### Resources\n- **Alice**: OVERLOADED (30% avail, 2 HIGH tickets)\n- **Bob**: HEALTHY (80% avail, 1 MEDIUM ticket)\n- **Charlie**: OK (60% avail, 1 HIGH ticket)\n\n### Recommendation\nConsider moving J-202 (validation rules) to Charlie who has bandwidth. Prioritize creating the Evidence API test strategy immediately."
+        }
+      ],
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/ask",
+          "body": {
+            "projectId": "{{projectId}}",
+            "question": "how is this sprint?"
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Evidence Service Design"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "KYC Onboarding Flow"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Sprint 7"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Deliver Evidence Service MVP"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Complete KYC Onboarding Flow"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "J-201.*Build Evidence API"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "J-203.*Onboarding wizard"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Owner mismatch on Evidence Service"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Missing test strategy"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Alice"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Bob"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Charlie"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "sprint-7-goal"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "PROPOSED"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "how is this sprint"
+            }
+          }
+        ],
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/threads",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/objectives",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/tickets",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 4
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/blindspots",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          },
+          {
+            "method": "GET",
+            "url": "/api/resources",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 3
+          }
+        ]
+      }
+    }
+  ]
+}

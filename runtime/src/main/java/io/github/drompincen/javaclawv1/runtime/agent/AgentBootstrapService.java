@@ -36,10 +36,11 @@ public class AgentBootstrapService {
             Map.entry("thread-agent", "Handles thread organization: creating, renaming, merging threads based on topic and continuity; attaching evidence; promoting ideas"),
             Map.entry("objective-agent", "Handles objective alignment: coverage analysis, ticket mapping, gap detection, sprint tracking for project objectives"),
             Map.entry("checklist-agent", "Handles checklist lifecycle: generates ORR/release/onboarding checklists from templates, tracks item completion, reports progress, detects stale checklists"),
-            Map.entry("intake-triage", "Handles raw content intake: classifies pasted text, file paths, URLs into content types (jira dump, confluence export, meeting notes, etc.), extracts metadata, dispatches to downstream agents"),
+            Map.entry("intake-triage", "Classifies raw content and decides routing: identifies content as threads/ideas (THREAD), ticket dumps (TICKETS), project plans (PLAN), or resource data (RESOURCES), then routes to the correct downstream agents"),
             Map.entry("plan-agent", "Handles project planning: creates phases with entry/exit criteria, manages milestones, generates plan documents, detects phase transition readiness"),
             Map.entry("reconcile-agent", "Handles reconciliation: compares tickets, objectives, phases, checklists across sources, detects gaps, drift, mismatches, produces delta packs and blindspots"),
-            Map.entry("resource-agent", "Handles resource management: capacity analysis, assignment optimization, workload balancing, skill matching, utilization tracking, overload/underutilization detection")
+            Map.entry("resource-agent", "Handles resource management: capacity analysis, assignment optimization, workload balancing, skill matching, utilization tracking, overload/underutilization detection"),
+            Map.entry("ask-claw", "Handles project Q&A: answers questions about project data by searching threads, tickets, objectives, blindspots, resources, and memories")
     );
 
     public AgentBootstrapService(AgentRepository agentRepository, SessionRepository sessionRepository,
@@ -82,7 +83,8 @@ public class AgentBootstrapService {
         seedPlanAgent();
         seedReconcileAgent();
         seedResourceAgent();
-        log.info("Seeded 15 default agents");
+        seedAskClawAgent();
+        log.info("Seeded 16 default agents");
         bootstrapSchedules();
     }
 
@@ -99,6 +101,7 @@ public class AgentBootstrapService {
         if (agentRepository.findById("plan-agent").isEmpty()) { seedPlanAgent(); log.info("Seeded missing plan-agent"); }
         if (agentRepository.findById("reconcile-agent").isEmpty()) { seedReconcileAgent(); log.info("Seeded missing reconcile-agent"); }
         if (agentRepository.findById("resource-agent").isEmpty()) { seedResourceAgent(); log.info("Seeded missing resource-agent"); }
+        if (agentRepository.findById("ask-claw").isEmpty()) { seedAskClawAgent(); log.info("Seeded missing ask-claw"); }
         // Fix agents from older bootstraps that may lack the enabled flag
         agentRepository.findAll().forEach(agent -> {
             if (!agent.isEnabled()) {
@@ -414,16 +417,16 @@ public class AgentBootstrapService {
             2. If file path, use `read_file` or `excel` to load content
             3. If URL, use `http_get` to fetch content
             4. Use `classify_content` to determine content type and extract metadata
-            5. Use `dispatch_agent` to route to the appropriate downstream agent
+            5. Organize content into topics and output a routing block
 
             ## Content Types
-            - JIRA_DUMP: CSV/JSON with ticket keys, statuses, assignees → dispatch to pm
-            - CONFLUENCE_EXPORT: HTML/markdown with headings, action items → dispatch to thread-agent
-            - MEETING_NOTES: Attendees, agenda, action items, decisions → dispatch to thread-agent + pm
-            - SMARTSHEET_EXPORT: Timeline, milestones, owners → dispatch to plan-agent
-            - DESIGN_DOC: Background, proposal, alternatives → dispatch to thread-agent
-            - LINK_LIST: Collection of URLs → dispatch to thread-agent
-            - FREE_TEXT: Unstructured content → dispatch to thread-agent
+            - JIRA_DUMP: CSV/JSON with ticket keys, statuses, assignees → TICKETS route
+            - CONFLUENCE_EXPORT: HTML/markdown with headings, action items → THREAD route
+            - MEETING_NOTES: Attendees, agenda, action items, decisions → THREAD route (+ TICKETS if tasks)
+            - SMARTSHEET_EXPORT: Timeline, milestones, owners → PLAN route
+            - DESIGN_DOC: Background, proposal, alternatives → THREAD route
+            - LINK_LIST: Collection of URLs → THREAD route
+            - FREE_TEXT: Unstructured content → THREAD route
 
             ## Pipeline Output Format
             When running in pipeline mode, organize your output into distinct topics. \
@@ -438,12 +441,25 @@ public class AgentBootstrapService {
 
             Separate topics clearly. Group related content under the same topic.
 
+            ## Classification Output (REQUIRED)
+
+            After organizing content into topics, you MUST output a routing block:
+
+            ### Routes
+            THREAD: yes/no — topics, ideas, architecture discussions, meeting notes, designs
+            TICKETS: yes/no — Jira exports, task lists, bug reports, ticket dumps
+            PLAN: yes/no — Smartsheet plans, milestone schedules, phase definitions, timelines
+            RESOURCES: yes/no — team assignments, capacity data, allocation spreadsheets
+
+            Set each to "yes" ONLY if you identified that specific content type in the input.
+            This routing block drives which downstream agents will process the content.
+
             ## Guidelines
-            - Always classify before dispatching
+            - Always classify before routing
             - Extract dates, people, ticket refs, action items, decisions
             - Report classification confidence — below 0.7, ask user to clarify
-            - Store every intake in memory for deduplication
-            - Provide a clean summary: source type, extracted metadata, dispatch targets"""
+            - Use existing project memories for context when available
+            - Provide a clean summary: source type, extracted metadata, routing decisions"""
             + TOOL_CALL_INSTRUCTIONS;
 
     private static final String CHECKLIST_AGENT_PROMPT = """
@@ -672,9 +688,9 @@ public class AgentBootstrapService {
         agent.setName("Intake Triage");
         agent.setDescription(AGENT_DESCRIPTIONS.get("intake-triage"));
         agent.setSystemPrompt(INTAKE_TRIAGE_PROMPT);
-        agent.setSkills(List.of("content_classification", "metadata_extraction",
-                "intake_normalization", "dispatch"));
-        agent.setAllowedTools(List.of("classify_content", "dispatch_agent", "read_file",
+        agent.setSkills(List.of("content_classification", "routing_decision",
+                "metadata_extraction", "intake_normalization"));
+        agent.setAllowedTools(List.of("classify_content", "read_file",
                 "list_directory", "excel", "search_files", "memory", "http_get"));
         agent.setRole(AgentRole.SPECIALIST);
         agent.setEnabled(true);
@@ -727,6 +743,33 @@ public class AgentBootstrapService {
         agent.setAllowedTools(List.of("read_resources", "read_tickets", "read_objectives",
                 "assign_resource", "unassign_resource", "capacity_report",
                 "suggest_assignments", "memory", "excel"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private static final String ASK_CLAW_PROMPT = """
+            You are a project analyst agent. Your job is to answer questions about a project \
+            by analyzing the provided project data context (threads, tickets, objectives, \
+            blindspots, resources, and memories).
+
+            ## Guidelines
+            - Use ONLY the project data provided in the context to answer
+            - Be specific: cite data points, names, percentages, and statuses
+            - Highlight risks, blockers, and areas needing attention
+            - Organize your answer with clear sections when the question is broad
+            - If the data doesn't contain enough information, say so explicitly""";
+
+    private void seedAskClawAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("ask-claw");
+        agent.setName("Ask Claw");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("ask-claw"));
+        agent.setSystemPrompt(ASK_CLAW_PROMPT);
+        agent.setSkills(List.of("project_qa", "data_analysis", "context_search"));
+        agent.setAllowedTools(List.of("memory"));
         agent.setRole(AgentRole.SPECIALIST);
         agent.setEnabled(true);
         agent.setCreatedAt(Instant.now());
