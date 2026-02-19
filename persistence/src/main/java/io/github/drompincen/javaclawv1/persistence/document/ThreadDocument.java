@@ -34,6 +34,9 @@ public class ThreadDocument {
     private List<String> extractedIdeas;
     private List<String> objectiveIds;
     private List<String> phaseIds;
+    private String namingPolicy;
+    private List<String> mergedFromThreadIds;
+    private String mergedIntoThreadId;
     private Instant lastExtractedAt;
     private int extractionCount;
     private Instant createdAt;
@@ -97,6 +100,15 @@ public class ThreadDocument {
 
     public List<String> getPhaseIds() { return phaseIds; }
     public void setPhaseIds(List<String> phaseIds) { this.phaseIds = phaseIds; }
+
+    public String getNamingPolicy() { return namingPolicy; }
+    public void setNamingPolicy(String namingPolicy) { this.namingPolicy = namingPolicy; }
+
+    public List<String> getMergedFromThreadIds() { return mergedFromThreadIds; }
+    public void setMergedFromThreadIds(List<String> mergedFromThreadIds) { this.mergedFromThreadIds = mergedFromThreadIds; }
+
+    public String getMergedIntoThreadId() { return mergedIntoThreadId; }
+    public void setMergedIntoThreadId(String mergedIntoThreadId) { this.mergedIntoThreadId = mergedIntoThreadId; }
 
     public Instant getLastExtractedAt() { return lastExtractedAt; }
     public void setLastExtractedAt(Instant lastExtractedAt) { this.lastExtractedAt = lastExtractedAt; }

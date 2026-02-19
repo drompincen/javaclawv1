@@ -1,0 +1,471 @@
+================================================================================
+ TODO: Web UI Rewrite v2 — Addresses Story Gaps
+ Purpose: Amend the v1 UI plan to cover all 10 usage stories. Adds 3 new
+          workspaces (Resources, Ideas, Memory), file upload in Intake,
+          response rendering, and scheduler execution visibility.
+================================================================================
+
+PREREQUISITE: This file extends todo-ui-rewrite.txt (v1). All content from v1
+              remains valid. This file adds missing pieces identified by
+              evaluating the 10 story-based usage scenarios.
+
+
+================================================================================
+ GAP 1: RESOURCES WORKSPACE (Story 4 — "Who Is Doing What?")
+================================================================================
+
+  The v1 plan has 8 workspaces but omits Resources. Story 4 requires David to
+  see team capacity, overload, and assignment gaps. The todo-resource-agent
+  describes the backend. This section adds the UI surface.
+
+  Add to Navigator:
+  --------------------------------------------------------------------------
+    👥 Resources    (data-view="resources")   badge: resource count
+
+  Add Workspace: views/resources.js
+  --------------------------------------------------------------------------
+  File: gateway/src/main/resources/static/js/views/resources.js
+
+  Layout (2 cards, stacked):
+
+  Card 1: "Team Capacity"
+    Table columns: Name | Role | Allocated% | Available% | Status
+    Status coloring:
+      OVERLOADED (>100%) → pill.bad
+      BALANCED (70-100%) → pill.good
+      UNDERUTILIZED (<50%) → pill.warn
+      IDLE (0%) → pill.muted
+    Data: GET /api/resources (existing endpoint)
+           + compute allocation from GET /api/resources/{id}/assignments
+
+  Card 2: "Unassigned Tickets"
+    Table: title | priority | required skills | suggested assignee
+    Data: GET /api/projects/{pid}/tickets (filter assignee=null)
+    "Run Resource Agent" button
+    When resource_agent lands:
+      GET /api/projects/{pid}/resources/suggestions for auto-suggestions
+
+  Inspector (type='resource'):
+    Name, role, skills, availability
+    Current assignments: [ticket title, allocation%, priority]
+    Total allocation %
+    Skills utilized vs available
+
+  REST Endpoints needed:
+    None new — /api/resources and /api/resources/{id}/assignments already exist.
+    When resource_agent lands:
+      GET /api/projects/{pid}/resources/capacity  (from todo-resource-agent)
+      GET /api/projects/{pid}/resources/suggestions
+
+
+================================================================================
+ GAP 2: IDEAS WORKSPACE (implicit across stories)
+================================================================================
+
+  The Swing UI has an IdeasView. Thread Agent promotes discussion points to
+  Ideas. These need a UI surface to view, promote, and track.
+
+  Add to Navigator:
+  --------------------------------------------------------------------------
+    💡 Ideas    (data-view="ideas")   badge: idea count
+
+  Add Workspace: views/ideas.js
+  --------------------------------------------------------------------------
+  File: gateway/src/main/resources/static/js/views/ideas.js
+
+  Layout:
+
+  Card grid (2-column):
+    Each idea card:
+      Title (bold)
+      Status pill: NEW / EVALUATING / PROMOTED / PARKED
+      Content snippet (first 100 chars)
+      Source thread link
+      Tags chips
+    Click → inspector shows full idea detail
+
+  Top bar:
+    "New Idea" button
+    Filter by status chips: All | New | Evaluating | Promoted | Parked
+    "Promote to Ticket" button (on selected idea)
+
+  Data: GET /api/projects/{pid}/ideas (existing endpoint)
+  Create: POST /api/projects/{pid}/ideas
+  Promote: POST /api/projects/{pid}/ideas/{id}/promote (existing endpoint)
+
+  Inspector (type='idea'):
+    Title, content (full), status
+    Source thread ID + link
+    Tags, created date
+    Promoted ticket ID (if promoted)
+
+  REST Endpoints needed:
+    None new — /api/projects/{pid}/ideas CRUD + promote already exist.
+
+
+================================================================================
+ GAP 3: MEMORY / KNOWLEDGE VIEW (Story 9 — "The System Remembers")
+================================================================================
+
+  The Distiller Agent stores memories. Story 9 shows the system using past
+  decisions and patterns. Users need visibility into what the system remembers.
+
+  Add to Navigator:
+  --------------------------------------------------------------------------
+    🧠 Memory    (data-view="memory")   badge: memory count
+
+  Add Workspace: views/memory.js
+  --------------------------------------------------------------------------
+  File: gateway/src/main/resources/static/js/views/memory.js
+
+  Layout:
+
+  Top bar:
+    Search input (full-text search via /api/memories?query=xxx)
+    Filter by scope: ALL | PROJECT | THREAD | SESSION | GLOBAL
+
+  Card 1: "Stored Memories"
+    Timeline of memories, newest first:
+      Each memory card:
+        Key (bold)
+        Scope pill (PROJECT/THREAD/SESSION/GLOBAL)
+        Content snippet (first 200 chars)
+        Tags chips
+        Timestamp
+    Click → inspector shows full memory content
+
+  Card 2: "Memory Stats"
+    Total memories
+    By scope: PROJECT: X, THREAD: Y, GLOBAL: Z
+    Last distillation run timestamp
+
+  Data: GET /api/memories (existing endpoint, supports query params)
+  Detail: GET /api/memories/{id} (existing endpoint)
+
+  Inspector (type='memory'):
+    Key, scope, full content
+    Tags, projectId, sessionId, threadId
+    Created date, updated date
+
+  REST Endpoints needed:
+    None new — /api/memories CRUD already exists.
+
+
+================================================================================
+ GAP 4: FILE UPLOAD IN INTAKE (Story 2 — Excel, Smartsheet, PDFs)
+================================================================================
+
+  Story 2 has David pasting Excel files and Smartsheet exports. The v1 plan
+  only has a textarea. Need drag-and-drop + file picker.
+
+  Modify: views/intake.js
+  --------------------------------------------------------------------------
+
+  Add below the textarea:
+
+    <div class="drop-zone" id="dropZone">
+      Drop files here or <button class="btn ghost">Browse</button>
+      <input type="file" multiple accept=".xlsx,.xls,.csv,.json,.txt,.md,.pdf"
+             id="fileInput" style="display:none">
+    </div>
+    <div id="fileList" class="chips"></div>
+
+  Behavior:
+    - Drag files onto drop zone → shows file chips
+    - Click browse → file picker opens
+    - Each file chip shows: filename, size, remove button
+    - On Send:
+        1. For each file: POST /api/projects/{pid}/uploads (multipart)
+           → get uploadId
+        2. Include uploadIds in the intake message payload
+        3. Agents (intake_triage, excel tool) can read uploaded content
+
+  CSS additions to cockpit.css:
+    .drop-zone {
+      border: 2px dashed var(--line);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      color: var(--muted);
+      margin-top: 8px;
+      transition: border-color 0.2s;
+    }
+    .drop-zone.dragover {
+      border-color: var(--accent);
+      background: rgba(0,255,102,.04);
+    }
+
+  New endpoint needed:
+    POST /api/projects/{pid}/uploads (multipart file upload)
+    - UploadDocument and UploadRepository already exist in persistence
+    - Store file content, set status=PENDING
+    - Return uploadId
+
+  File: gateway/.../controller/UploadController.java
+  --------------------------------------------------------------------------
+    @RestController
+    @RequestMapping("/api/projects/{projectId}/uploads")
+    public class UploadController {
+        @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+        // Accept file, store in UploadDocument, return uploadId + metadata
+        @GetMapping
+        // List uploads for project
+        @GetMapping("/{uploadId}")
+        // Get upload detail
+    }
+
+
+================================================================================
+ GAP 5: AGENT RESPONSE RENDERING (Stories 3, 4, 5, 6)
+================================================================================
+
+  When David asks "What are our objectives?" the agent's answer needs to
+  render somewhere visible — not just as events in the activity stream.
+
+  Modify: views/intake.js
+  --------------------------------------------------------------------------
+
+  Add a response panel below the textarea + file drop zone:
+
+    <div class="card" id="responseCard" style="display:none">
+      <div class="cardH">
+        <div>
+          <b id="responseAgent">Agent</b>
+          <div class="tiny" id="responseTimestamp"></div>
+        </div>
+        <span class="pill" id="responseStatus">...</span>
+      </div>
+      <div class="cardB">
+        <div id="responseContent" class="agent-response"></div>
+      </div>
+    </div>
+
+  Behavior:
+    - When user sends a message, show "processing..." in response card
+    - Subscribe to the created session via WebSocket
+    - On MODEL_TOKEN_DELTA events: stream tokens into #responseContent
+    - On AGENT_RESPONSE event: show final response, update status pill
+    - On AGENT_STEP_COMPLETED: mark as complete
+    - Response content supports markdown rendering (use a lightweight
+      markdown→HTML converter, or just preserve whitespace + linkify URLs)
+    - Previous responses stay visible (scrollable list of responses)
+
+  CSS additions:
+    .agent-response {
+      white-space: pre-wrap;
+      line-height: 1.5;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .agent-response .streaming {
+      border-right: 2px solid var(--accent);
+      animation: blink 0.8s infinite;
+    }
+
+  This transforms Intake from "fire and forget" to a conversational interface
+  where David sees the agent's structured response inline.
+
+
+================================================================================
+ GAP 6: SCHEDULER EXECUTION VISIBILITY (Stories 7, 10)
+================================================================================
+
+  Story 7: the system runs agents overnight. David returns to see what happened.
+  Story 10: midnight rebuild resets the execution plan.
+
+  The v1 plan has timed run toggles but no visibility into execution history.
+
+  Modify: panels/agents.js — Add new card
+  --------------------------------------------------------------------------
+
+  Card 3 (new, between "Timed runs" and "Activity stream"):
+
+    <div class="card">
+      <div class="cardH">
+        <b>Execution History</b>
+        <span class="pill" id="lastRunPill">last run: ?</span>
+      </div>
+      <div class="cardB">
+        <div class="timeline" id="execHistory"></div>
+      </div>
+    </div>
+
+  Content:
+    Timeline of recent past executions (last 24h):
+      Each entry:
+        Agent name (bold) + result pill (SUCCESS/FAIL)
+        Duration, token count
+        Artifacts produced (thread IDs, ticket IDs, checklist IDs)
+        Timestamp
+    Data: GET /api/executions/past?from={yesterday}
+
+  Also add to Card 2 ("Timed runs"):
+    Below the toggles, show "Next scheduled runs":
+      - Thread Agent: in 45 min
+      - Reconcile Agent: tomorrow 09:00
+    Data: GET /api/executions/future?dateKey={today}
+
+  When scheduler is not yet implemented:
+    Show placeholder: "Scheduler not configured. Toggle timers above are
+    visual-only. Install the scheduler module to enable automated runs."
+
+  REST Endpoints consumed (from todo-scheduler.txt):
+    GET /api/executions/past     — past execution history
+    GET /api/executions/future   — today's planned executions
+    GET /api/executions/metrics  — aggregate metrics
+
+  These endpoints don't exist yet (they're part of todo-scheduler.txt).
+  The UI should gracefully handle 404s from these endpoints until the
+  scheduler module is built.
+
+
+================================================================================
+ UPDATED NAVIGATOR (11 workspaces)
+================================================================================
+
+  The navigator now has 11 workspace items:
+
+    📥 Intake         (data-view="intake")       READY badge
+    🧵 Threads        (data-view="threads")      count badge
+    🎯 Objectives     (data-view="objectives")   count badge
+    🧩 Plans          (data-view="plans")         count badge
+    ⏱ Reminders      (data-view="reminders")     count badge
+    ☑ Checklists     (data-view="checklists")    count badge
+    🔄 Reconcile      (data-view="reconcile")     Δ badge
+    🔗 LinkHub        (data-view="links")         count badge
+    👥 Resources      (data-view="resources")     count badge     ← NEW
+    💡 Ideas          (data-view="ideas")         count badge     ← NEW
+    🧠 Memory         (data-view="memory")        count badge     ← NEW
+
+  Optional grouping with section labels:
+
+    ── WORK ──
+    📥 Intake
+    🧵 Threads
+    🎯 Objectives
+    🧩 Plans
+
+    ── OPERATIONS ──
+    ⏱ Reminders
+    ☑ Checklists
+    🔄 Reconcile
+    👥 Resources
+
+    ── KNOWLEDGE ──
+    🔗 LinkHub
+    💡 Ideas
+    🧠 Memory
+
+
+================================================================================
+ UPDATED FILE MANIFEST (additions to v1)
+================================================================================
+
+  NEW FILES (in addition to v1 manifest):
+  ----------
+  gateway/src/main/resources/static/js/views/resources.js
+  gateway/src/main/resources/static/js/views/ideas.js
+  gateway/src/main/resources/static/js/views/memory.js
+  gateway/src/main/java/.../controller/UploadController.java
+
+  MODIFIED FILES (in addition to v1):
+  ----------
+  gateway/src/main/resources/static/js/views/intake.js   (add file upload + response panel)
+  gateway/src/main/resources/static/js/panels/agents.js   (add execution history card)
+  gateway/src/main/resources/static/js/nav.js             (add 3 new workspaces)
+  gateway/src/main/resources/static/index.html            (add 3 nav items)
+  gateway/src/main/resources/static/css/cockpit.css       (add drop-zone, agent-response styles)
+
+
+================================================================================
+ STORY COVERAGE AFTER v2 AMENDMENTS
+================================================================================
+
+  Story | Title                          | v1 | v2 | How Addressed
+  ----- | ------------------------------ | -- | -- | -------------
+  1     | Raw Thoughts → Structure       | ✅ | ✅ | Intake + Threads + Distiller
+  2     | Aligning Reality Across Systems| ⚠️ | ✅ | Intake + file upload (Gap 4)
+  3     | Understanding the Sprint       | ⚠️ | ✅ | Intake + response panel (Gap 5) + Objectives
+  4     | Who Is Doing What?             | ❌ | ✅ | Resources workspace (Gap 1)
+  5     | Creating a Real Plan           | ✅ | ✅ | Plans workspace
+  6     | Preparing for ORR              | ✅ | ✅ | Checklists workspace
+  7     | System Works Without You       | ⚠️ | ✅ | Execution history (Gap 6)
+  8     | On-Demand Control              | ✅ | ✅ | Agent buttons
+  9     | The System Remembers           | ⚠️ | ✅ | Memory workspace (Gap 2)
+  10    | Every Day Starts Clean         | ⚠️ | ✅ | Scheduler status in agents panel (Gap 6)
+
+  All 10 stories now have full UI coverage.
+
+
+================================================================================
+ UPDATED SEQUENCING
+================================================================================
+
+  v1 sequencing remains the same. v2 additions slot in as:
+
+  Step   | What                                      | Depends On  | Effort
+  ------ | ----------------------------------------- | ----------- | ------
+  0a-0f  | (from v1) REST controllers + WebSocket     | Nothing     | S
+  0g     | UploadController (multipart file upload)   | Nothing     | S
+  1a-1g  | (from v1) Web UI foundation               | 0f          | M
+  2a-2h  | (from v1) 8 workspace views               | 1 + 0a-0e  | L
+  2i     | Resources view                            | 1           | S
+  2j     | Ideas view                                | 1           | S
+  2k     | Memory view                               | 1           | S
+  2L     | Intake: file upload + response panel       | 0g + 1      | M
+  3a-3c  | (from v1) Right panel                     | 1 + 0f      | M
+  3d     | Execution history card                    | 3a          | S
+  4a-4d  | (from v1) Retire Swing                    | 2+3 working | S
+  5a-5c  | (from v1) Playwright tests                | 2+3         | M
+  5d     | Tests for new views + upload + response    | 2i-2L       | S
+
+  Total workspaces: 11 (was 8)
+  Total new JS files: ~25 (was ~22)
+  Total new Java files: 6 controllers (was 5)
+
+
+================================================================================
+ ADDITIONAL PLAYWRIGHT TESTS (v2)
+================================================================================
+
+  resources.spec.js
+  ................................................................
+  - Capacity table renders with Name, Role, Allocated%, Status columns
+  - Overloaded resource shows red pill
+  - Click resource → inspector shows assignments
+  - "Run Resource Agent" button creates session
+
+  ideas.spec.js
+  ................................................................
+  - Idea cards render from API
+  - Filter by status works
+  - Click idea → inspector shows full content
+  - "New Idea" creates idea via API
+  - "Promote to Ticket" triggers promote endpoint
+
+  memory.spec.js
+  ................................................................
+  - Memory timeline renders
+  - Search input filters results
+  - Scope filter works (PROJECT, THREAD, etc.)
+  - Click memory → inspector shows full content
+
+  upload.spec.js
+  ................................................................
+  - File drop zone visible in intake
+  - Drag file → drop zone highlights
+  - File chip appears after drop
+  - Remove button on chip works
+  - Send with file → upload API called first, then message sent
+
+  response.spec.js
+  ................................................................
+  - Send message → response panel appears with "processing..."
+  - WebSocket event → tokens stream into response area
+  - Agent response renders as formatted text
+  - Multiple responses stack (scrollable)
+
+
+================================================================================
+ END OF v2 AMENDMENTS
+================================================================================

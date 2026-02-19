@@ -1,0 +1,493 @@
+================================================================================
+ TODO: resource_agent Agent
+ Purpose: Track who's on what, bandwidth/capacity analysis, assignment
+          suggestions, resource-to-objective mapping, highlight overload
+          and underutilization
+================================================================================
+
+Context:
+  JavaClaw v1 -- Spring Boot 3.3.1, MongoDB, Spring AI, LangGraph4j,
+  Java 21, multi-module Maven (protocol, persistence, runtime, tools,
+  gateway, ui).
+
+  Existing domain objects:
+    - ResourceDocument: resourceId, projectId, name, role, capacity,
+      skills, availability
+    - ResourceAssignmentDocument: resourceId, ticketId, projectId,
+      allocationPercent
+    - TicketDocument, ObjectiveDocument
+    - ResourceController (gateway) with basic CRUD -- no agent logic yet
+
+--------------------------------------------------------------------------------
+1. AGENT DEFINITION
+--------------------------------------------------------------------------------
+
+  agentId        : resource_agent
+  name           : Resource Agent
+  role           : SPECIALIST
+  skills         : [ "capacity_analysis",
+                     "assignment_optimization",
+                     "workload_balancing",
+                     "skill_matching",
+                     "utilization_tracking" ]
+  allowedTools   : [ "read_resources",
+                     "read_tickets",
+                     "read_objectives",
+                     "assign_resource",
+                     "unassign_resource",
+                     "capacity_report",
+                     "memory",
+                     "excel" ]
+
+  System prompt responsibilities:
+    - Analyze resource capacity vs current assignments
+    - Detect overload: total allocation% > 100 for any resource
+    - Detect underutilization: resources with < 50% allocation and
+      available skills matching open tickets
+    - Suggest optimal assignments for unassigned tickets based on:
+      skills match, current capacity, priority
+    - Map resources to objectives: which objectives have dedicated
+      people vs which are understaffed
+    - Track availability changes (part-time, PTO, role changes)
+    - Generate capacity reports: per-resource breakdown, per-objective
+      resource coverage
+    - Flag risks: single point of failure (only one person knows a
+      critical area), bus factor
+    - Consider priority: CRITICAL tickets should have assigned
+      resources before MEDIUM/LOW
+
+--------------------------------------------------------------------------------
+2. NEW TOOLS
+--------------------------------------------------------------------------------
+
+  a) assign_resource
+     Risk   : WRITE_FILES
+     Params : resourceId, ticketId, projectId, allocationPercent
+     Returns: assignmentId, resourceName, ticketTitle
+     Impl   : Creates ResourceAssignmentDocument,
+               emits RESOURCE_ASSIGNED event
+
+  b) unassign_resource
+     Risk   : WRITE_FILES
+     Params : resourceId, ticketId
+     Returns: success, freed capacity
+     Impl   : Deletes ResourceAssignmentDocument,
+               emits RESOURCE_UNASSIGNED event
+
+  c) capacity_report
+     Risk   : READ_ONLY
+     Params : projectId
+     Returns: List of resources with:
+       - resourceId, name, role, totalCapacity, allocatedPercent,
+         availablePercent
+       - assignments: [{ ticketId, ticketTitle, ticketPriority,
+                         allocationPercent }]
+       - skillsUtilized vs skillsAvailable
+       - status: OVERLOADED (>100%) / BALANCED (70-100%) /
+                 UNDERUTILIZED (<50%) / IDLE (0%)
+
+  d) suggest_assignments
+     Risk   : READ_ONLY
+     Params : projectId, ticketId (optional -- suggest for specific
+              ticket, or all unassigned)
+     Returns: List of suggestions:
+       - ticketId, ticketTitle, ticketPriority
+       - suggestedResource: resourceId, name, matchScore, reasons[]
+       - alternateResources: [{ resourceId, name, matchScore }]
+
+--------------------------------------------------------------------------------
+3. NEW EVENT TYPES
+--------------------------------------------------------------------------------
+
+  - RESOURCE_ASSIGNED
+  - RESOURCE_UNASSIGNED
+  - RESOURCE_OVERLOADED
+  - RESOURCE_UNDERUTILIZED
+  - CAPACITY_REPORT_GENERATED
+  - ASSIGNMENT_SUGGESTED
+  - RESOURCE_RISK_DETECTED  (bus factor, single point of failure)
+
+--------------------------------------------------------------------------------
+4. ENDPOINTS
+--------------------------------------------------------------------------------
+
+  POST   /api/projects/{projectId}/resources/analyze
+         Trigger resource_agent capacity analysis
+
+  GET    /api/projects/{projectId}/resources/capacity
+         Get capacity report
+
+  GET    /api/projects/{projectId}/resources/suggestions
+         Get assignment suggestions for unassigned tickets
+
+  POST   /api/projects/{projectId}/resources/assign
+         Assign resource to ticket
+
+  DELETE /api/projects/{projectId}/resources/assignments/{assignmentId}
+         Remove assignment
+
+--------------------------------------------------------------------------------
+5. MODIFIED FILES
+--------------------------------------------------------------------------------
+
+  - runtime/agent/AgentBootstrapService.java
+  - protocol/event/EventType.java
+  - tools/META-INF/services
+  - persistence/mongo-init.js
+
+--------------------------------------------------------------------------------
+6. SCENARIO-BASED TESTING
+--------------------------------------------------------------------------------
+
+  Test Scenario 1: Capacity Analysis
+    Setup    : 4 resources, 8 tickets with various assignments
+    Expected : Report shows 1 overloaded, 1 balanced,
+               1 underutilized, 1 idle
+
+  Test Scenario 2: Assignment Suggestion
+    Setup    : Unassigned CRITICAL ticket needing "java" skill,
+               2 resources with java skill (one at 90% capacity,
+               one at 40%)
+    Expected : Agent suggests the 40% capacity resource with higher
+               match score
+
+  Test Scenario 3: Overload Detection
+    Setup    : Resource "alice" assigned to 5 tickets totaling
+               130% allocation
+    Expected : RESOURCE_OVERLOADED event, agent recommends
+               redistribution
+
+  Test Scenario 4: Bus Factor Risk
+    Setup    : 3 CRITICAL tickets all assigned to same person,
+               no one else has matching skills
+    Expected : RESOURCE_RISK_DETECTED event for single point
+               of failure
+
+  Test Scenario 5: Objective Coverage
+    Setup    : 3 objectives, one with all tickets assigned,
+               one with no assigned resources
+    Expected : Report highlights understaffed objective
+
+--------------------------------------------------------------------------------
+7. MOCK DATA  (staged in test/scenarios/resource_agent/)
+--------------------------------------------------------------------------------
+
+  File: test/scenarios/resource_agent/mongo-seed-projects.json
+  ............................................................................
+  [
+    {
+      "projectId": "proj-zeta",
+      "name": "Project Zeta",
+      "description": "Infrastructure modernization",
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-02-18T00:00:00Z"
+    }
+  ]
+
+  File: test/scenarios/resource_agent/mongo-seed-resources.json
+  ............................................................................
+  [
+    {
+      "resourceId": "res-101",
+      "projectId": "proj-zeta",
+      "name": "Alice",
+      "role": "Senior Engineer",
+      "capacity": 100,
+      "skills": ["java", "spring", "kubernetes", "terraform"],
+      "availability": "FULL_TIME"
+    },
+    {
+      "resourceId": "res-102",
+      "projectId": "proj-zeta",
+      "name": "Bob",
+      "role": "Engineer",
+      "capacity": 100,
+      "skills": ["java", "spring", "mongodb", "testing"],
+      "availability": "FULL_TIME"
+    },
+    {
+      "resourceId": "res-103",
+      "projectId": "proj-zeta",
+      "name": "Charlie",
+      "role": "DevOps Engineer",
+      "capacity": 50,
+      "skills": ["kubernetes", "terraform", "docker", "ci-cd"],
+      "availability": "PART_TIME"
+    },
+    {
+      "resourceId": "res-104",
+      "projectId": "proj-zeta",
+      "name": "Dave",
+      "role": "Junior Engineer",
+      "capacity": 100,
+      "skills": ["java", "testing", "documentation"],
+      "availability": "FULL_TIME"
+    }
+  ]
+
+  File: test/scenarios/resource_agent/mongo-seed-tickets.json
+  ............................................................................
+  [
+    {
+      "ticketId": "ticket-601",
+      "projectId": "proj-zeta",
+      "title": "Migrate services to Kubernetes",
+      "status": "IN_PROGRESS",
+      "priority": "CRITICAL",
+      "type": "FEATURE",
+      "assignee": "alice",
+      "objectiveIds": ["obj-401"]
+    },
+    {
+      "ticketId": "ticket-602",
+      "projectId": "proj-zeta",
+      "title": "Setup Terraform IaC for staging",
+      "status": "IN_PROGRESS",
+      "priority": "HIGH",
+      "type": "TASK",
+      "assignee": "alice",
+      "objectiveIds": ["obj-401"]
+    },
+    {
+      "ticketId": "ticket-603",
+      "projectId": "proj-zeta",
+      "title": "Implement service mesh",
+      "status": "OPEN",
+      "priority": "HIGH",
+      "type": "FEATURE",
+      "assignee": "alice",
+      "objectiveIds": ["obj-401"]
+    },
+    {
+      "ticketId": "ticket-604",
+      "projectId": "proj-zeta",
+      "title": "Database connection pooling optimization",
+      "status": "IN_PROGRESS",
+      "priority": "MEDIUM",
+      "type": "TASK",
+      "assignee": "bob",
+      "objectiveIds": ["obj-402"]
+    },
+    {
+      "ticketId": "ticket-605",
+      "projectId": "proj-zeta",
+      "title": "Setup monitoring dashboards",
+      "status": "OPEN",
+      "priority": "HIGH",
+      "type": "TASK",
+      "assignee": null,
+      "objectiveIds": ["obj-402"]
+    },
+    {
+      "ticketId": "ticket-606",
+      "projectId": "proj-zeta",
+      "title": "Write infrastructure runbook",
+      "status": "OPEN",
+      "priority": "MEDIUM",
+      "type": "TASK",
+      "assignee": null,
+      "objectiveIds": []
+    },
+    {
+      "ticketId": "ticket-607",
+      "projectId": "proj-zeta",
+      "title": "CI/CD pipeline for new services",
+      "status": "OPEN",
+      "priority": "CRITICAL",
+      "type": "FEATURE",
+      "assignee": null,
+      "objectiveIds": ["obj-401"]
+    },
+    {
+      "ticketId": "ticket-608",
+      "projectId": "proj-zeta",
+      "title": "Load testing infrastructure",
+      "status": "OPEN",
+      "priority": "MEDIUM",
+      "type": "TASK",
+      "assignee": "bob",
+      "objectiveIds": ["obj-402"]
+    }
+  ]
+
+  File: test/scenarios/resource_agent/mongo-seed-assignments.json
+  ............................................................................
+  [
+    {
+      "resourceId": "res-101",
+      "ticketId": "ticket-601",
+      "projectId": "proj-zeta",
+      "allocationPercent": 40
+    },
+    {
+      "resourceId": "res-101",
+      "ticketId": "ticket-602",
+      "projectId": "proj-zeta",
+      "allocationPercent": 30
+    },
+    {
+      "resourceId": "res-101",
+      "ticketId": "ticket-603",
+      "projectId": "proj-zeta",
+      "allocationPercent": 40
+    },
+    {
+      "resourceId": "res-102",
+      "ticketId": "ticket-604",
+      "projectId": "proj-zeta",
+      "allocationPercent": 50
+    },
+    {
+      "resourceId": "res-102",
+      "ticketId": "ticket-608",
+      "projectId": "proj-zeta",
+      "allocationPercent": 30
+    }
+  ]
+
+  Note: Alice is at 110% -- overloaded.
+        Bob is at 80% -- balanced.
+        Charlie at 0% -- idle.
+        Dave at 0% -- idle.
+
+  File: test/scenarios/resource_agent/mongo-seed-objectives.json
+  ............................................................................
+  [
+    {
+      "objectiveId": "obj-401",
+      "projectId": "proj-zeta",
+      "sprintName": "Sprint 4",
+      "outcome": "Migrate all services to Kubernetes",
+      "measurableSignal": "All 12 services running on K8s cluster",
+      "risks": ["Complexity of stateful services"],
+      "ticketIds": ["ticket-601", "ticket-602", "ticket-603",
+                    "ticket-607"],
+      "status": "IN_PROGRESS"
+    },
+    {
+      "objectiveId": "obj-402",
+      "projectId": "proj-zeta",
+      "sprintName": "Sprint 4",
+      "outcome": "Achieve observability across all services",
+      "measurableSignal": "Monitoring dashboard with <5min alert latency",
+      "risks": [],
+      "ticketIds": ["ticket-604", "ticket-605", "ticket-608"],
+      "status": "IN_PROGRESS"
+    }
+  ]
+
+  File: test/scenarios/resource_agent/scenario-capacity-analysis.json
+  ............................................................................
+  {
+    "name": "resource-agent-capacity",
+    "description": "Analyze resource capacity and detect overload/underutilization",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "resources": "mongo-seed-resources.json",
+      "resource_assignments": "mongo-seed-assignments.json",
+      "tickets": "mongo-seed-tickets.json",
+      "objectives": "mongo-seed-objectives.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Analyze resource capacity for Project Zeta. Identify overloaded and underutilized team members."
+      }
+    ],
+    "expectedOutcomes": [
+      { "type": "CAPACITY_REPORT_GENERATED" },
+      { "type": "RESOURCE_OVERLOADED",
+        "resourceId": "res-101",
+        "allocation": 110 },
+      { "type": "RESOURCE_UNDERUTILIZED",
+        "resourceId": "res-103" },
+      { "type": "RESOURCE_UNDERUTILIZED",
+        "resourceId": "res-104" }
+    ]
+  }
+
+  File: test/scenarios/resource_agent/scenario-suggest-assignments.json
+  ............................................................................
+  {
+    "name": "resource-agent-suggestions",
+    "description": "Suggest assignments for unassigned tickets",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "resources": "mongo-seed-resources.json",
+      "resource_assignments": "mongo-seed-assignments.json",
+      "tickets": "mongo-seed-tickets.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Suggest resource assignments for all unassigned tickets in Project Zeta. Prioritize CRITICAL tickets."
+      }
+    ],
+    "expectedOutcomes": [
+      { "type": "ASSIGNMENT_SUGGESTED",
+        "ticketId": "ticket-607",
+        "suggestedResource": "res-103" },
+      { "type": "ASSIGNMENT_SUGGESTED",
+        "ticketId": "ticket-605" },
+      { "type": "ASSIGNMENT_SUGGESTED",
+        "ticketId": "ticket-606" }
+    ]
+  }
+
+  File: test/scenarios/resource_agent/scenario-bus-factor.json
+  ............................................................................
+  {
+    "name": "resource-agent-bus-factor",
+    "description": "Detect single point of failure risk",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "resources": "mongo-seed-resources.json",
+      "resource_assignments": "mongo-seed-assignments.json",
+      "tickets": "mongo-seed-tickets.json",
+      "objectives": "mongo-seed-objectives.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Check for bus factor risks in Project Zeta. Are there any single points of failure?"
+      }
+    ],
+    "expectedOutcomes": [
+      { "type": "RESOURCE_RISK_DETECTED",
+        "riskType": "bus_factor",
+        "description": "Alice is sole assignee for all 3 Kubernetes tickets (obj-401)" },
+      { "type": "RESOURCE_RISK_DETECTED",
+        "riskType": "bus_factor",
+        "description": "Only Charlie has DevOps skills but is PART_TIME and unassigned" }
+    ]
+  }
+
+--------------------------------------------------------------------------------
+8. FILE MANIFEST
+--------------------------------------------------------------------------------
+
+  NEW FILES:
+    tools/  AssignResourceTool.java
+    tools/  UnassignResourceTool.java
+    tools/  CapacityReportTool.java
+    tools/  SuggestAssignmentsTool.java
+    gateway/  ResourceAnalysisController.java
+    test/scenarios/resource_agent/  mongo-seed-projects.json
+    test/scenarios/resource_agent/  mongo-seed-resources.json
+    test/scenarios/resource_agent/  mongo-seed-tickets.json
+    test/scenarios/resource_agent/  mongo-seed-assignments.json
+    test/scenarios/resource_agent/  mongo-seed-objectives.json
+    test/scenarios/resource_agent/  scenario-capacity-analysis.json
+    test/scenarios/resource_agent/  scenario-suggest-assignments.json
+    test/scenarios/resource_agent/  scenario-bus-factor.json
+
+  MODIFIED FILES:
+    runtime/agent/AgentBootstrapService.java
+    protocol/event/EventType.java
+    tools/META-INF/services
+    persistence/mongo-init.js
+
+================================================================================
+ END OF PLAN
+================================================================================

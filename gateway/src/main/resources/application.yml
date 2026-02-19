@@ -3,6 +3,10 @@ javaclaw:
     provider: ${JAVACLAW_LLM_PROVIDER:anthropic}
   runtime:
     mode: ${JAVACLAW_RUNTIME_MODE:inprocess}
+  scheduler:
+    enabled: ${JAVACLAW_SCHEDULER_ENABLED:true}
+    planner-interval-ms: 60000
+    executor-poll-interval-ms: 5000
 
 spring:
   application:

@@ -24,6 +24,7 @@ public class ChecklistDocument {
     private List<String> ticketIds;
     private List<ChecklistItem> items;
     private ChecklistStatus status;
+    private String sourceThreadId;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -52,6 +53,9 @@ public class ChecklistDocument {
 
     public ChecklistStatus getStatus() { return status; }
     public void setStatus(ChecklistStatus status) { this.status = status; }
+
+    public String getSourceThreadId() { return sourceThreadId; }
+    public void setSourceThreadId(String sourceThreadId) { this.sourceThreadId = sourceThreadId; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

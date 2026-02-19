@@ -75,12 +75,12 @@ public class ResourceController {
     }
 
     private ResourceDto toDto(ResourceDocument doc) {
-        return new ResourceDto(doc.getResourceId(), doc.getName(), doc.getEmail(),
-                doc.getRole(), doc.getSkills(), doc.getAvailability());
+        return new ResourceDto(doc.getResourceId(), doc.getProjectId(), doc.getName(), doc.getEmail(),
+                doc.getRole(), doc.getSkills(), doc.getCapacity(), doc.getAvailability());
     }
 
     private ResourceAssignmentDto toAssignmentDto(ResourceAssignmentDocument doc) {
         return new ResourceAssignmentDto(doc.getAssignmentId(), doc.getResourceId(),
-                doc.getTicketId(), doc.getPercentageAllocation());
+                doc.getTicketId(), doc.getProjectId(), doc.getPercentageAllocation());
     }
 }

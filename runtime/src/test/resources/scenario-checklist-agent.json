@@ -1,0 +1,54 @@
+{
+  "projectName": "Project Epsilon",
+  "description": "Checklist agent: create checklist, report progress, update items",
+  "steps": [
+    {
+      "userQuery": "use project Project Epsilon",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Create an ORR checklist for Project Epsilon with items: monitoring configured, runbook reviewed, load testing done, rollback tested, security review done.",
+      "description": "Checklist agent creates a checklist with items",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"checklist-agent\", \"subTask\": \"create ORR checklist\"}"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "I'll create an ORR checklist for the project.\n\n<tool_call>\n{\"name\": \"create_checklist\", \"args\": {\"projectId\": \"project-epsilon\", \"name\": \"ORR - Project Epsilon\", \"items\": [{\"text\": \"Monitoring configured\"}, {\"text\": \"Runbook reviewed\"}, {\"text\": \"Load testing done\"}, {\"text\": \"Rollback tested\"}, {\"text\": \"Security review done\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "ORR checklist created with 5 items. All items start unchecked and in IN_PROGRESS status."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Checklist agent created ORR checklist with 5 items\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "Report checklist progress for Project Epsilon.",
+      "description": "Checklist agent reports progress",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"checklist-agent\", \"subTask\": \"report checklist progress\"}"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "I'll check the progress on all checklists.\n\n<tool_call>\n{\"name\": \"checklist_progress\", \"args\": {\"projectId\": \"project-epsilon\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "Progress report for Project Epsilon:\n- ORR checklist: 0/5 items complete (0%)\n- All items are unassigned — recommend assigning owners"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Checklist agent reported progress with 0/5 items complete\"}"
+        }
+      ]
+    }
+  ]
+}

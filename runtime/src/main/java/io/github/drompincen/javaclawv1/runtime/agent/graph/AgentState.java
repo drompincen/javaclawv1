@@ -16,6 +16,7 @@ public class AgentState {
     private String currentPlan;
     private int stepNo;
     private Map<String, Object> context;
+    private String forcedAgentId;
 
     public AgentState() {
         this.messages = new ArrayList<>();
@@ -74,6 +75,7 @@ public class AgentState {
         s.currentPlan = this.currentPlan;
         s.stepNo = this.stepNo;
         s.context = new HashMap<>(this.context);
+        s.forcedAgentId = this.forcedAgentId;
         return s;
     }
 
@@ -104,4 +106,7 @@ public class AgentState {
 
     public Map<String, Object> getContext() { return context; }
     public void setContext(Map<String, Object> context) { this.context = context; }
+
+    public String getForcedAgentId() { return forcedAgentId; }
+    public void setForcedAgentId(String forcedAgentId) { this.forcedAgentId = forcedAgentId; }
 }

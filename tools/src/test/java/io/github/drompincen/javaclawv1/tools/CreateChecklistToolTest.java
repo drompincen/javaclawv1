@@ -21,6 +21,8 @@ import org.mockito.quality.Strictness;
 import java.nio.file.Path;
 import java.util.Map;
 
+import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -43,6 +45,11 @@ class CreateChecklistToolTest {
         tool.setChecklistRepository(checklistRepository);
         ctx = new ToolContext("session-1", Path.of("."), Map.of());
         when(checklistRepository.save(any(ChecklistDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    void riskProfileIsAgentInternal() {
+        assertThat(tool.riskProfiles()).containsExactly(ToolRiskProfile.AGENT_INTERNAL);
     }
 
     @Test
@@ -103,5 +110,22 @@ class CreateChecklistToolTest {
         assertThat(saved.getItems().get(0).getAssignee()).isEqualTo("Alice");
         assertThat(saved.getItems().get(0).isChecked()).isFalse();
         assertThat(saved.getItems().get(1).getAssignee()).isNull();
+    }
+
+    @Test
+    void linksSourceThread() {
+        ObjectNode input = MAPPER.createObjectNode();
+        input.put("projectId", "proj-1");
+        input.put("name", "Extracted Tasks");
+        input.putArray("items").addObject().put("text", "Review PR");
+        input.put("sourceThreadId", "thread-xyz");
+
+        ToolResult result = tool.execute(ctx, input, stream);
+
+        assertThat(result.success()).isTrue();
+
+        ArgumentCaptor<ChecklistDocument> captor = ArgumentCaptor.forClass(ChecklistDocument.class);
+        verify(checklistRepository).save(captor.capture());
+        assertThat(captor.getValue().getSourceThreadId()).isEqualTo("thread-xyz");
     }
 }

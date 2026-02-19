@@ -46,7 +46,7 @@
         <module>runtime</module>
         <module>tools</module>
         <module>gateway</module>
-        <module>ui</module>
+        <!-- ui module deprecated: web UI now served from gateway static resources -->
     </modules>
 
     <properties>

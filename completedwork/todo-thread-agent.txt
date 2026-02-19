@@ -1,0 +1,320 @@
+================================================================================
+ TODO: thread_agent Agent
+ Purpose: Create, rename, merge threads based on topic + continuity + dates;
+          attach evidence refs; promote extracted ideas into Idea entities;
+          choose thread titles deterministically (naming policy)
+================================================================================
+
+1. AGENT DEFINITION
+- agentId: thread_agent
+- name: Thread Agent
+- role: SPECIALIST
+- skills: ["thread_creation", "thread_naming", "thread_merging", "evidence_attachment", "idea_promotion"]
+- allowedTools: ["create_thread", "rename_thread", "merge_threads", "attach_evidence", "create_idea", "memory", "read_file", "excel", "read_thread_messages"]
+- Detailed system prompt that instructs the agent to:
+  * Create new threads when a new topic/workstream is identified
+  * Apply deterministic naming policy: [PROJECT]-[TOPIC]-[DATE] format
+  * Detect when conversations should be merged (overlapping topics, same participants, related dates)
+  * Attach evidence references (file paths, URLs, upload IDs) to threads
+  * Promote promising discussion points to Idea entities
+  * Maintain thread metadata: lifecycle status, summary, evidence list, decisions, actions
+  * Use memory (THREAD scope) to track thread context across sessions
+  * When merging, preserve all messages and re-sequence, update all back-references
+
+2. NEW TOOLS
+
+  a) create_thread
+  - File: tools/src/main/java/.../tool/CreateThreadTool.java
+  - Risk: WRITE_FILES
+  - Params: projectId (required), title (required), summary (optional), lifecycle (optional, default ACTIVE)
+  - Returns: threadId, title
+  - Implementation: Creates ThreadDocument via ThreadRepository
+
+  b) rename_thread
+  - File: tools/src/main/java/.../tool/RenameThreadTool.java
+  - Risk: WRITE_FILES
+  - Params: threadId (required), newTitle (required), reason (optional)
+  - Returns: threadId, oldTitle, newTitle
+  - Implementation: Updates ThreadDocument.title, emits THREAD_RENAMED event
+
+  c) merge_threads
+  - File: tools/src/main/java/.../tool/MergeThreadsTool.java
+  - Risk: WRITE_FILES
+  - Params: sourceThreadIds (List<String>, required, min 2), targetTitle (optional), reason (optional)
+  - Returns: mergedThreadId, sourceCount, totalMessages
+  - Implementation:
+    * Create new thread (or reuse first source) with merged title
+    * Re-parent all messages from source threads to merged thread
+    * Update all back-references (tickets, ideas, objectives that linked to source threads)
+    * Mark source threads lifecycle=MERGED with pointer to merged thread
+    * Preserve message ordering by timestamp
+
+  d) attach_evidence
+  - File: tools/src/main/java/.../tool/AttachEvidenceTool.java
+  - Risk: WRITE_FILES
+  - Params: threadId (required), evidenceType (String: "file", "url", "upload", "design"), referenceId (required), label (optional)
+  - Returns: threadId, evidenceCount
+  - Implementation: Appends to ThreadDocument.evidence list
+
+3. MODIFIED DOCUMENTS
+  - ThreadDocument: Add fields:
+    * namingPolicy (String, e.g., "{project}-{topic}-{date}")
+    * mergedFromThreadIds (List<String>, nullable)
+    * mergedIntoThreadId (String, nullable)
+  - No new collection needed -- operates on existing threads collection
+
+4. NEW EVENT TYPES
+  - THREAD_CREATED
+  - THREAD_RENAMED
+  - THREAD_MERGED
+  - THREAD_EVIDENCE_ATTACHED
+  - THREAD_IDEA_PROMOTED
+
+5. ENDPOINTS
+  - POST /api/projects/{projectId}/threads/organize - Trigger thread_agent to organize/triage threads
+  - POST /api/projects/{projectId}/threads/merge - Manual merge request
+  - GET /api/projects/{projectId}/threads/suggestions - Get agent's suggestions for renames/merges (dry run)
+
+6. MODIFIED FILES
+  - runtime/agent/AgentBootstrapService.java - Add thread_agent
+  - protocol/event/EventType.java - Add 5 new event types
+  - persistence/document/ThreadDocument.java - Add merge tracking fields
+  - tools/META-INF/services - Register 4 new tools
+  - persistence/mongo-init.js - Update thread indexes
+
+7. SCENARIO-BASED TESTING
+
+  Test Scenario 1: Create Thread from Intake
+  - Setup: Project "proj-alpha" exists, intake_triage dispatches with payload {topic: "auth-flow", content: "..."}
+  - Expected: Thread created with title "ALPHA-auth-flow-2026-02-18", lifecycle=ACTIVE
+
+  Test Scenario 2: Rename Thread
+  - Setup: Thread "untitled-thread-1" exists with messages about database migration
+  - Expected: Agent analyzes messages, renames to "ALPHA-db-migration-2026-02"
+
+  Test Scenario 3: Merge Overlapping Threads
+  - Setup: Two threads both discussing "auth flow" with overlapping dates and participants
+  - Expected: Threads merged, messages interleaved by timestamp, back-references updated
+
+  Test Scenario 4: Attach Evidence
+  - Setup: Thread exists, user uploads a design doc (UploadDocument)
+  - Expected: Evidence ref attached to thread, THREAD_EVIDENCE_ATTACHED event emitted
+
+  Test Scenario 5: Promote Idea
+  - Setup: Thread has messages containing a promising suggestion
+  - Expected: IdeaDocument created, linked to source thread
+
+8. MOCK DATA (staged in test/scenarios/thread_agent/)
+
+  File: test/scenarios/thread_agent/mongo-seed-projects.json
+  ```json
+  [
+    {
+      "projectId": "proj-alpha",
+      "name": "Project Alpha",
+      "description": "Authentication platform project",
+      "status": "ACTIVE",
+      "tags": ["auth", "platform"],
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-02-18T00:00:00Z"
+    }
+  ]
+  ```
+
+  File: test/scenarios/thread_agent/mongo-seed-threads.json
+  ```json
+  [
+    {
+      "threadId": "thread-001",
+      "projectIds": ["proj-alpha"],
+      "title": "untitled-thread-1",
+      "lifecycle": "ACTIVE",
+      "summary": null,
+      "evidence": [],
+      "decisions": [],
+      "actions": [],
+      "createdAt": "2026-02-10T09:00:00Z",
+      "updatedAt": "2026-02-15T14:00:00Z"
+    },
+    {
+      "threadId": "thread-002",
+      "projectIds": ["proj-alpha"],
+      "title": "auth-discussion",
+      "lifecycle": "ACTIVE",
+      "summary": "Discussion about auth flow design",
+      "evidence": [],
+      "decisions": ["Use JWT tokens"],
+      "actions": ["Implement token refresh"],
+      "createdAt": "2026-02-12T10:00:00Z",
+      "updatedAt": "2026-02-16T11:00:00Z"
+    },
+    {
+      "threadId": "thread-003",
+      "projectIds": ["proj-alpha"],
+      "title": "auth-implementation",
+      "lifecycle": "ACTIVE",
+      "summary": "Auth implementation details and code review",
+      "evidence": [],
+      "decisions": [],
+      "actions": ["Complete PR review"],
+      "createdAt": "2026-02-13T08:00:00Z",
+      "updatedAt": "2026-02-17T16:00:00Z"
+    }
+  ]
+  ```
+
+  File: test/scenarios/thread_agent/mongo-seed-messages.json
+  ```json
+  [
+    {
+      "messageId": "msg-001",
+      "sessionId": "sess-thread-001",
+      "seq": 1,
+      "role": "user",
+      "content": "We need to figure out the database migration strategy for the auth tables",
+      "timestamp": "2026-02-10T09:00:00Z"
+    },
+    {
+      "messageId": "msg-002",
+      "sessionId": "sess-thread-001",
+      "seq": 2,
+      "role": "assistant",
+      "content": "I recommend a phased migration approach: 1) Create new schema 2) Dual-write 3) Backfill 4) Cutover",
+      "timestamp": "2026-02-10T09:01:00Z"
+    },
+    {
+      "messageId": "msg-003",
+      "sessionId": "sess-thread-002",
+      "seq": 1,
+      "role": "user",
+      "content": "Let's discuss the auth flow. We need JWT with refresh tokens.",
+      "timestamp": "2026-02-12T10:00:00Z"
+    },
+    {
+      "messageId": "msg-004",
+      "sessionId": "sess-thread-002",
+      "seq": 2,
+      "role": "user",
+      "content": "Also need to handle the login redirect after token expiry",
+      "timestamp": "2026-02-12T10:05:00Z"
+    },
+    {
+      "messageId": "msg-005",
+      "sessionId": "sess-thread-003",
+      "seq": 1,
+      "role": "user",
+      "content": "Starting implementation of auth flow from our earlier discussion. JWT + refresh token approach.",
+      "timestamp": "2026-02-13T08:00:00Z"
+    },
+    {
+      "messageId": "msg-006",
+      "sessionId": "sess-thread-003",
+      "seq": 2,
+      "role": "user",
+      "content": "Idea: We should add rate limiting on the token refresh endpoint to prevent abuse",
+      "timestamp": "2026-02-13T08:15:00Z"
+    }
+  ]
+  ```
+
+  File: test/scenarios/thread_agent/mongo-seed-uploads.json
+  ```json
+  [
+    {
+      "uploadId": "upload-001",
+      "projectId": "proj-alpha",
+      "threadId": "thread-002",
+      "title": "Auth Architecture Diagram v2",
+      "content": "[base64-encoded diagram content]",
+      "status": "PROCESSED",
+      "contentTimestamp": "2026-02-14T00:00:00Z"
+    }
+  ]
+  ```
+
+  File: test/scenarios/thread_agent/scenario-create-thread.json
+  ```json
+  {
+    "name": "thread-agent-create",
+    "description": "Verify thread_agent creates a properly named thread from intake payload",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Create a new thread for project alpha about the CI/CD pipeline setup"
+      }
+    ],
+    "expectedOutcomes": [
+      {"type": "THREAD_CREATED", "titlePattern": "ALPHA-ci-cd-pipeline-.*"},
+      {"type": "MEMORY_STORED", "scope": "THREAD"}
+    ]
+  }
+  ```
+
+  File: test/scenarios/thread_agent/scenario-merge-threads.json
+  ```json
+  {
+    "name": "thread-agent-merge",
+    "description": "Verify thread_agent merges overlapping auth threads",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "threads": "mongo-seed-threads.json",
+      "messages": "mongo-seed-messages.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Analyze threads in project alpha and merge any that discuss the same topic"
+      }
+    ],
+    "expectedOutcomes": [
+      {"type": "THREAD_MERGED", "sourceCount": 2},
+      {"type": "THREAD_RENAMED"}
+    ]
+  }
+  ```
+
+  File: test/scenarios/thread_agent/scenario-promote-idea.json
+  ```json
+  {
+    "name": "thread-agent-promote-idea",
+    "description": "Verify thread_agent promotes a discussion point to an Idea entity",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "threads": "mongo-seed-threads.json",
+      "messages": "mongo-seed-messages.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Review thread-003 and promote any good ideas to Idea entities"
+      }
+    ],
+    "expectedOutcomes": [
+      {"type": "THREAD_IDEA_PROMOTED"},
+      {"type": "IDEA_CREATED", "titlePattern": ".*rate limiting.*"}
+    ]
+  }
+  ```
+
+9. FILE MANIFEST
+  NEW FILES:
+  - tools/ CreateThreadTool.java
+  - tools/ RenameThreadTool.java
+  - tools/ MergeThreadsTool.java
+  - tools/ AttachEvidenceTool.java
+  - gateway/ ThreadOrganizeController.java (or add to existing ThreadController)
+  - test/scenarios/thread_agent/ (all mock data and scenario files)
+
+  MODIFIED FILES:
+  - runtime/agent/AgentBootstrapService.java
+  - protocol/event/EventType.java
+  - persistence/document/ThreadDocument.java
+  - tools/META-INF/services
+  - persistence/mongo-init.js
+
+================================================================================
+ END OF PLAN
+================================================================================

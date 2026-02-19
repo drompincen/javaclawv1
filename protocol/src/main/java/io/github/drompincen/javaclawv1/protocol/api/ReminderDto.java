@@ -11,7 +11,8 @@ public record ReminderDto(
         String condition,
         boolean triggered,
         boolean recurring,
-        Long intervalSeconds
+        Long intervalSeconds,
+        String sourceThreadId
 ) {
     public enum ReminderType {
         TIME_BASED, CONDITION_BASED

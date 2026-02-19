@@ -1,0 +1,40 @@
+{
+  "projectName": "Project Beta",
+  "description": "Reconcile agent: read project data and create delta pack with findings",
+  "steps": [
+    {
+      "userQuery": "use project Project Beta",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Reconcile all sources for Project Beta. Read tickets and objectives, identify coverage gaps and orphaned work.",
+      "description": "Reconcile agent reads data and creates delta pack",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"reconcile-agent\", \"subTask\": \"reconcile project sources\"}"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "I'll read all project data and reconcile.\n\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"project-beta\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Now reading objectives.\n\n<tool_call>\n{\"name\": \"read_objectives\", \"args\": {\"projectId\": \"project-beta\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Reconciliation complete. Found coverage gaps and orphaned tickets. Creating delta pack.\n\n<tool_call>\n{\"name\": \"create_delta_pack\", \"args\": {\"projectId\": \"project-beta\", \"projectName\": \"Project Beta\", \"deltas\": [{\"deltaType\": \"COVERAGE_GAP\", \"severity\": \"HIGH\", \"title\": \"Objective has no tickets\", \"description\": \"Coverage gap detected\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Delta pack created with findings:\n- 1 COVERAGE_GAP (HIGH)\n\nRecommendation: Create tickets for uncovered objectives."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Reconcile agent read data, identified gaps, and created delta pack\"}"
+        }
+      ]
+    }
+  ]
+}

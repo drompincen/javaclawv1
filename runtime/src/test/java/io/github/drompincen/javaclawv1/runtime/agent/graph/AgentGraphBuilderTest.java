@@ -481,6 +481,49 @@ class AgentGraphBuilderTest {
     }
 
     // ---------------------------------------------------------------
+    // 12. Forced agent routing skips controller
+    // ---------------------------------------------------------------
+
+    @Test
+    void runGraph_forcedAgentId_skipsControllerAndRoutesDirectly() {
+        AgentDocument threadExtractor = makeAgent("thread-extractor", AgentRole.SPECIALIST, "You extract action items.");
+        when(agentRepository.findByEnabledTrue())
+                .thenReturn(List.of(controller, generalist, checker, threadExtractor));
+
+        // Controller blockingResponse should NOT be called
+        when(llmService.blockingResponse(any())).thenAnswer(inv -> {
+            AgentState s = inv.getArgument(0);
+            if ("reviewer".equals(s.getCurrentAgentId())) {
+                return "{\"pass\": true, \"summary\": \"Extraction ok\"}";
+            }
+            return null;
+        });
+
+        when(llmService.streamResponse(any()))
+                .thenReturn(Flux.just("Extracted 3 items from thread."));
+
+        AgentState initial = makeState("thread-13", "extract items from thread");
+        initial.setForcedAgentId("thread-extractor");
+        AgentState result = builder.runGraph(initial);
+
+        // Specialist should have been called
+        assertThat(allAssistantMessages(result)).anyMatch(m -> m.equals("Extracted 3 items from thread."));
+
+        // Controller blockingResponse should have been called only for checker, not for controller routing
+        ArgumentCaptor<AgentState> stateCaptor = ArgumentCaptor.forClass(AgentState.class);
+        verify(llmService, atLeastOnce()).blockingResponse(stateCaptor.capture());
+        List<String> silentAgentIds = stateCaptor.getAllValues().stream()
+                .map(AgentState::getCurrentAgentId)
+                .toList();
+        assertThat(silentAgentIds).doesNotContain("controller");
+        assertThat(silentAgentIds).contains("reviewer");
+
+        // AGENT_DELEGATED should have been emitted (from forced routing)
+        verify(eventService).emit(eq("thread-13"), eq(EventType.AGENT_DELEGATED),
+                argThat(m -> m instanceof Map && "thread-extractor".equals(((Map<?,?>) m).get("targetAgentId"))));
+    }
+
+    // ---------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------
 

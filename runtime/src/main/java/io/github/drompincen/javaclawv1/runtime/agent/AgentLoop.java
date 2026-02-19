@@ -133,6 +133,14 @@ public class AgentLoop {
                 }
             }
 
+            // Set forced agent routing from session metadata
+            if (session != null && session.getMetadata() != null) {
+                String forcedAgent = session.getMetadata().get("agentId");
+                if (forcedAgent != null) {
+                    state.setForcedAgentId(forcedAgent);
+                }
+            }
+
             // Check for context commands (use project, use thread, whereami) before running graph
             String lastUserMsg = getLastUserMessage(messages);
             if (lastUserMsg != null) {
@@ -156,7 +164,14 @@ public class AgentLoop {
             persistNewMessages(sessionId, messages.size(), finalState);
 
             updateStatus(sessionId, SessionStatus.COMPLETED, isThread);
-            // Distiller auto-trigger disabled — superseded by ExtractionService / thread-extractor agent
+
+            // Emit EXTRACTION_COMPLETED if this was an extraction session
+            if (session != null && session.getMetadata() != null
+                    && "extraction".equals(session.getMetadata().get("type"))) {
+                eventService.emit(sessionId, EventType.EXTRACTION_COMPLETED,
+                        Map.of("extractionId", session.getMetadata().getOrDefault("extractionId", ""),
+                                "projectId", session.getProjectId() != null ? session.getProjectId() : ""));
+            }
         } catch (Exception e) {
             log.error("Agent loop error for session {}", sessionId, e);
             boolean failThread = sessionRepository.findById(sessionId).isEmpty();

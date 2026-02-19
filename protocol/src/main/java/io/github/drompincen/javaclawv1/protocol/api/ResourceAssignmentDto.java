@@ -4,5 +4,6 @@ public record ResourceAssignmentDto(
         String assignmentId,
         String resourceId,
         String ticketId,
+        String projectId,
         double percentageAllocation
 ) {}

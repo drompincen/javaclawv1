@@ -1,0 +1,32 @@
+{
+  "projectName": "Project Alpha",
+  "description": "Intake triage: classify meeting notes and dispatch to downstream agents",
+  "steps": [
+    {
+      "userQuery": "use project Project Alpha",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Classify this content for me: Meeting: Sprint 4 Standup\nDate: 2026-02-17\nAttendees: Alice, Charlie, Dave\nAction Items:\n1. Alice to send PR for auth flow by EOD\n2. Charlie to schedule architecture review\nDecisions:\n- Agreed to defer SSO to v2",
+      "description": "Intake triage classifies meeting notes content",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"intake-triage\", \"subTask\": \"classify and triage meeting notes\"}"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "I'll classify this content.\n\n<tool_call>\n{\"name\": \"classify_content\", \"args\": {\"content\": \"Meeting: Sprint 4 Standup\\nDate: 2026-02-17\\nAttendees: Alice, Charlie, Dave\\nAction Items:\\n1. Alice to send PR\\n2. Charlie to schedule review\\nDecisions: Agreed to defer SSO to v2\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Content classified as MEETING_NOTES with high confidence.\n\nExtracted metadata:\n- Attendees: Alice, Charlie, Dave\n- Action Items: 2\n- Decisions: 1\n- Date: 2026-02-17\n\nDispatching to thread-agent for thread creation."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Intake triage classified meeting notes and reported metadata\"}"
+        }
+      ]
+    }
+  ]
+}

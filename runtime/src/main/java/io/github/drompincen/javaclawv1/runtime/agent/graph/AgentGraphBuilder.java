@@ -105,31 +105,44 @@ public class AgentGraphBuilder {
 
         // Multi-agent orchestration loop
         for (int retry = 0; retry < MAX_RETRIES; retry++) {
-            // Step 1: Controller decides routing (isolated — fork discarded)
-            eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
-                    Map.of("toAgent", controller.getAgentId()));
+            String delegateAgentId;
+            String directResponse = null;
+            String controllerResponse = null;
 
-            String specialistList = agents.stream()
-                    .filter(a -> a.getRole() == AgentRole.SPECIALIST)
-                    .map(a -> a.getAgentId() + ": " + a.getDescription())
-                    .collect(Collectors.joining("\n"));
+            // If a forced agent is set (e.g. from extraction metadata), skip controller routing
+            if (state.getForcedAgentId() != null) {
+                delegateAgentId = state.getForcedAgentId();
+                log.info("[routing] Forced agent routing to '{}'", delegateAgentId);
+                eventService.emit(state.getThreadId(), EventType.AGENT_DELEGATED,
+                        Map.of("targetAgentId", delegateAgentId, "subTask", "forced routing"));
+            } else {
+                // Step 1: Controller decides routing (isolated — fork discarded)
+                eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
+                        Map.of("toAgent", controller.getAgentId()));
 
-            AgentState controllerState = state.withAgent(controller.getAgentId())
-                    .withMessage("system", controller.getSystemPrompt()
-                            + "\n\nAvailable specialists:\n" + specialistList);
-            String controllerResponse = callLlmForAgentSilent(controllerState, controller);
-            // controllerState is discarded — main state is unchanged
+                String specialistList = agents.stream()
+                        .filter(a -> a.getRole() == AgentRole.SPECIALIST)
+                        .map(a -> a.getAgentId() + ": " + a.getDescription())
+                        .collect(Collectors.joining("\n"));
 
-            if (controllerResponse == null || controllerResponse.isBlank()) break;
+                AgentState controllerState = state.withAgent(controller.getAgentId())
+                        .withMessage("system", controller.getSystemPrompt()
+                                + "\n\nAvailable specialists:\n" + specialistList);
+                controllerResponse = callLlmForAgentSilent(controllerState, controller);
+                // controllerState is discarded — main state is unchanged
 
-            // Parse controller decision
-            String delegateAgentId = parseDelegate(controllerResponse);
-            String directResponse = parseDirectResponse(controllerResponse);
+                if (controllerResponse == null || controllerResponse.isBlank()) break;
+
+                // Parse controller decision
+                delegateAgentId = parseDelegate(controllerResponse);
+                directResponse = parseDirectResponse(controllerResponse);
+            }
 
             String specialistOutput;
             if (delegateAgentId != null) {
+                String subTaskDesc = parseSubTask(controllerResponse);
                 log.info("[controller] Delegating to '{}', subTask='{}'",
-                        delegateAgentId, parseSubTask(controllerResponse));
+                        delegateAgentId, subTaskDesc);
                 // Step 2: Delegate to specialist (isolated fork, merged back)
                 AgentDocument specialist = agents.stream()
                         .filter(a -> a.getAgentId().equals(delegateAgentId))
@@ -141,8 +154,11 @@ public class AgentGraphBuilder {
                     break;
                 }
 
-                eventService.emit(state.getThreadId(), EventType.AGENT_DELEGATED,
-                        Map.of("targetAgentId", delegateAgentId, "subTask", parseSubTask(controllerResponse)));
+                // Only emit delegation events if not already emitted by forced routing
+                if (state.getForcedAgentId() == null) {
+                    eventService.emit(state.getThreadId(), EventType.AGENT_DELEGATED,
+                            Map.of("targetAgentId", delegateAgentId, "subTask", subTaskDesc));
+                }
 
                 eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
                         Map.of("fromAgent", controller.getAgentId(), "toAgent", specialist.getAgentId()));
@@ -152,10 +168,9 @@ public class AgentGraphBuilder {
                         .withMessage("system", specialist.getSystemPrompt());
 
                 // Inject sub-task so specialist knows what to focus on
-                String subTask = parseSubTask(controllerResponse);
-                if (subTask != null && !"delegated task".equals(subTask)) {
+                if (subTaskDesc != null && !"delegated task".equals(subTaskDesc)) {
                     specialistState = specialistState.withMessage("system",
-                            "Your current task: " + subTask);
+                            "Your current task: " + subTaskDesc);
                 }
 
                 specialistState = runAgentSteps(specialistState, specialist);

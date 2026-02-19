@@ -18,6 +18,14 @@ SCENARIOS=(
   scenario-exec-time
   scenario-python-exec
   scenario-excel-weather
+  scenario-extraction-v2
+  scenario-thread-agent
+  scenario-objective-agent
+  scenario-checklist-agent
+  scenario-intake-triage
+  scenario-plan-agent
+  scenario-reconcile-agent
+  scenario-resource-agent
 )
 
 PORT=${1:-18080}

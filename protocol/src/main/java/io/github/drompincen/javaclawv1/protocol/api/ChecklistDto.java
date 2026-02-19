@@ -12,6 +12,7 @@ public record ChecklistDto(
         List<String> ticketIds,
         List<ChecklistItem> items,
         ChecklistStatus status,
+        String sourceThreadId,
         Instant createdAt,
         Instant updatedAt
 ) {

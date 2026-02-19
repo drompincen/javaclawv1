@@ -3,6 +3,7 @@ package io.github.drompincen.javaclawv1.protocol.ws;
 public enum WsMessageType {
     // Client -> Server
     SUBSCRIBE_SESSION,
+    SUBSCRIBE_PROJECT,
     SUBSCRIBE_SPECS,
     SUBSCRIBE_TOOLS,
     UNSUBSCRIBE,

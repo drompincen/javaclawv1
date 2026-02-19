@@ -1,0 +1,367 @@
+================================================================================
+ TODO: objective_agent Agent
+ Purpose: Maintain sprint objectives, map them to tickets and milestones,
+          compute coverage/unmapped, keep objective text crisp, and ensure
+          continuous alignment between objectives and actual work
+================================================================================
+
+Context:
+  - JavaClaw v1: Spring Boot 3.3.1, MongoDB, Spring AI, LangGraph4j, Java 21
+  - Multi-module Maven: protocol, persistence, runtime, tools, gateway, ui
+  - PM agent exists but is too generic for continuous objective alignment
+  - ObjectiveDocument already exists with fields:
+      objectiveId, projectId, sprintName, outcome, measurableSignal, risks,
+      ticketIds, threadIds, coveragePercent, status, startDate, endDate
+  - TicketDocument already exists
+
+--------------------------------------------------------------------------------
+1. AGENT DEFINITION
+--------------------------------------------------------------------------------
+
+  agentId        : objective_agent
+  name           : Objective Agent
+  role           : SPECIALIST
+  skills         : ["objective_alignment", "coverage_analysis",
+                    "ticket_mapping", "sprint_tracking", "gap_detection"]
+  allowedTools   : ["read_tickets", "read_objectives", "read_phases",
+                    "update_objective", "create_ticket", "create_blindspot",
+                    "memory", "excel"]
+
+  Detailed system prompt covering:
+    - Continuously align objectives with tickets -- every objective should
+      have sufficient ticket coverage
+    - Compute coverage percentage:
+        (tickets with status DONE or IN_PROGRESS) / (total needed tickets) * 100
+    - Detect unmapped tickets (tickets with no objectiveId) and suggest
+      which objective they belong to
+    - Detect under-covered objectives and recommend new tickets to fill gaps
+    - Keep objective text crisp: outcome should be one clear sentence,
+      measurableSignal should be concrete/testable
+    - Track sprint-over-sprint progress and flag stalled objectives
+    - Validate that every objective has a measurableSignal
+      (flag as blindspot if missing)
+    - Compare ticket priorities against objective priority ordering
+
+--------------------------------------------------------------------------------
+2. NEW TOOL: update_objective
+--------------------------------------------------------------------------------
+
+  File   : tools/src/main/java/.../tool/UpdateObjectiveTool.java
+  Risk   : WRITE_FILES
+
+  Params:
+    - objectiveId      (required)
+    - outcome          (optional)
+    - measurableSignal (optional)
+    - risks            (optional)
+    - ticketIds        (optional, append)
+    - coveragePercent  (optional)
+    - status           (optional)
+
+  Returns:
+    - objectiveId
+    - updated fields summary
+
+  Implementation:
+    - Update ObjectiveDocument via repository
+    - Emit OBJECTIVE_UPDATED event
+
+--------------------------------------------------------------------------------
+3. NEW TOOL: compute_coverage
+--------------------------------------------------------------------------------
+
+  File   : tools/src/main/java/.../tool/ComputeCoverageTool.java
+  Risk   : READ_ONLY
+
+  Params:
+    - projectId   (required)
+    - sprintName  (optional filter)
+
+  Returns:
+    List of objectives with computed coverage:
+    {
+      objectiveId,
+      outcome,
+      totalTickets,
+      doneTickets,
+      inProgressTickets,
+      openTickets,
+      computedCoverage,
+      unmappedTickets[]
+    }
+
+  Implementation:
+    - Cross-reference ObjectiveDocument.ticketIds with TicketDocument statuses
+    - Identify tickets in the project that have no objectiveId
+
+--------------------------------------------------------------------------------
+4. NEW EVENT TYPES
+--------------------------------------------------------------------------------
+
+  - OBJECTIVE_COVERAGE_COMPUTED
+  - OBJECTIVE_UPDATED
+  - OBJECTIVE_GAP_DETECTED
+  - OBJECTIVE_TICKET_MAPPED
+
+--------------------------------------------------------------------------------
+5. ENDPOINTS
+--------------------------------------------------------------------------------
+
+  POST /api/projects/{projectId}/objectives/align
+    Trigger objective_agent to run alignment analysis
+
+  GET  /api/projects/{projectId}/objectives/coverage
+    Get coverage report for all objectives
+
+  GET  /api/projects/{projectId}/objectives/unmapped-tickets
+    List tickets with no objective
+
+--------------------------------------------------------------------------------
+6. MODIFIED FILES
+--------------------------------------------------------------------------------
+
+  - runtime/agent/AgentBootstrapService.java   (register objective_agent)
+  - protocol/event/EventType.java              (add new event types)
+  - tools/META-INF/services                    (register new tool classes)
+  - persistence/mongo-init.js                  (seed indexes if needed)
+
+--------------------------------------------------------------------------------
+7. SCENARIO-BASED TESTING
+--------------------------------------------------------------------------------
+
+  Test Scenario 1: Coverage Computation
+    Setup    : 2 objectives with mixed ticket statuses
+    Expected : Correct coverage percentages computed
+
+  Test Scenario 2: Unmapped Ticket Detection
+    Setup    : 5 tickets, 2 with no objectiveId
+    Expected : Agent identifies unmapped tickets and suggests objective mapping
+
+  Test Scenario 3: Missing Measurable Signal
+    Setup    : Objective with measurableSignal=null
+    Expected : Blindspot created for MISSING_TEST_SIGNAL
+
+  Test Scenario 4: Stalled Objective
+    Setup    : Objective IN_PROGRESS for 30+ days with no ticket movement
+    Expected : Agent flags as stalled, suggests action
+
+--------------------------------------------------------------------------------
+8. MOCK DATA (staged in test/scenarios/objective_agent/)
+--------------------------------------------------------------------------------
+
+  File: test/scenarios/objective_agent/mongo-seed-projects.json
+  ............................................................................
+  [
+    {
+      "projectId": "proj-gamma",
+      "name": "Project Gamma",
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-02-18T00:00:00Z"
+    }
+  ]
+
+  File: test/scenarios/objective_agent/mongo-seed-objectives.json
+  ............................................................................
+  [
+    {
+      "objectiveId": "obj-201",
+      "projectId": "proj-gamma",
+      "sprintName": "Sprint 3",
+      "outcome": "Launch user onboarding flow",
+      "measurableSignal": "90% of new users complete onboarding within 5 minutes",
+      "risks": ["Design not finalized"],
+      "ticketIds": ["ticket-301", "ticket-302", "ticket-303"],
+      "threadIds": [],
+      "coveragePercent": 33,
+      "status": "IN_PROGRESS",
+      "startDate": "2026-02-01",
+      "endDate": "2026-02-28"
+    },
+    {
+      "objectiveId": "obj-202",
+      "projectId": "proj-gamma",
+      "sprintName": "Sprint 3",
+      "outcome": "Reduce API response time to under 200ms p95",
+      "measurableSignal": null,
+      "risks": [],
+      "ticketIds": ["ticket-304"],
+      "threadIds": [],
+      "coveragePercent": 0,
+      "status": "NOT_STARTED",
+      "startDate": "2026-02-15",
+      "endDate": "2026-03-15"
+    },
+    {
+      "objectiveId": "obj-203",
+      "projectId": "proj-gamma",
+      "sprintName": "Sprint 2",
+      "outcome": "Complete database schema v2 migration",
+      "measurableSignal": "All tables migrated, zero downtime",
+      "risks": ["Rollback complexity"],
+      "ticketIds": ["ticket-305"],
+      "threadIds": [],
+      "coveragePercent": 50,
+      "status": "IN_PROGRESS",
+      "startDate": "2026-01-15",
+      "endDate": "2026-02-10"
+    }
+  ]
+
+  File: test/scenarios/objective_agent/mongo-seed-tickets.json
+  ............................................................................
+  [
+    {
+      "ticketId": "ticket-301",
+      "projectId": "proj-gamma",
+      "title": "Build onboarding wizard UI",
+      "status": "DONE",
+      "priority": "HIGH",
+      "type": "FEATURE",
+      "assignee": "alice",
+      "objectiveIds": ["obj-201"]
+    },
+    {
+      "ticketId": "ticket-302",
+      "projectId": "proj-gamma",
+      "title": "Implement onboarding API endpoints",
+      "status": "IN_PROGRESS",
+      "priority": "HIGH",
+      "type": "FEATURE",
+      "assignee": "bob",
+      "objectiveIds": ["obj-201"]
+    },
+    {
+      "ticketId": "ticket-303",
+      "projectId": "proj-gamma",
+      "title": "Add onboarding analytics tracking",
+      "status": "OPEN",
+      "priority": "MEDIUM",
+      "type": "TASK",
+      "assignee": null,
+      "objectiveIds": ["obj-201"]
+    },
+    {
+      "ticketId": "ticket-304",
+      "projectId": "proj-gamma",
+      "title": "Profile and optimize slow queries",
+      "status": "OPEN",
+      "priority": "HIGH",
+      "type": "TASK",
+      "assignee": "charlie",
+      "objectiveIds": ["obj-202"]
+    },
+    {
+      "ticketId": "ticket-305",
+      "projectId": "proj-gamma",
+      "title": "Run schema migration script",
+      "status": "IN_PROGRESS",
+      "priority": "CRITICAL",
+      "type": "TASK",
+      "assignee": "alice",
+      "objectiveIds": ["obj-203"]
+    },
+    {
+      "ticketId": "ticket-306",
+      "projectId": "proj-gamma",
+      "title": "Write user documentation for new features",
+      "status": "OPEN",
+      "priority": "LOW",
+      "type": "TASK",
+      "assignee": "dave",
+      "objectiveIds": []
+    },
+    {
+      "ticketId": "ticket-307",
+      "projectId": "proj-gamma",
+      "title": "Fix session timeout bug",
+      "status": "OPEN",
+      "priority": "CRITICAL",
+      "type": "BUG",
+      "assignee": "bob",
+      "objectiveIds": []
+    }
+  ]
+
+  File: test/scenarios/objective_agent/scenario-coverage.json
+  ............................................................................
+  {
+    "name": "objective-agent-coverage",
+    "description": "Compute coverage for all objectives in Project Gamma",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "objectives": "mongo-seed-objectives.json",
+      "tickets": "mongo-seed-tickets.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Analyze objective coverage for Project Gamma Sprint 3. Identify gaps and unmapped tickets."
+      }
+    ],
+    "expectedOutcomes": [
+      {
+        "type": "OBJECTIVE_COVERAGE_COMPUTED"
+      },
+      {
+        "type": "OBJECTIVE_GAP_DETECTED",
+        "description": "obj-202 missing measurableSignal"
+      },
+      {
+        "type": "OBJECTIVE_GAP_DETECTED",
+        "description": "ticket-306 and ticket-307 unmapped"
+      },
+      {
+        "type": "BLINDSPOT_CREATED",
+        "category": "MISSING_TEST_SIGNAL"
+      }
+    ]
+  }
+
+  File: test/scenarios/objective_agent/scenario-stalled.json
+  ............................................................................
+  {
+    "name": "objective-agent-stalled",
+    "description": "Detect stalled objective past its end date",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "objectives": "mongo-seed-objectives.json",
+      "tickets": "mongo-seed-tickets.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Check for stalled or overdue objectives in Project Gamma"
+      }
+    ],
+    "expectedOutcomes": [
+      {
+        "type": "OBJECTIVE_GAP_DETECTED",
+        "description": "obj-203 past end date 2026-02-10, still IN_PROGRESS"
+      }
+    ]
+  }
+
+--------------------------------------------------------------------------------
+9. FILE MANIFEST
+--------------------------------------------------------------------------------
+
+  NEW FILES:
+    - tools/src/main/java/.../tool/UpdateObjectiveTool.java
+    - tools/src/main/java/.../tool/ComputeCoverageTool.java
+    - gateway/.../controller/ObjectiveAlignmentController.java
+    - test/scenarios/objective_agent/mongo-seed-projects.json
+    - test/scenarios/objective_agent/mongo-seed-objectives.json
+    - test/scenarios/objective_agent/mongo-seed-tickets.json
+    - test/scenarios/objective_agent/scenario-coverage.json
+    - test/scenarios/objective_agent/scenario-stalled.json
+
+  MODIFIED FILES:
+    - runtime/agent/AgentBootstrapService.java
+    - protocol/event/EventType.java
+    - tools/META-INF/services
+    - persistence/mongo-init.js
+
+================================================================================
+ END OF PLAN
+================================================================================

@@ -12,7 +12,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/reminders")
 public class ReminderController {
 
     private final ReminderRepository reminderRepository;
@@ -21,11 +20,12 @@ public class ReminderController {
         this.reminderRepository = reminderRepository;
     }
 
-    @PostMapping
-    public ResponseEntity<ReminderDto> create(@RequestBody CreateReminderRequest req) {
+    @PostMapping("/api/projects/{projectId}/reminders")
+    public ResponseEntity<ReminderDto> create(@PathVariable String projectId,
+                                               @RequestBody CreateReminderRequest req) {
         ReminderDocument doc = new ReminderDocument();
         doc.setReminderId(UUID.randomUUID().toString());
-        doc.setProjectId(req.sessionId());
+        doc.setProjectId(projectId);
         doc.setMessage(req.message());
         doc.setType(req.type() != null ? req.type() : ReminderDto.ReminderType.TIME_BASED);
         doc.setTriggerAt(req.triggerAt());
@@ -36,18 +36,24 @@ public class ReminderController {
         return ResponseEntity.ok(toDto(doc));
     }
 
-    @GetMapping
-    public List<ReminderDto> list(@RequestParam(required = false) String sessionId) {
+    @GetMapping("/api/projects/{projectId}/reminders")
+    public List<ReminderDto> listByProject(@PathVariable String projectId) {
+        return reminderRepository.findByProjectId(projectId).stream()
+                .map(this::toDto).collect(Collectors.toList());
+    }
+
+    @GetMapping("/api/reminders")
+    public List<ReminderDto> list(@RequestParam(required = false) String projectId) {
         List<ReminderDocument> docs;
-        if (sessionId != null) {
-            docs = reminderRepository.findByProjectId(sessionId);
+        if (projectId != null) {
+            docs = reminderRepository.findByProjectId(projectId);
         } else {
             docs = reminderRepository.findAll();
         }
         return docs.stream().map(this::toDto).collect(Collectors.toList());
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/api/reminders/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
         if (reminderRepository.existsById(id)) {
             reminderRepository.deleteById(id);
@@ -59,6 +65,6 @@ public class ReminderController {
     private ReminderDto toDto(ReminderDocument doc) {
         return new ReminderDto(doc.getReminderId(), doc.getProjectId(), doc.getMessage(),
                 doc.getType(), doc.getTriggerAt(), doc.getCondition(), doc.isTriggered(),
-                doc.isRecurring(), doc.getIntervalSeconds());
+                doc.isRecurring(), doc.getIntervalSeconds(), doc.getSourceThreadId());
     }
 }

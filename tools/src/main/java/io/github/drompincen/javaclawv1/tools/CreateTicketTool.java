@@ -37,7 +37,7 @@ public class CreateTicketTool implements Tool {
     }
 
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
-    @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.WRITE_FILES); }
+    @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
     public void setTicketRepository(TicketRepository ticketRepository) {
         this.ticketRepository = ticketRepository;

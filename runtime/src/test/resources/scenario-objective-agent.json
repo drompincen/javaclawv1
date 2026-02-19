@@ -1,0 +1,32 @@
+{
+  "projectName": "Project Gamma",
+  "description": "Objective agent: coverage analysis and objective updates",
+  "steps": [
+    {
+      "userQuery": "use project Project Gamma",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Analyze objective coverage for Project Gamma. Identify gaps and unmapped tickets.",
+      "description": "Objective agent computes coverage",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"objective-agent\", \"subTask\": \"analyze objective coverage\"}"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "I'll compute the coverage for all objectives in this project.\n\n<tool_call>\n{\"name\": \"compute_coverage\", \"args\": {\"projectId\": \"project-gamma\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Coverage analysis complete. Here's the summary:\n- Objectives analyzed: coverage computed for all active objectives\n- Unmapped tickets identified\n- Gaps flagged for objectives missing measurable signals"
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Objective agent computed coverage and identified gaps\"}"
+        }
+      ]
+    }
+  ]
+}

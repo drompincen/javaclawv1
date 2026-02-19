@@ -6,7 +6,11 @@
 //DEPS com.fasterxml.jackson.core:jackson-databind:2.17.0
 
 // ============================================================================
-// JavaClaw Terminal UI — Bloomberg-style JBang Swing client
+// DEPRECATED — Use the web UI at http://localhost:8080 instead.
+// The web cockpit is now served from the gateway's static resources and
+// provides all 8 workspaces, agent controls, activity stream, and inspector.
+// ============================================================================
+// JavaClaw Terminal UI — Bloomberg-style JBang Swing client (legacy)
 // ============================================================================
 // Usage:
 //   jbang javaclawui.java                        # Connect to localhost:8080

@@ -19,6 +19,8 @@ import org.mockito.quality.Strictness;
 import java.nio.file.Path;
 import java.util.Map;
 
+import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -41,6 +43,11 @@ class CreateReminderToolTest {
         tool.setReminderRepository(reminderRepository);
         ctx = new ToolContext("session-1", Path.of("."), Map.of());
         when(reminderRepository.save(any(ReminderDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    void riskProfileIsAgentInternal() {
+        assertThat(tool.riskProfiles()).containsExactly(ToolRiskProfile.AGENT_INTERNAL);
     }
 
     @Test
@@ -106,6 +113,22 @@ class CreateReminderToolTest {
         verify(reminderRepository).save(captor.capture());
         assertThat(captor.getValue().isRecurring()).isTrue();
         assertThat(captor.getValue().getIntervalSeconds()).isEqualTo(86400L);
+    }
+
+    @Test
+    void linksSourceThread() {
+        ObjectNode input = MAPPER.createObjectNode();
+        input.put("projectId", "proj-1");
+        input.put("message", "Standup reminder");
+        input.put("sourceThreadId", "thread-xyz");
+
+        ToolResult result = tool.execute(ctx, input, stream);
+
+        assertThat(result.success()).isTrue();
+
+        ArgumentCaptor<ReminderDocument> captor = ArgumentCaptor.forClass(ReminderDocument.class);
+        verify(reminderRepository).save(captor.capture());
+        assertThat(captor.getValue().getSourceThreadId()).isEqualTo("thread-xyz");
     }
 
     @Test

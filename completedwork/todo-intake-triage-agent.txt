@@ -1,0 +1,570 @@
+================================================================================
+ TODO: intake_triage Agent
+ Purpose: Normalize freeform intake (Confluence paste, Jira dump, Smartsheet
+          dump, link lists, file paths), classify content type, extract
+          metadata, and dispatch downstream agents with structured payloads
+================================================================================
+
+1. AGENT DEFINITION
+--------------------------------------------------------------------------------
+
+- agentId: intake_triage
+- name: Intake Triage
+- role: SPECIALIST
+- skills: ["content_classification", "metadata_extraction", "intake_normalization", "dispatch"]
+- allowedTools: ["read_file", "list_directory", "excel", "search_files", "memory", "create_idea", "create_ticket", "http_get"]
+
+System Prompt (detailed instructions for the agent):
+
+  You are the Intake Triage agent. Your job is to receive raw, unstructured
+  input from users and normalize it into structured intake packets that
+  downstream agents can act on.
+
+  INPUT ACCEPTANCE
+  -----------------------------------------------------------------------
+  You accept the following forms of raw input:
+    - Pasted text (free-form, meeting notes, Confluence exports, etc.)
+    - File paths pointing to local files (CSV, XLSX, TXT, MD, JSON)
+    - Excel uploads (Smartsheet exports, project timelines, trackers)
+    - URLs (Confluence pages, Jira filters, Smartsheet views, Google Docs)
+    - Mixed input containing any combination of the above
+
+  When you receive input, first determine what form it is in. If it is a
+  file path, use read_file or excel to load the content. If it is a URL,
+  use http_get to fetch the content. If it is pasted text, work with it
+  directly.
+
+  CONTENT CLASSIFICATION
+  -----------------------------------------------------------------------
+  Classify every piece of input into exactly one of these content types:
+
+    confluence_export   - HTML or markdown from a Confluence page, includes
+                          headings, macros, action items, decision logs,
+                          page metadata. Look for Confluence-style markup,
+                          page titles with space keys, macro syntax.
+
+    jira_dump           - CSV or JSON export from Jira. Contains ticket
+                          keys (e.g., PROJ-123), status fields, assignees,
+                          priorities, sprint information. May be a JQL
+                          result or a board export.
+
+    smartsheet_export   - Excel or CSV from Smartsheet. Contains project
+                          timeline data, milestones, owners, percentage
+                          complete, dependencies, Gantt-style columns.
+
+    meeting_notes       - Free text or structured notes from a meeting.
+                          Contains attendee lists, agenda items, discussion
+                          summaries, action items (often prefixed with
+                          "Action Items:" or "TODO:"), and decisions.
+
+    link_list           - A list of URLs, possibly with brief descriptions.
+                          Could be a resource list, reference collection,
+                          or bookmark dump.
+
+    design_doc          - A technical design document. Contains sections
+                          like Background, Proposal, Alternatives Considered,
+                          API Design, Data Model, Security Considerations.
+
+    free_text           - Any input that does not clearly match the above
+                          categories. Could be a brain dump, email paste,
+                          chat transcript, or unstructured notes.
+
+  Use the classify_content tool for assistance, but always validate and
+  override its output if your own analysis disagrees. Confidence must be
+  above 0.7 to auto-proceed; below that, ask the user to clarify.
+
+  METADATA EXTRACTION
+  -----------------------------------------------------------------------
+  From every input, extract the following metadata where present:
+
+    Project Hints       - Any project name, code, or identifier mentioned.
+                          Look for patterns like "Project Alpha", "proj-X",
+                          Jira project keys, Smartsheet project names.
+
+    Dates               - All dates mentioned, including deadlines, meeting
+                          dates, sprint dates, milestone dates. Normalize
+                          to ISO 8601 format.
+
+    People Mentioned    - Names of people referenced. Look for @mentions,
+                          "Assignee" fields, attendee lists, "Owner"
+                          columns, names in action items.
+
+    Priority Signals    - Any indication of priority: "CRITICAL", "High",
+                          "urgent", "blocker", "P0/P1/P2", "must-have",
+                          "nice-to-have". Map these to a normalized
+                          priority scale of 1 (highest) to 5 (lowest).
+
+    Ticket References   - Jira keys (PROJ-123), GitHub issue numbers (#45),
+                          or any other ticket/issue identifiers.
+
+    Action Items        - Explicit tasks, TODOs, or action items. Extract
+                          the assignee, description, and due date if
+                          available.
+
+    Decisions           - Explicit decisions made. Look for "Decided:",
+                          "Decision:", "Agreed:", or decision log formats.
+
+    Artifact References - File paths, URLs, document names, or other
+                          artifacts referenced in the input.
+
+  NORMALIZATION INTO INTAKE PACKETS
+  -----------------------------------------------------------------------
+  Every piece of input must be normalized into a structured intake packet
+  with the following schema:
+
+    {
+      "sourceType":           <IntakeSourceType enum value>,
+      "rawContent":           <the original input, stored as-is>,
+      "extractedMetadata": {
+        "projectHint":        <best-guess project identifier>,
+        "dates":              [<list of extracted dates>],
+        "people":             [<list of people mentioned>],
+        "prioritySignals":    [<list of priority indicators>],
+        "ticketRefs":         [<list of ticket references>],
+        "actionItems":        [<list of extracted action items>],
+        "decisions":          [<list of extracted decisions>],
+        "artifactRefs":       [<list of artifact references>]
+      },
+      "suggestedProject":     <projectId to associate this with>,
+      "suggestedThreadTitle": <a concise title for the thread/intake>,
+      "artifacts": [
+        {
+          "type":             <"file" | "url" | "embedded">,
+          "ref":              <path or URL or inline content>,
+          "description":      <brief description of the artifact>
+        }
+      ]
+    }
+
+  When constructing the packet:
+    - suggestedProject should be inferred from project hints, or from the
+      current session's project context if available.
+    - suggestedThreadTitle should be a concise, descriptive title (under
+      80 characters) summarizing what the intake contains.
+    - artifacts should list every discrete artifact found in the input.
+
+  DISPATCH LOGIC
+  -----------------------------------------------------------------------
+  Based on the classified content type and extracted metadata, recommend
+  which downstream agents should process this intake:
+
+    Content Type        -> Primary Agent       -> Secondary Agent(s)
+    ---------------------------------------------------------------
+    confluence_export   -> thread_agent         -> pm (if action items)
+    jira_dump           -> pm                   -> plan_agent (if timeline)
+    smartsheet_export   -> plan_agent           -> objective_agent (if OKRs)
+    meeting_notes       -> thread_agent         -> pm (if action items)
+    link_list           -> thread_agent         -> (none)
+    design_doc          -> thread_agent         -> architect (if present)
+    free_text           -> thread_agent         -> (depends on content)
+
+  Use the dispatch_agent tool to send the structured payload to each
+  recommended agent. Always dispatch to the primary agent. Dispatch to
+  secondary agents only when the relevant metadata is present (e.g.,
+  only dispatch to pm if there are action items or tickets to create).
+
+  Include the full intake packet as the payload. Set priority based on
+  the highest priority signal found in the input (default to 3 if none).
+
+  DEDUPLICATION
+  -----------------------------------------------------------------------
+  Before processing any input, check memory for recent intakes with
+  similar content. Use a fuzzy match on:
+    - rawContent (first 500 chars)
+    - suggestedThreadTitle
+    - extracted ticket references
+
+  If a match is found with >90% similarity within the last 24 hours,
+  warn the user about the potential duplicate and ask whether to proceed.
+
+  Store every processed intake in memory with the key pattern:
+    intake:<intakeId>:<sourceType>
+
+  INTAKE HISTORY
+  -----------------------------------------------------------------------
+  Maintain a running log of all intakes processed in the current session.
+  When asked "what have I submitted?" or "show intake history", retrieve
+  and display the intake log with:
+    - intakeId
+    - sourceType
+    - suggestedThreadTitle
+    - status (RECEIVED / PROCESSING / DISPATCHED / FAILED)
+    - timestamp
+    - dispatched-to agents
+
+  ERROR HANDLING
+  -----------------------------------------------------------------------
+  If content cannot be classified with confidence > 0.5:
+    - Set classifiedAs to "UNKNOWN"
+    - Ask the user to clarify what the content is
+    - Do NOT dispatch until classification is confirmed
+
+  If a file path cannot be read:
+    - Report the error clearly
+    - Ask the user to verify the path or paste the content directly
+
+  If a URL cannot be fetched:
+    - Report the error clearly
+    - Ask the user to paste the content or provide an alternative URL
+
+  If dispatch fails:
+    - Set intake status to FAILED
+    - Report which agent(s) failed and why
+    - Offer to retry or dispatch to alternative agents
+
+  TONE AND FORMATTING
+  -----------------------------------------------------------------------
+  Be concise and structured in your responses. When reporting results:
+    - Use a summary block showing classification and confidence
+    - List extracted metadata in a clean table or bullet format
+    - Clearly state which agents are being dispatched to and why
+    - Provide the intakeId for future reference
+
+  Example response format:
+
+    Intake Received: intake-003
+    Source Type:     MEETING_NOTES (confidence: 0.95)
+    Project:         proj-alpha (inferred from content)
+
+    Extracted Metadata:
+      - Attendees: Alice, Bob, Charlie
+      - Action Items: 3
+      - Decisions: 2
+      - Meeting Date: 2026-02-18
+
+    Dispatching to:
+      1. thread_agent - Create thread for meeting notes
+      2. pm           - Create tickets for 3 action items
+
+    Status: DISPATCHED
+
+
+2. NEW TOOL: classify_content
+--------------------------------------------------------------------------------
+
+- File: tools/src/main/java/.../tool/ClassifyContentTool.java
+- Risk: READ_ONLY
+- Params:
+    content    (String)           - The raw content to classify
+    sourceHint (String, optional) - A hint about the source (e.g., "jira", "confluence")
+- Returns:
+    contentType        (String)  - One of the IntakeSourceType enum values
+    confidence         (double)  - 0.0 to 1.0 confidence score
+    extractedDates     (List)    - Dates found in the content
+    extractedPeople    (List)    - People/names found in the content
+    extractedProjects  (List)    - Project identifiers found in the content
+- Registered in META-INF/services
+
+
+3. NEW TOOL: dispatch_agent
+--------------------------------------------------------------------------------
+
+- File: tools/src/main/java/.../tool/DispatchAgentTool.java
+- Risk: WRITE_FILES
+- Params:
+    agentId   (String)           - The target agent to dispatch to
+    payload   (JSON)             - The structured intake packet
+    projectId (String, optional) - The project context for the dispatch
+    priority  (int)              - Priority level 1-5 (1 = highest)
+- Returns:
+    sessionId (String)           - The created session ID
+    status    (String)           - "QUEUED" or "RUNNING" or "FAILED"
+- Implementation:
+    Creates a session and queues an agent run. Integrates with the
+    scheduler if available, or creates an immediate session. The
+    dispatched agent receives the full intake packet as its initial
+    context.
+- Registered in META-INF/services
+
+
+4. NEW DOCUMENT: IntakeDocument (persistence module)
+--------------------------------------------------------------------------------
+
+- Collection: intakes
+- Fields:
+    intakeId          (String)   - Unique identifier for the intake
+    projectId         (String)   - Associated project
+    sourceType        (enum)     - IntakeSourceType enum value
+    rawContentRef     (String)   - Pointer to stored raw content (e.g., upload path)
+    classifiedAs      (String)   - The classified content type
+    extractedMetadata (embedded) - Nested object with all extracted metadata
+    dispatchedTo      (List)     - List of {agentId, sessionId} pairs
+    status            (enum)     - RECEIVED | PROCESSING | DISPATCHED | FAILED
+    createdAt         (Instant)  - Creation timestamp
+    updatedAt         (Instant)  - Last update timestamp
+
+- Repository: IntakeRepository
+    findByProjectId(String projectId)          -> List<IntakeDocument>
+    findByStatus(String status)                -> List<IntakeDocument>
+    findBySourceType(IntakeSourceType type)     -> List<IntakeDocument>
+
+
+5. NEW ENUM: IntakeSourceType (protocol module)
+--------------------------------------------------------------------------------
+
+  CONFLUENCE_EXPORT
+  JIRA_DUMP
+  SMARTSHEET_EXPORT
+  MEETING_NOTES
+  LINK_LIST
+  DESIGN_DOC
+  FREE_TEXT
+  EXCEL_UPLOAD
+  UNKNOWN
+
+
+6. ENDPOINTS
+--------------------------------------------------------------------------------
+
+  POST  /api/projects/{projectId}/intake
+    - Description: Submit raw content for triage
+    - Request body: { "content": String, "sourceHint": String (optional), "attachments": List (optional) }
+    - Response: IntakeDocument (with status=RECEIVED initially)
+
+  GET   /api/projects/{projectId}/intakes
+    - Description: List intake history for a project
+    - Query params: status (optional), sourceType (optional), page, size
+    - Response: Page<IntakeDocument>
+
+  GET   /api/projects/{projectId}/intakes/{intakeId}
+    - Description: Get intake detail by ID
+    - Response: IntakeDocument
+
+
+7. MODIFIED FILES
+--------------------------------------------------------------------------------
+
+  runtime/agent/AgentBootstrapService.java
+    - Add intake_triage as 9th agent in the bootstrap registry
+    - Include full agent definition with system prompt, skills, and allowed tools
+
+  protocol/event/EventType.java
+    - Add INTAKE_RECEIVED    - Fired when raw content is submitted
+    - Add INTAKE_CLASSIFIED  - Fired when content type is determined
+    - Add INTAKE_DISPATCHED  - Fired when payload is sent to downstream agent(s)
+
+  tools/META-INF/services
+    - Register ClassifyContentTool
+    - Register DispatchAgentTool
+
+  persistence/mongo-init.js
+    - Add intakes collection creation
+    - Add indexes:
+        { projectId: 1 }
+        { status: 1 }
+        { sourceType: 1 }
+        { createdAt: -1 }
+        { projectId: 1, status: 1 } (compound)
+
+
+8. SCENARIO-BASED TESTING
+--------------------------------------------------------------------------------
+
+  Test Scenario 1: Jira CSV Dump
+  ............................................................................
+  - Input: CSV file with columns (Key, Summary, Status, Assignee, Priority)
+  - Expected:
+      classifiedAs = JIRA_DUMP
+      Extracts 5 tickets
+      Dispatches to pm agent
+
+  Test Scenario 2: Confluence Page Paste
+  ............................................................................
+  - Input: HTML/markdown with headings, action items, decision log
+  - Expected:
+      classifiedAs = CONFLUENCE_EXPORT
+      Extracts TODOs and decisions
+      Dispatches to thread_agent + pm
+
+  Test Scenario 3: Smartsheet Export
+  ............................................................................
+  - Input: Excel file with project timeline, milestones, owners
+  - Expected:
+      classifiedAs = SMARTSHEET_EXPORT
+      Extracts milestones and dates
+      Dispatches to plan_agent + objective_agent
+
+  Test Scenario 4: Meeting Notes
+  ............................................................................
+  - Input: Free text with "Action Items:", "Decisions:", attendee names
+  - Expected:
+      classifiedAs = MEETING_NOTES
+      Extracts action items
+      Dispatches to thread_agent
+
+
+9. MOCK DATA (staged in test/scenarios/intake_triage/)
+--------------------------------------------------------------------------------
+
+  Folder: test/scenarios/intake_triage/
+
+  File: test/scenarios/intake_triage/mongo-seed-intakes.json
+  Contents: Pre-seeded IntakeDocuments for testing retrieval endpoints
+  ```json
+  [
+    {
+      "intakeId": "intake-001",
+      "projectId": "proj-alpha",
+      "sourceType": "JIRA_DUMP",
+      "rawContentRef": "uploads/intake-001-raw.csv",
+      "classifiedAs": "JIRA_DUMP",
+      "extractedMetadata": {
+        "ticketCount": 5,
+        "people": ["alice", "bob"],
+        "dateRange": {"from": "2026-01-15", "to": "2026-03-01"},
+        "projectHint": "proj-alpha"
+      },
+      "dispatchedTo": [{"agentId": "pm", "sessionId": "sess-101"}],
+      "status": "DISPATCHED",
+      "createdAt": "2026-02-18T10:00:00Z",
+      "updatedAt": "2026-02-18T10:01:30Z"
+    },
+    {
+      "intakeId": "intake-002",
+      "projectId": "proj-alpha",
+      "sourceType": "MEETING_NOTES",
+      "rawContentRef": "uploads/intake-002-raw.txt",
+      "classifiedAs": "MEETING_NOTES",
+      "extractedMetadata": {
+        "attendees": ["alice", "charlie", "dave"],
+        "actionItems": 3,
+        "decisions": 2,
+        "meetingDate": "2026-02-17"
+      },
+      "dispatchedTo": [
+        {"agentId": "thread_agent", "sessionId": "sess-102"},
+        {"agentId": "pm", "sessionId": "sess-103"}
+      ],
+      "status": "DISPATCHED",
+      "createdAt": "2026-02-18T11:00:00Z",
+      "updatedAt": "2026-02-18T11:02:00Z"
+    }
+  ]
+  ```
+
+  File: test/scenarios/intake_triage/jira-dump-input.csv
+  Contents: Sample Jira CSV export for Scenario 1
+  ```
+  Key,Summary,Status,Assignee,Priority,Created
+  ALPHA-101,Implement auth flow,In Progress,alice,High,2026-01-15
+  ALPHA-102,Fix login redirect bug,Open,bob,Critical,2026-01-20
+  ALPHA-103,Add password reset endpoint,Open,,Medium,2026-01-22
+  ALPHA-104,Write auth integration tests,Open,alice,Medium,2026-02-01
+  ALPHA-105,Deploy auth to staging,Blocked,bob,High,2026-02-10
+  ```
+
+  File: test/scenarios/intake_triage/confluence-paste-input.md
+  Contents: Sample Confluence page paste for Scenario 2
+  ```markdown
+  # Sprint 4 Planning - Project Alpha
+
+  ## Decisions
+  - We will use JWT for authentication (agreed by all)
+  - Database migration to be done before feature work
+
+  ## Action Items
+  - [ ] Alice: Complete auth flow implementation by Feb 20
+  - [ ] Bob: Fix login redirect bug (CRITICAL)
+  - [ ] Charlie: Review architecture doc and provide feedback by Feb 19
+
+  ## Open Questions
+  - Should we support SSO in v1 or defer to v2?
+  - Need capacity estimate from Dave for testing phase
+  ```
+
+  File: test/scenarios/intake_triage/smartsheet-export-input.xlsx
+  (description only - actual file would be generated by test setup)
+  Sheet "Timeline": columns [Task, Owner, Start, End, Status, Milestone]
+  5 rows of sample project timeline data
+
+  File: test/scenarios/intake_triage/meeting-notes-input.txt
+  Contents: Sample meeting notes for Scenario 4
+  ```
+  Meeting: Sprint 4 Standup
+  Date: 2026-02-17
+  Attendees: Alice, Charlie, Dave
+
+  Updates:
+  - Alice: Auth flow 80% complete, needs code review
+  - Charlie: Architecture doc v2 ready for review
+  - Dave: Testing capacity confirmed for next sprint
+
+  Action Items:
+  1. Alice to send PR for auth flow by EOD Wednesday
+  2. Charlie to schedule architecture review meeting
+  3. Dave to create test plan for auth features
+
+  Decisions:
+  - Agreed to defer SSO to v2
+  - Will use staging environment for integration tests
+  ```
+
+  File: test/scenarios/intake_triage/scenario-intake-jira.json
+  (E2E scenario definition for the existing ScenarioService framework)
+  ```json
+  {
+    "name": "intake-triage-jira-dump",
+    "description": "Verify intake_triage correctly classifies and dispatches a Jira CSV dump",
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Process this Jira export for project alpha",
+        "attachments": ["jira-dump-input.csv"]
+      }
+    ],
+    "expectedOutcomes": [
+      {"type": "INTAKE_CLASSIFIED", "classifiedAs": "JIRA_DUMP"},
+      {"type": "INTAKE_DISPATCHED", "dispatchedTo": "pm"},
+      {"type": "TICKET_CREATED", "count": 5}
+    ]
+  }
+  ```
+
+  File: test/scenarios/intake_triage/scenario-intake-meeting.json
+  ```json
+  {
+    "name": "intake-triage-meeting-notes",
+    "description": "Verify intake_triage extracts action items from meeting notes",
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Here are the notes from today's standup",
+        "attachments": ["meeting-notes-input.txt"]
+      }
+    ],
+    "expectedOutcomes": [
+      {"type": "INTAKE_CLASSIFIED", "classifiedAs": "MEETING_NOTES"},
+      {"type": "INTAKE_DISPATCHED", "dispatchedTo": "thread_agent"},
+      {"type": "INTAKE_DISPATCHED", "dispatchedTo": "pm"}
+    ]
+  }
+  ```
+
+
+10. FILE MANIFEST
+--------------------------------------------------------------------------------
+
+  NEW FILES:
+    - protocol/   IntakeSourceType.java
+    - persistence/ IntakeDocument.java
+    - persistence/ IntakeRepository.java
+    - tools/       ClassifyContentTool.java
+    - tools/       DispatchAgentTool.java
+    - gateway/     IntakeController.java
+    - test/scenarios/intake_triage/mongo-seed-intakes.json
+    - test/scenarios/intake_triage/jira-dump-input.csv
+    - test/scenarios/intake_triage/confluence-paste-input.md
+    - test/scenarios/intake_triage/smartsheet-export-input.xlsx
+    - test/scenarios/intake_triage/meeting-notes-input.txt
+    - test/scenarios/intake_triage/scenario-intake-jira.json
+    - test/scenarios/intake_triage/scenario-intake-meeting.json
+
+  MODIFIED FILES:
+    - runtime/agent/AgentBootstrapService.java
+    - protocol/event/EventType.java
+    - tools/META-INF/services
+    - persistence/mongo-init.js
+
+================================================================================
+ END OF PLAN
+================================================================================
