@@ -69,6 +69,22 @@ public class javaclaw {
         System.out.println("  Starting on port " + port + " ...\n");
         SpringApplication.run(JavaClawApplication.class, args);
 
+        // Detect local IP for clickable URL
+        String localIp = "localhost";
+        try {
+            java.net.InetAddress addr = java.net.InetAddress.getLocalHost();
+            localIp = addr.getHostAddress();
+        } catch (Exception ignored) {}
+
+        System.out.println("\n  ========================================");
+        System.out.println("  JavaClaw is ready!");
+        System.out.println("  Web UI: http://localhost:" + port + "/index.html");
+        if (!localIp.equals("localhost") && !localIp.equals("127.0.0.1")) {
+            System.out.println("  Web UI: http://" + localIp + ":" + port + "/index.html");
+        }
+        System.out.println("  API:    http://localhost:" + port + "/api");
+        System.out.println("  ========================================\n");
+
         if (!headless) {
             launchUI();
         }

@@ -67,11 +67,11 @@ class ObjectiveControllerTest {
         when(objectiveRepository.save(any(ObjectiveDocument.class))).thenAnswer(inv -> inv.getArgument(0));
 
         ObjectiveDocument body = new ObjectiveDocument();
-        body.setStatus(ObjectiveStatus.IN_PROGRESS);
+        body.setStatus(ObjectiveStatus.COMMITTED);
 
         ResponseEntity<ObjectiveDto> response = controller.create("p1", body);
 
-        assertThat(response.getBody().status()).isEqualTo(ObjectiveStatus.IN_PROGRESS);
+        assertThat(response.getBody().status()).isEqualTo(ObjectiveStatus.COMMITTED);
     }
 
     @Test
@@ -89,14 +89,14 @@ class ObjectiveControllerTest {
     @Test
     void listByStatusFilters() {
         ObjectiveDocument o1 = makeObjective("o1", "p1");
-        o1.setStatus(ObjectiveStatus.IN_PROGRESS);
-        when(objectiveRepository.findByProjectIdAndStatus("p1", ObjectiveStatus.IN_PROGRESS))
+        o1.setStatus(ObjectiveStatus.COMMITTED);
+        when(objectiveRepository.findByProjectIdAndStatus("p1", ObjectiveStatus.COMMITTED))
                 .thenReturn(List.of(o1));
 
-        List<ObjectiveDto> result = controller.list("p1", ObjectiveStatus.IN_PROGRESS, null);
+        List<ObjectiveDto> result = controller.list("p1", ObjectiveStatus.COMMITTED, null);
 
         assertThat(result).hasSize(1);
-        verify(objectiveRepository).findByProjectIdAndStatus("p1", ObjectiveStatus.IN_PROGRESS);
+        verify(objectiveRepository).findByProjectIdAndStatus("p1", ObjectiveStatus.COMMITTED);
     }
 
     @Test
@@ -139,13 +139,13 @@ class ObjectiveControllerTest {
 
         ObjectiveDocument updates = new ObjectiveDocument();
         updates.setOutcome("New outcome");
-        updates.setStatus(ObjectiveStatus.DONE);
+        updates.setStatus(ObjectiveStatus.ACHIEVED);
 
         ResponseEntity<ObjectiveDto> response = controller.update("p1", "o1", updates);
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(response.getBody().outcome()).isEqualTo("New outcome");
-        assertThat(response.getBody().status()).isEqualTo(ObjectiveStatus.DONE);
+        assertThat(response.getBody().status()).isEqualTo(ObjectiveStatus.ACHIEVED);
         assertThat(response.getBody().sprintName()).isEqualTo("Sprint 1"); // unchanged
         verify(objectiveRepository).save(existing);
     }
