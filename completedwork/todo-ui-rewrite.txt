@@ -1,0 +1,813 @@
+================================================================================
+ TODO: Web UI Rewrite — Swing → Vanilla HTML/JS Cockpit
+ Purpose: Replace the Swing desktop UI with a web-based cockpit served from the
+          gateway module, aligned with all planned agent features, testable
+          with Playwright
+================================================================================
+
+CONTEXT:
+  The current Swing UI (~350 lines, 7 files in ui/ module) has only 5 basic
+  views (Thread, Board, Dashboard, Resources, Ideas) with direct repository
+  coupling. The HTML mockup at ui/src/test/resources/static/ shows the target:
+  8 workspaces, agent controls, activity stream, inspector, green-on-black
+  Bloomberg terminal aesthetic.
+
+  The gateway already serves static files from classpath:/static/ and has
+  REST + WebSocket (/ws). The mockup is already HTML/CSS/JS. Zero build tooling
+  needed — vanilla JS with ES modules.
+
+  8 planned agent todo files (scheduler, thread_agent, intake_triage,
+  reconcile_agent, objective_agent, plan_agent, checklist_agent, resource_agent)
+  all need UI surfaces that don't exist in Swing.
+
+
+================================================================================
+ 0. MISSING REST ENDPOINTS (Backend Prerequisites)
+================================================================================
+
+  The web UI needs data endpoints that don't exist yet. These controllers follow
+  the same patterns as TicketController, IdeaController (Spring @RestController,
+  repository injection, ResponseEntity returns).
+
+  0a. ObjectiveController
+  --------------------------------------------------------------------------
+  File: gateway/src/main/java/.../controller/ObjectiveController.java
+  Base: @RequestMapping("/api/projects/{projectId}/objectives")
+
+  Endpoints:
+    GET    /api/projects/{pid}/objectives              List objectives
+    GET    /api/projects/{pid}/objectives/{oid}         Get detail
+    POST   /api/projects/{pid}/objectives               Create
+    PUT    /api/projects/{pid}/objectives/{oid}          Update
+    DELETE /api/projects/{pid}/objectives/{oid}          Delete
+
+  Uses existing:
+    - persistence/document/ObjectiveDocument.java
+    - persistence/repository/ObjectiveRepository.java
+    - protocol/api/ObjectiveDto.java
+
+
+  0b. PhaseController
+  --------------------------------------------------------------------------
+  File: gateway/src/main/java/.../controller/PhaseController.java
+  Base: @RequestMapping("/api/projects/{projectId}/phases")
+
+  Endpoints:
+    GET    /api/projects/{pid}/phases                   List phases (ordered by sortOrder)
+    GET    /api/projects/{pid}/phases/{phaseId}         Get detail
+    POST   /api/projects/{pid}/phases                   Create
+    PUT    /api/projects/{pid}/phases/{phaseId}         Update (status, criteria, dates)
+    DELETE /api/projects/{pid}/phases/{phaseId}         Delete
+
+  Uses existing:
+    - persistence/document/PhaseDocument.java
+    - persistence/repository/PhaseRepository.java
+    - protocol/api/PhaseDto.java
+
+
+  0c. ChecklistController
+  --------------------------------------------------------------------------
+  File: gateway/src/main/java/.../controller/ChecklistController.java
+  Base: @RequestMapping("/api/projects/{projectId}/checklists")
+
+  Endpoints:
+    GET    /api/projects/{pid}/checklists               List checklists
+    GET    /api/projects/{pid}/checklists/{clId}        Get detail
+    POST   /api/projects/{pid}/checklists               Create
+    PUT    /api/projects/{pid}/checklists/{clId}        Update (check/uncheck items, assign)
+    DELETE /api/projects/{pid}/checklists/{clId}        Delete
+
+  Uses existing:
+    - persistence/document/ChecklistDocument.java
+    - persistence/repository/ChecklistRepository.java
+    - protocol/api/ChecklistDto.java
+
+
+  0d. LinkController
+  --------------------------------------------------------------------------
+  File: gateway/src/main/java/.../controller/LinkController.java
+  Base: @RequestMapping("/api/projects/{projectId}/links")
+
+  Endpoints:
+    GET    /api/projects/{pid}/links                    List links (filter: category, bundleId, pinned)
+    POST   /api/projects/{pid}/links                    Create
+    PUT    /api/projects/{pid}/links/{linkId}           Update
+    DELETE /api/projects/{pid}/links/{linkId}           Delete
+
+  Uses existing:
+    - persistence/document/LinkDocument.java
+    - persistence/repository/LinkRepository.java
+    - protocol/api/LinkDto.java
+
+
+  0e. ReconciliationController
+  --------------------------------------------------------------------------
+  File: gateway/src/main/java/.../controller/ReconciliationController.java
+  Base: @RequestMapping("/api/projects/{projectId}/reconciliations")
+
+  Endpoints:
+    GET    /api/projects/{pid}/reconciliations          List reconciliation runs
+    GET    /api/projects/{pid}/reconciliations/{rid}    Get detail
+
+  Uses existing:
+    - persistence/document/ReconciliationDocument.java
+    - persistence/repository/ReconciliationRepository.java
+    - protocol/api/ReconciliationDto.java
+
+
+  0f. WebSocket Enhancement: Project-Scoped Events
+  --------------------------------------------------------------------------
+  File: gateway/.../websocket/JavaClawWebSocketHandler.java  (modify)
+
+  Add SUBSCRIBE_PROJECT message type alongside existing SUBSCRIBE_SESSION:
+    - Client sends: { type: "SUBSCRIBE_PROJECT", projectId: "xxx" }
+    - Server confirms: { type: "SUBSCRIBED_PROJECT", projectId: "xxx" }
+    - Server broadcasts all events where event.projectId matches
+
+  This enables the Activity Stream panel to show all agent activity for the
+  currently selected project in real time.
+
+  Implementation: maintain a Map<String, Set<WebSocketSession>> for project
+  subscriptions (similar to existing session subscriptions). When emitting
+  events, broadcast to both session subscribers and project subscribers.
+
+
+================================================================================
+ 1. WEB UI FOUNDATION — Replace Static Files
+================================================================================
+
+  Replace the contents of gateway/src/main/resources/static/ with the new
+  web cockpit. Spring Boot serves these automatically at /.
+
+  1a. File Structure
+  --------------------------------------------------------------------------
+  gateway/src/main/resources/static/
+  ├── index.html              Main app shell (3-column layout from mockup)
+  ├── css/
+  │   └── cockpit.css         All styles (extracted from mockup <style>)
+  ├── js/
+  │   ├── app.js              Entry point: init, routing, keyboard shortcuts
+  │   ├── api.js              REST client (fetch wrappers for all /api/*)
+  │   ├── ws.js               WebSocket client (connect, subscribe, dispatch)
+  │   ├── state.js            App state (current project, view, selections)
+  │   ├── nav.js              Navigator panel (left sidebar) + switching
+  │   ├── views/
+  │   │   ├── intake.js       Intake workspace
+  │   │   ├── threads.js      Threads table
+  │   │   ├── objectives.js   Objectives + coverage
+  │   │   ├── plans.js        Phases + milestones
+  │   │   ├── reminders.js    Reminders list
+  │   │   ├── checklists.js   Checklists + items
+  │   │   ├── reconcile.js    Delta pack + blindspots
+  │   │   └── links.js        LinkHub grid
+  │   ├── panels/
+  │   │   ├── agents.js       On-demand + timed agent controls
+  │   │   ├── activity.js     Activity stream (WebSocket events)
+  │   │   └── inspector.js    Selected entity detail
+  │   └── components/
+  │       ├── table.js        Reusable table renderer
+  │       ├── card.js         Reusable card renderer
+  │       ├── toast.js        Toast notifications
+  │       └── pills.js        Status pills/badges
+  └── favicon.ico
+
+
+  1b. index.html — App Shell
+  --------------------------------------------------------------------------
+  Based directly on mockup layout. Structure:
+
+  <div class="app">
+    <!-- Topbar: brand + project selector + sprint pills + kbd hints -->
+    <div class="topbar">
+      Brand logo + title ("JAVACLAW — manager cockpit")
+      Project <select> populated from GET /api/projects
+      Sprint health pill (from project metadata)
+      Keyboard hints: F7 focus intake, F3 run controller, F1 help
+    </div>
+
+    <!-- 3-column main area -->
+    <div class="main">
+      <!-- Left: Navigator (290px) -->
+      <div class="panel" id="navigator">
+        Workspace nav items:
+          📥 Intake       (data-view="intake")
+          🧵 Threads      (data-view="threads")
+          🎯 Objectives   (data-view="objectives")
+          🧩 Plans        (data-view="plans")
+          ⏱ Reminders    (data-view="reminders")
+          ☑ Checklists   (data-view="checklists")
+          🔄 Reconcile    (data-view="reconcile")
+          🔗 LinkHub      (data-view="links")
+        Each with badge showing count from API
+      </div>
+
+      <!-- Center: Content area (flex) -->
+      <div class="panel" id="center">
+        Header: title + subtitle + action buttons
+        Body: rendered by active view module
+      </div>
+
+      <!-- Right: Agents/Activity (380px) -->
+      <div class="panel" id="rightPanel">
+        Agent on-demand buttons card
+        Timed runs toggles card
+        Activity stream card
+        Inspector card
+      </div>
+    </div>
+
+    <!-- Footer: hotkey hints + status -->
+    <div class="footer">...</div>
+  </div>
+
+  All JS loaded as ES modules via <script type="module" src="js/app.js">
+
+
+  1c. css/cockpit.css — Terminal Aesthetic
+  --------------------------------------------------------------------------
+  Extract from mockup's <style> block. Key variables:
+
+    :root {
+      --bg: #071007;
+      --line: #134d1d;
+      --text: #b7ffb7;
+      --muted: #79cc79;
+      --accent: #00ff66;
+      --warn: #ffd166;
+      --bad: #ff5c7a;
+      --good: #57ff9a;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+  Classes: .app, .topbar, .main, .panel, .panelHeader, .panelBody,
+           .navItem, .badge, .pill, .btn, .card, .table, .event, .toast,
+           .timeline, .chips, .chip, .toggle, .select, .kbd, .footer
+
+  Responsive breakpoints:
+    @media (max-width: 1200px) — collapse to 2-column (hide right panel)
+    @media (max-width: 800px) — single column
+
+
+  1d. js/api.js — REST Client Module
+  --------------------------------------------------------------------------
+  Pattern:
+
+    const BASE = '';  // same origin
+
+    async function get(path) {
+      const res = await fetch(BASE + path);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res.json();
+    }
+    async function post(path, body) { ... }
+    async function put(path, body) { ... }
+    async function del(path) { ... }
+
+    export const projects = {
+      list: () => get('/api/projects'),
+      get: (id) => get(`/api/projects/${id}`),
+      create: (data) => post('/api/projects', data),
+      update: (id, data) => put(`/api/projects/${id}`, data),
+      delete: (id) => del(`/api/projects/${id}`),
+    };
+
+    export const threads = {
+      list: (pid) => get(`/api/projects/${pid}/threads`),
+      get: (pid, tid) => get(`/api/projects/${pid}/threads/${tid}`),
+      create: (pid, data) => post(`/api/projects/${pid}/threads`, data),
+      sendMessage: (pid, tid, msg) => post(`/api/projects/${pid}/threads/${tid}/messages`, msg),
+      run: (pid, tid) => post(`/api/projects/${pid}/threads/${tid}/run`),
+    };
+
+    // ... same pattern for: tickets, ideas, objectives, phases, checklists,
+    //     links, reminders, resources, agents, sessions, reconciliations,
+    //     memories, extraction, config
+
+
+  1e. js/ws.js — WebSocket Client Module
+  --------------------------------------------------------------------------
+    let ws = null;
+    const listeners = [];
+
+    export function connect() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}/ws`);
+      ws.onopen = () => dispatch({ type: 'WS_CONNECTED' });
+      ws.onclose = () => { dispatch({ type: 'WS_DISCONNECTED' }); setTimeout(connect, 2000); };
+      ws.onmessage = (e) => dispatch(JSON.parse(e.data));
+    }
+
+    export function subscribeSession(sessionId) {
+      send({ type: 'SUBSCRIBE_SESSION', sessionId });
+    }
+
+    export function subscribeProject(projectId) {
+      send({ type: 'SUBSCRIBE_PROJECT', projectId });
+    }
+
+    export function onEvent(fn) { listeners.push(fn); }
+
+    function dispatch(msg) { listeners.forEach(fn => fn(msg)); }
+    function send(msg) { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
+
+
+  1f. js/state.js — App State Module
+  --------------------------------------------------------------------------
+    const state = {
+      projectId: localStorage.getItem('javaclaw.projectId') || null,
+      view: 'intake',
+      step: 0,
+      selected: null,   // { type: 'thread', id: 'xxx' }
+      timers: { artifacts: false, reminders: false, reconcile: false },
+    };
+
+    const watchers = [];
+
+    export function getState() { return state; }
+    export function setState(patch) {
+      Object.assign(state, patch);
+      if (patch.projectId) localStorage.setItem('javaclaw.projectId', patch.projectId);
+      watchers.forEach(fn => fn(state, patch));
+    }
+    export function onStateChange(fn) { watchers.push(fn); }
+
+
+  1g. js/nav.js — Navigator Panel
+  --------------------------------------------------------------------------
+    Populates left sidebar nav items
+    On click: setState({ view: 'threads' }) etc.
+    Highlights active item
+    Updates badge counts by calling API:
+      threads count  → threads.list(pid).length
+      objectives     → objectives.list(pid).length
+      plans          → phases.list(pid).length > 0 ? '1' : '0'
+      reminders      → reminders.list(pid).length
+      checklists     → checklists.list(pid).length
+      links          → links.list(pid).length
+
+
+================================================================================
+ 2. WORKSPACE VIEWS (8 views)
+================================================================================
+
+  Each view module exports a render(projectId) function that:
+    1. Sets center panel title + subtitle
+    2. Fetches data from REST API
+    3. Renders into #centerBody
+    4. Wires click handlers for inspector updates
+
+  2a. Intake View (views/intake.js)
+  --------------------------------------------------------------------------
+  - Textarea for freeform paste (Confluence/Jira/Smartsheet/file paths)
+  - Intent buttons row:
+      Thread Agent | Extract ideas | Create/update plan |
+      Align objectives | Create reminders | Create checklists |
+      Reconcile everything | [Send]
+  - Clicking intent sets a prefix in the textarea
+  - [Send] button:
+      * Creates a session: POST /api/sessions { projectId, agentId: 'controller' }
+      * Sends message: POST /api/sessions/{sid}/messages { content, role: 'user' }
+      * Runs session: POST /api/sessions/{sid}/run
+      * Adds to intake history
+  - Recent intake panel (left): timeline of past submissions
+  - Outcome expectations panel (right): static text explaining each agent
+
+  When intake_triage agent is implemented (todo-intake-triage-agent.txt):
+    - [Send] will POST /api/projects/{pid}/intake instead
+    - Recent intake will come from GET /api/projects/{pid}/intakes
+
+
+  2b. Threads View (views/threads.js)
+  --------------------------------------------------------------------------
+  - Table columns: title | lifecycle | evidence | ideas | updated | createdBy
+  - Data: GET /api/projects/{pid}/threads
+  - Row click → setState({ selected: { type: 'thread', id } })
+  - "Run Thread Agent" button: creates session with agentId='thread_agent'
+
+  When thread_agent is implemented (todo-thread-agent.txt):
+    - Add POST /api/projects/{pid}/threads/organize button
+    - Add POST /api/projects/{pid}/threads/merge button
+    - GET /api/projects/{pid}/threads/suggestions for rename/merge suggestions
+
+
+  2c. Objectives View (views/objectives.js)
+  --------------------------------------------------------------------------
+  - Table columns: sprint | outcome | coverage% | unmapped | risk
+  - Data: GET /api/projects/{pid}/objectives  (new endpoint)
+  - Coverage shown as colored pill (green >70%, warn 40-70%, red <40%)
+  - "Run PM Agent" / "Run Objective Agent" buttons
+
+  When objective_agent is implemented (todo-objective-agent.txt):
+    - Add POST /api/projects/{pid}/objectives/align button
+    - GET /api/projects/{pid}/objectives/coverage for report
+    - GET /api/projects/{pid}/objectives/unmapped-tickets
+
+
+  2d. Plans View (views/plans.js)
+  --------------------------------------------------------------------------
+  - Phase cards: name, entry criteria, exit criteria, milestone date
+  - Data: GET /api/projects/{pid}/phases  (new endpoint)
+  - Phase click → inspector shows entry/exit detail
+  - "Run Plan Agent" button
+  - "Generate Plan Doc" button (when plan_agent exists)
+
+  When plan_agent is implemented (todo-plan-agent.txt):
+    - Add milestone list from GET /api/projects/{pid}/milestones
+    - POST /api/projects/{pid}/plan/generate
+    - GET /api/projects/{pid}/plan/health
+
+
+  2e. Reminders View (views/reminders.js)
+  --------------------------------------------------------------------------
+  - Table columns: title | schedule | type (ONE_SHOT / RRULE)
+  - Data: GET /api/reminders?projectId={pid}  (existing endpoint)
+  - "Run Reminder Agent" button
+
+
+  2f. Checklists View (views/checklists.js)
+  --------------------------------------------------------------------------
+  - Checklist cards: name, due date, X/Y complete, progress bar
+  - Data: GET /api/projects/{pid}/checklists  (new endpoint)
+  - Card click → inspector shows full item list with checkboxes
+  - "Run Checklist Agent" button
+
+  When checklist_agent is implemented (todo-checklist-agent.txt):
+    - POST /api/projects/{pid}/checklists/generate
+    - GET /api/projects/{pid}/checklists/progress
+    - Checklist template management
+
+
+  2g. Reconcile View (views/reconcile.js)
+  --------------------------------------------------------------------------
+  - Delta pack table: description | deltaType | severity | suggestedAction
+  - Data: GET /api/projects/{pid}/reconciliations  (new endpoint)
+  - "Run Reconcile Agent" button
+
+  When reconcile_agent is implemented (todo-reconcile-agent.txt):
+    - POST /api/projects/{pid}/reconcile to trigger
+    - GET /api/projects/{pid}/delta-packs for detailed deltas
+    - GET /api/projects/{pid}/blindspots for blindspot list
+    - PUT /api/projects/{pid}/blindspots/{id} for triage
+
+
+  2h. LinkHub View (views/links.js)
+  --------------------------------------------------------------------------
+  - Grid of category cards (2-column):
+      Architecture | Minutes | Agendas | Non-prod | Prod | Repos |
+      Dev Setup | Runbooks | ORR Planning
+  - Data: GET /api/projects/{pid}/links  (new endpoint)
+  - Each card lists pinned links for that category
+  - Click link → opens in new tab
+
+
+================================================================================
+ 3. RIGHT PANEL — Agents, Activity, Inspector
+================================================================================
+
+  3a. Agent Controls (panels/agents.js)
+  --------------------------------------------------------------------------
+  Card 1: "On-demand agent runs"
+    Buttons:
+      Thread Agent   → creates session with agentId='thread_agent', runs it
+      PM Agent       → agentId='pm'
+      Plan Agent     → agentId='plan_agent'
+      Reminder Agent → agentId='reminder'
+      Checklist Agent→ agentId='checklist_agent'
+      Reconcile Agent→ agentId='reconcile_agent'
+      Distiller      → agentId='distiller' (primary button style)
+
+    Each button:
+      1. POST /api/sessions { projectId, agentId }  → get sessionId
+      2. POST /api/sessions/{sid}/run
+      3. subscribeSession(sid) via WebSocket
+      4. Log to activity stream
+      5. Increment step counter
+
+  Card 2: "Timed runs"
+    Toggle checkboxes (maps to scheduler when todo-scheduler is implemented):
+      □ Every 2h: create/update plans + checklists from threads
+      □ Daily 09:00: extract reminders from new intake + threads
+      □ Mon/Wed/Fri: reconcile objectives ↔ milestones ↔ ticket dump
+    [Apply timers] button
+    For now: visual only, stored in localStorage
+    When scheduler exists: POST /api/schedules to create schedule entries
+
+
+  3b. Activity Stream (panels/activity.js)
+  --------------------------------------------------------------------------
+  Card 3: "Activity stream"
+    - Subscribes to project via WebSocket (SUBSCRIBE_PROJECT)
+    - Each event rendered as:
+        <div class="event">
+          <span class="eventTitle">{event.type}</span>
+          <span class="pill {kind}">{kind}</span>
+          <div class="tiny">timestamp</div>
+        </div>
+    - Event kind coloring:
+        COMPLETED/SUCCESS/PASS → good (green)
+        STARTED/INFO          → info (default)
+        WARN/AT_RISK          → warn (yellow)
+        FAIL/ERROR            → bad (red)
+    - Clear log button
+    - Review status pill: shows latest checker result
+
+  Card 4: "Inspector"
+    See 3c below.
+
+
+  3c. Inspector Panel (panels/inspector.js)
+  --------------------------------------------------------------------------
+  Shows detail for state.selected:
+
+    type='thread':
+      Title, lifecycle, updated, createdBy
+      evidenceRefs count, ideaIds count
+      Linked objectives list
+
+    type='objective':
+      Sprint, outcome, measurableSignal
+      Coverage %, unmapped ticket count, risk
+
+    type='phase':
+      Name, milestone date
+      Entry criteria list, exit criteria list
+      Linked checklists, linked objectives
+
+    type='reminder':
+      Title, schedule, kind
+
+    type='checklist':
+      Name, due date, status
+      Full item list with ☑/☐ and assignee
+
+    type='intake':
+      Timestamp, title, description
+      Tags, dispatched-to agents
+
+    type='reconciliation':
+      Sources compared, delta summary
+      Total deltas by severity
+
+  Default state: "Select a thread/objective/plan/reminder to see details."
+
+
+================================================================================
+ 4. RETIRE SWING UI MODULE
+================================================================================
+
+  4a. Remove from Maven build
+  --------------------------------------------------------------------------
+  File: pom.xml (root)
+    - Remove <module>ui</module> from <modules> list
+
+  File: pom.xml (root, dependencyManagement)
+    - Remove com.formdev:flatlaf entry (only used by ui module)
+
+  4b. Deprecate (don't delete) the ui directory
+  --------------------------------------------------------------------------
+  File: ui/DEPRECATED.md
+    Content:
+      "This Swing UI module has been replaced by the web UI served from the
+       gateway module at http://localhost:8080. See gateway/src/main/resources/static/.
+       This directory is kept for reference only."
+
+  4c. Update javaclawui.java
+  --------------------------------------------------------------------------
+  File: javaclawui.java (project root)
+    - Add a comment at top:
+      // DEPRECATED: The Swing UI has been replaced by the web UI.
+      // Start the gateway (javaclaw.java or mvn spring-boot:run in gateway/)
+      // and open http://localhost:8080 in your browser.
+    - OR delete entirely (user preference)
+
+  4d. Gateway becomes sole entry point
+  --------------------------------------------------------------------------
+  javaclaw.java already starts the gateway on port 8080.
+  When web UI loads at /, it IS the application.
+  --headless flag still works for API-only mode.
+
+
+================================================================================
+ 5. TESTING
+================================================================================
+
+  5a. Playwright E2E Tests
+  --------------------------------------------------------------------------
+  Location: gateway/src/test/e2e/  (or e2e/ at project root)
+
+  Setup:
+    - package.json with playwright dependency
+    - playwright.config.js pointing at http://localhost:8080
+    - Test scripts assume gateway is running with MongoDB
+
+  Test Suite:
+
+    smoke.spec.js
+    ................................................................
+    - Page loads at /
+    - 3-column layout visible (.topbar, .main with 3 children, .footer)
+    - WebSocket connects (green LIVE badge in navigator)
+    - Project selector populated (at least 1 project or empty state)
+
+    navigation.spec.js
+    ................................................................
+    - Click each nav item → center panel title changes:
+        Intake → "INTAKE"
+        Threads → "THREADS"
+        Objectives → "OBJECTIVES"
+        Plans → "PLANS"
+        Reminders → "REMINDERS"
+        Checklists → "CHECKLISTS"
+        Reconcile → "RECONCILE"
+        LinkHub → "LINKHUB"
+    - Nav item gets .active class on click
+    - Previous nav item loses .active class
+
+    project-crud.spec.js
+    ................................................................
+    - Create project via API → appears in project selector
+    - Select project → status updates, nav badges refresh
+    - Switch projects → all views reload with new project data
+
+    intake.spec.js
+    ................................................................
+    - Textarea visible and focusable
+    - Type text → click Send → activity stream shows event
+    - Intent buttons set prefix in textarea
+    - Recent intake timeline updates after send
+
+    workspace-views.spec.js
+    ................................................................
+    - Threads: table renders from API, click row → inspector shows detail
+    - Objectives: table renders, coverage % colored correctly
+    - Plans: phase cards render with entry/exit criteria
+    - Reminders: table renders with schedule column
+    - Checklists: cards show progress bar, item counts
+    - Reconcile: delta table renders
+    - LinkHub: category grid renders
+
+    agents.spec.js
+    ................................................................
+    - Click "Run Thread Agent" → session created (verify via API)
+    - Activity stream shows AGENT_STEP_STARTED event
+    - Step counter increments
+    - Timer toggles save state
+
+    keyboard.spec.js
+    ................................................................
+    - F7 → intake textarea focused
+    - F3 → controller agent triggered
+    - F1 → help toast visible
+
+    websocket.spec.js
+    ................................................................
+    - On connect: LIVE badge shown
+    - On event: activity stream updates
+    - On disconnect + reconnect: badge transitions
+
+
+  5b. Manual Smoke Test Checklist
+  --------------------------------------------------------------------------
+  1. mvn clean package -pl gateway -am
+  2. java -jar gateway/target/javaclaw-gateway-*.jar
+  3. Open http://localhost:8080
+  4. Verify: 3-column layout, green-on-black theme, project selector
+  5. Create project → appears in selector
+  6. Click each workspace → correct view renders
+  7. Click entity → inspector updates
+  8. Paste text in intake → click Send → activity stream shows events
+  9. Click agent button → session created, events stream
+  10. Check keyboard shortcuts (F1, F3, F7)
+  11. Refresh page → project selection persists (localStorage)
+
+
+  5c. JavaScript Unit Tests (optional, later)
+  --------------------------------------------------------------------------
+  Location: gateway/src/test/e2e/unit/
+
+  - api.js: mock fetch, verify correct URLs and methods
+  - state.js: verify setState triggers watchers, localStorage persistence
+  - ws.js: mock WebSocket, verify subscribe/dispatch
+  - components/table.js: verify HTML output for given data
+
+  Runner: node --test (Node.js built-in test runner, zero deps)
+
+
+================================================================================
+ 6. ALIGNMENT WITH PLANNED AGENT TODOS
+================================================================================
+
+  This table shows how each workspace view maps to a planned agent todo,
+  and what API changes are needed when that agent is implemented.
+
+  Workspace    | Agent Todo File           | Now (Phase 2)        | When Agent Lands
+  ------------ | ------------------------- | -------------------- | -----------------
+  Intake       | todo-intake-triage-agent  | Session + controller | POST /intake endpoint
+  Threads      | todo-thread-agent         | Thread CRUD          | /threads/organize, /merge
+  Objectives   | todo-objective-agent      | Objective CRUD       | /objectives/align, /coverage
+  Plans        | todo-plan-agent           | Phase CRUD           | /milestones, /plan/generate
+  Reminders    | (existing reminder agent) | Reminder CRUD        | (already works)
+  Checklists   | todo-checklist-agent      | Checklist CRUD       | /checklists/generate, templates
+  Reconcile    | todo-reconcile-agent      | Reconciliation list  | /delta-packs, /blindspots
+  LinkHub      | (no agent — manual)       | Link CRUD            | (stays manual)
+  Agent Panel  | todo-scheduler            | Manual buttons       | /schedules, /executions
+  Timed Runs   | todo-scheduler            | localStorage toggles | /schedules CRUD
+
+  Workspace    | Agent Todo File           | New Events UI Handles
+  ------------ | ------------------------- | ----------------------
+  Intake       | todo-intake-triage-agent  | INTAKE_RECEIVED, INTAKE_CLASSIFIED, INTAKE_DISPATCHED
+  Threads      | todo-thread-agent         | THREAD_CREATED, THREAD_RENAMED, THREAD_MERGED
+  Objectives   | todo-objective-agent      | OBJECTIVE_COVERAGE_COMPUTED, OBJECTIVE_GAP_DETECTED
+  Plans        | todo-plan-agent           | PHASE_CREATED, MILESTONE_AT_RISK, PLAN_ARTIFACT_GENERATED
+  Checklists   | todo-checklist-agent      | CHECKLIST_CREATED, CHECKLIST_COMPLETED, CHECKLIST_STALE_DETECTED
+  Reconcile    | todo-reconcile-agent      | RECONCILE_STARTED, DELTA_PACK_CREATED, BLINDSPOT_CREATED
+  Agent Panel  | todo-scheduler            | EXEC_PLANNED, EXEC_STARTED, EXEC_FINISHED
+  Resources    | todo-resource-agent       | RESOURCE_OVERLOADED, CAPACITY_REPORT_GENERATED
+
+  The activity stream (panels/activity.js) renders ALL event types with
+  color coding. New event types from future agents will automatically appear
+  in the stream — no UI changes needed.
+
+
+================================================================================
+ 7. FILE MANIFEST
+================================================================================
+
+  NEW FILES:
+  ----------
+  gateway/.../controller/ObjectiveController.java
+  gateway/.../controller/PhaseController.java
+  gateway/.../controller/ChecklistController.java
+  gateway/.../controller/LinkController.java
+  gateway/.../controller/ReconciliationController.java
+
+  gateway/src/main/resources/static/index.html          (replace existing)
+  gateway/src/main/resources/static/css/cockpit.css
+  gateway/src/main/resources/static/js/app.js
+  gateway/src/main/resources/static/js/api.js
+  gateway/src/main/resources/static/js/ws.js
+  gateway/src/main/resources/static/js/state.js
+  gateway/src/main/resources/static/js/nav.js
+  gateway/src/main/resources/static/js/views/intake.js
+  gateway/src/main/resources/static/js/views/threads.js
+  gateway/src/main/resources/static/js/views/objectives.js
+  gateway/src/main/resources/static/js/views/plans.js
+  gateway/src/main/resources/static/js/views/reminders.js
+  gateway/src/main/resources/static/js/views/checklists.js
+  gateway/src/main/resources/static/js/views/reconcile.js
+  gateway/src/main/resources/static/js/views/links.js
+  gateway/src/main/resources/static/js/panels/agents.js
+  gateway/src/main/resources/static/js/panels/activity.js
+  gateway/src/main/resources/static/js/panels/inspector.js
+  gateway/src/main/resources/static/js/components/table.js
+  gateway/src/main/resources/static/js/components/card.js
+  gateway/src/main/resources/static/js/components/toast.js
+  gateway/src/main/resources/static/js/components/pills.js
+
+  gateway/src/test/e2e/package.json
+  gateway/src/test/e2e/playwright.config.js
+  gateway/src/test/e2e/smoke.spec.js
+  gateway/src/test/e2e/navigation.spec.js
+  gateway/src/test/e2e/project-crud.spec.js
+  gateway/src/test/e2e/intake.spec.js
+  gateway/src/test/e2e/workspace-views.spec.js
+  gateway/src/test/e2e/agents.spec.js
+  gateway/src/test/e2e/keyboard.spec.js
+  gateway/src/test/e2e/websocket.spec.js
+
+  ui/DEPRECATED.md
+
+  MODIFIED FILES:
+  ---------------
+  gateway/.../websocket/JavaClawWebSocketHandler.java   (add SUBSCRIBE_PROJECT)
+  pom.xml                                                (remove ui module)
+
+  DEPRECATED:
+  -----------
+  ui/                   (entire module — kept for reference)
+  javaclawui.java       (add deprecation notice or delete)
+
+
+================================================================================
+ 8. SEQUENCING
+================================================================================
+
+  Step   | What                                      | Depends On  | Effort
+  ------ | ----------------------------------------- | ----------- | ------
+  0a-0e  | 5 missing REST controllers                | Nothing     | S
+  0f     | WebSocket SUBSCRIBE_PROJECT               | Nothing     | S
+  1a-1f  | Web UI foundation (shell, CSS, api, ws)   | 0f          | M
+  2a-2h  | 8 workspace views                         | 1 + 0a-0e  | L
+  3a-3c  | Right panel (agents, activity, inspector)  | 1 + 0f     | M
+  4a-4d  | Retire Swing UI module                    | 2+3 working | S
+  5a-5c  | Playwright + smoke tests                  | 2+3         | M
+
+  Critical path: 0 → 1 → (2 + 3 parallel) → 4 → 5
+
+  Total new Java files: 5 controllers (boilerplate CRUD)
+  Total new JS files:   ~22 modules
+  Total new test files: ~10 Playwright specs
+
+================================================================================
+ END OF PLAN
+================================================================================

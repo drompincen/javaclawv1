@@ -49,7 +49,7 @@ class CreateTicketToolTest {
     void toolMetadata() {
         assertThat(tool.name()).isEqualTo("create_ticket");
         assertThat(tool.description()).isNotBlank();
-        assertThat(tool.riskProfiles()).containsExactly(ToolRiskProfile.WRITE_FILES);
+        assertThat(tool.riskProfiles()).containsExactly(ToolRiskProfile.AGENT_INTERNAL);
         assertThat(tool.inputSchema()).isNotNull();
         assertThat(tool.outputSchema()).isNotNull();
     }

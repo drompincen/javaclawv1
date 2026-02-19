@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 6 Checklist Test",
+  "description": "E2E: Checklist agent generates ORR (Operational Readiness Review) checklist from seeded phases and milestones",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed threads, phases, and milestones",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Evidence Service Design",
+            "content": "Define evidence service API, storage model, and validation rules. Production readiness requires runbooks, alerts, and load testing."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Onboarding Flow",
+            "content": "Client onboarding steps with identity verification. Requires rollback plan and monitoring before go-live."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/phases",
+          "body": {
+            "name": "Phase 1: Evidence Service",
+            "sortOrder": 1,
+            "description": "Evidence service API facade, S3 storage, validation rules"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/phases",
+          "body": {
+            "name": "Phase 2: Onboarding",
+            "sortOrder": 2,
+            "description": "Onboarding wizard, KYC integration, upload component"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/milestones",
+          "body": {
+            "name": "Evidence Service Ready",
+            "targetDate": "2026-03-15T00:00:00Z",
+            "owner": "Alice",
+            "description": "Evidence API operational in production"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/milestones",
+          "body": {
+            "name": "Onboarding Complete",
+            "targetDate": "2026-03-28T00:00:00Z",
+            "owner": "Bob",
+            "description": "Onboarding flow live in production"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Generate ORR checklist",
+      "userQuery": "Prepare ORR checklist",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"checklist-agent\", \"subTask\": \"ORR checklist generation from project state\"}"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "Reading project phases and existing checklists to prepare ORR.\n\n<tool_call>\n{\"name\": \"read_phases\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_checklists\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "Phases and current checklists loaded. No existing ORR checklist found. Creating ORR checklist with items derived from project state.\n\n<tool_call>\n{\"name\": \"create_checklist\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"ORR — Operational Readiness Review\", \"items\": [{\"label\": \"Runbooks complete\", \"checked\": false, \"notes\": \"Runbooks needed for Evidence Service API and Onboarding Flow\"}, {\"label\": \"Alerts configured\", \"checked\": false, \"notes\": \"PagerDuty alerts for API latency, error rates, S3 upload failures\"}, {\"label\": \"Load test validated\", \"checked\": false, \"notes\": \"Evidence API must handle 500 concurrent evidence submissions\"}, {\"label\": \"Rollback plan reviewed\", \"checked\": false, \"notes\": \"Database migration rollback for Evidence Service, feature flag for Onboarding\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "ORR checklist created with 4 items:\n\n**ORR — Operational Readiness Review**\n- [ ] Runbooks complete — Runbooks needed for Evidence Service API and Onboarding Flow\n- [ ] Alerts configured — PagerDuty alerts for API latency, error rates, S3 upload failures\n- [ ] Load test validated — Evidence API must handle 500 concurrent evidence submissions\n- [ ] Rollback plan reviewed — Database migration rollback for Evidence Service, feature flag for Onboarding\n\nAll items are unchecked pending team completion. Linked to Phase 1 (Evidence Service) and Phase 2 (Onboarding) milestones."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Checklist agent created ORR checklist with 4 operational readiness items: runbooks, alerts, load testing, and rollback plan. Items derived from project phases and thread context.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "checklists",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "checklists",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "name", "anyMatchPattern": "ORR"}
+          },
+          {
+            "collection": "phases",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "milestones",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          }
+        ],
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/checklists",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 1,
+            "bodyContains": "ORR"
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/phases",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/milestones",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "ORR"
+        }
+      }
+    }
+  ]
+}

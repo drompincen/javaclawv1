@@ -22,6 +22,7 @@ public class ReminderDocument {
     private boolean recurring;
     private Long intervalSeconds;
     private String sessionId;
+    private String sourceThreadId;
 
     public ReminderDocument() {}
 
@@ -54,4 +55,7 @@ public class ReminderDocument {
 
     public String getSessionId() { return sessionId; }
     public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+
+    public String getSourceThreadId() { return sourceThreadId; }
+    public void setSourceThreadId(String sourceThreadId) { this.sourceThreadId = sourceThreadId; }
 }

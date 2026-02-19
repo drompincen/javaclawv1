@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 8 On-Demand Agents Test",
+  "description": "E2E: On-demand plan and reconcile agents run sequentially from seeded project state, producing phases and delta pack",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed project state",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Auth Service Migration",
+            "content": "Migrate authentication from session-based to JWT. Implement refresh tokens, token revocation, and SSO integration. Owner: Dana. Target: 2026-04-01."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "API Rate Limiting",
+            "content": "Implement rate limiting across public APIs. Use Redis sliding window. Owner: Eve. Target: 2026-03-20. Decisions: 100 req/min default, tiered by plan."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "AUTH-401: JWT token service",
+            "description": "Epic: Auth Migration | Status: In Progress | Owner: Dana | Priority: High",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "AUTH-402: Refresh token flow",
+            "description": "Epic: Auth Migration | Status: Todo | Owner: Dana | Priority: High",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "RATE-501: Redis sliding window",
+            "description": "Epic: Rate Limiting | Status: Todo | Owner: Eve | Priority: Medium",
+            "priority": "MEDIUM"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "RATE-502: Rate limit dashboard",
+            "description": "Epic: Rate Limiting | Status: Todo | Owner: Eve | Priority: Low",
+            "priority": "LOW"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/phases",
+          "body": {
+            "name": "Phase 1: Auth Migration",
+            "sortOrder": 1,
+            "description": "JWT migration and SSO integration"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/phases",
+          "body": {
+            "name": "Phase 2: Rate Limiting",
+            "sortOrder": 2,
+            "description": "API rate limiting with Redis backend"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/milestones",
+          "body": {
+            "name": "Auth Migration Complete",
+            "targetDate": "2026-04-01T00:00:00Z",
+            "owner": "Dana",
+            "description": "JWT auth fully operational with refresh tokens and SSO"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/milestones",
+          "body": {
+            "name": "Rate Limiting Live",
+            "targetDate": "2026-03-20T00:00:00Z",
+            "owner": "Eve",
+            "description": "Rate limiting active on all public endpoints"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Run Plan Agent on demand",
+      "userQuery": "Run Plan Agent — update the project plan with current phases and generate an artifact.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"plan-agent\", \"subTask\": \"plan update and artifact generation\"}"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Reading current phases to generate updated plan artifact.\n\n<tool_call>\n{\"name\": \"read_phases\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Phases loaded. Generating plan artifact from current state.\n\n<tool_call>\n{\"name\": \"generate_plan_artifact\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Sprint Plan — Auth Migration & Rate Limiting\", \"content\": \"## Project Plan\\n\\n### Phase 1: Auth Migration (Priority: High)\\n- AUTH-401: JWT token service — In Progress (Dana)\\n- AUTH-402: Refresh token flow — Todo (Dana)\\n- Milestone: Auth Migration Complete — 2026-04-01\\n\\n### Phase 2: Rate Limiting (Priority: Medium)\\n- RATE-501: Redis sliding window — Todo (Eve)\\n- RATE-502: Rate limit dashboard — Todo (Eve)\\n- Milestone: Rate Limiting Live — 2026-03-20\\n\\n### Risks\\n- Rate Limiting milestone (Mar 20) is before Auth Migration (Apr 1) but has no tickets in progress\\n- Recommend starting RATE-501 immediately\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Plan artifact generated. Summary:\n\n- **Phase 1: Auth Migration** — 2 tickets (1 in progress), milestone 2026-04-01\n- **Phase 2: Rate Limiting** — 2 tickets (0 in progress), milestone 2026-03-20\n\nRisk flagged: Rate Limiting milestone is earlier than Auth Migration but has no active work."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Plan agent read 2 phases and generated plan artifact with risk assessment. Both phases and milestones accounted for.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "phases",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          }
+        ],
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/phases",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "plan"
+        }
+      }
+    },
+    {
+      "name": "Run Reconcile Agent on demand",
+      "userQuery": "Run Reconcile Agent — check for drift and misalignment across the project.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"reconcile-agent\", \"subTask\": \"drift detection and cross-reference analysis\"}"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Cross-referencing project data for reconciliation.\n\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_objectives\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_phases\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Data loaded. Detected timeline inconsistency. Creating delta pack.\n\n<tool_call>\n{\"name\": \"create_delta_pack\", \"args\": {\"projectId\": \"{{projectId}}\", \"projectName\": \"Story 8 On-Demand Agents Test\", \"deltas\": [{\"deltaType\": \"DATE_DRIFT\", \"severity\": \"HIGH\", \"title\": \"Rate Limiting milestone earlier than Auth Migration but not started\", \"description\": \"Rate Limiting Live targets 2026-03-20 (11 days away) but neither RATE-501 nor RATE-502 has started. Auth Migration has active work (AUTH-401) but later deadline (2026-04-01). Execution order does not match priority.\", \"sourceA\": \"Milestones\", \"sourceB\": \"Tickets\", \"fieldName\": \"targetDate\", \"valueA\": \"2026-03-20\", \"valueB\": \"0% started\", \"suggestedAction\": \"Start RATE-501 immediately or push Rate Limiting milestone to after Auth Migration\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Delta pack created with 1 delta:\n\n**DATE_DRIFT (HIGH):** Rate Limiting milestone (2026-03-20) is at risk — 0 of 2 tickets started, while Auth Migration with later deadline has active work.\n\nRecommendation: Start RATE-501 immediately or adjust the Rate Limiting milestone date."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Reconcile agent read tickets, objectives, and phases, then created delta pack with 1 date drift delta. Timeline inconsistency correctly identified.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "delta_packs",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "delta"
+        }
+      }
+    }
+  ]
+}

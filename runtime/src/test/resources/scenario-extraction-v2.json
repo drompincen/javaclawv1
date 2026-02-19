@@ -1,0 +1,44 @@
+{
+  "projectName": "Extraction Test",
+  "description": "Thread extraction: read thread messages and create reminders, checklists, and tickets",
+  "steps": [
+    {
+      "userQuery": "use project Extraction Test",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Extract action items from the thread. Thread ID is thread-abc. The project ID is extraction-test. Read the thread messages first, then create a reminder for the standup meeting, a checklist for the sprint tasks, and a ticket for the bug fix.",
+      "description": "Thread-extractor reads thread and creates artifacts",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"thread-extractor\", \"subTask\": \"extract action items from thread\"}"
+        },
+        {
+          "agentName": "thread-extractor",
+          "responseFallback": "I'll read the thread messages first and then extract the artifacts.\n\n<tool_call>\n{\"name\": \"read_thread_messages\", \"args\": {\"threadId\": \"thread-abc\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-extractor",
+          "responseFallback": "I found several action items. Let me create the artifacts.\n\n<tool_call>\n{\"name\": \"create_reminder\", \"args\": {\"projectId\": \"extraction-test\", \"message\": \"Daily standup meeting at 10am\", \"type\": \"TIME_BASED\", \"triggerAt\": \"2026-03-01T10:00:00Z\", \"recurring\": true, \"intervalSeconds\": 86400, \"sourceThreadId\": \"thread-abc\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-extractor",
+          "responseFallback": "Reminder created. Now creating the checklist.\n\n<tool_call>\n{\"name\": \"create_checklist\", \"args\": {\"projectId\": \"extraction-test\", \"name\": \"Sprint 5 Tasks\", \"items\": [{\"text\": \"Review PR #42\", \"assignee\": \"Alice\"}, {\"text\": \"Update API docs\"}, {\"text\": \"Deploy to staging\", \"assignee\": \"Bob\"}], \"sourceThreadId\": \"thread-abc\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-extractor",
+          "responseFallback": "Checklist created. Now creating the bug ticket.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"extraction-test\", \"title\": \"Fix login timeout on slow connections\", \"description\": \"Users on slow connections experience login timeout after 5 seconds. Need to increase timeout to 30s and add retry logic.\", \"priority\": \"HIGH\", \"sourceThreadId\": \"thread-abc\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-extractor",
+          "responseFallback": "Done! I extracted the following from thread-abc:\n- 1 reminder: Daily standup meeting\n- 1 checklist: Sprint 5 Tasks (3 items)\n- 1 ticket: Fix login timeout (HIGH priority)\n\nAll artifacts are linked back to the source thread for traceability."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Thread-extractor successfully extracted 3 artifacts from thread\"}"
+        }
+      ]
+    }
+  ]
+}

@@ -3,6 +3,10 @@ javaclaw:
     provider: ${JAVACLAW_LLM_PROVIDER:anthropic}
   runtime:
     mode: ${JAVACLAW_RUNTIME_MODE:inprocess}
+  scheduler:
+    enabled: ${JAVACLAW_SCHEDULER_ENABLED:true}
+    planner-interval-ms: 60000
+    executor-poll-interval-ms: 5000
 
 spring:
   application:
@@ -20,6 +24,10 @@ spring:
       chat:
         options:
           model: gpt-4o
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
   data:
     mongodb:
       uri: ${JAVACLAW_MONGO_URI:mongodb://localhost:27017/javaclaw?replicaSet=rs0}

@@ -1,5 +1,6 @@
 package io.github.drompincen.javaclawv1.runtime.agent.llm;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.drompincen.javaclawv1.persistence.document.EventDocument;
 import io.github.drompincen.javaclawv1.persistence.document.MessageDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.EventRepository;
@@ -41,7 +42,7 @@ class ScenarioAssertsTest {
 
     @BeforeEach
     void setUp() {
-        scenarioAsserts = new ScenarioAsserts(mongoTemplate, eventRepository, messageRepository);
+        scenarioAsserts = new ScenarioAsserts(mongoTemplate, eventRepository, messageRepository, new ObjectMapper());
     }
 
     // --- Session status assertions ---
@@ -49,9 +50,9 @@ class ScenarioAssertsTest {
     @Test
     void sessionStatus_matches_passes() {
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                "COMPLETED", null, null, null);
+                "COMPLETED", null, null, null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -63,9 +64,9 @@ class ScenarioAssertsTest {
     @Test
     void sessionStatus_mismatch_fails() {
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                "COMPLETED", null, null, null);
+                "COMPLETED", null, null, null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "FAILED");
+                SESSION_ID, PROJECT_ID, 0, "FAILED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -88,9 +89,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.EventExpectations eventExp = new ScenarioConfigV2.EventExpectations(
                 List.of("AGENT_DELEGATED", "TOOL_RESULT"), null);
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, eventExp, null, null);
+                null, eventExp, null, null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -109,9 +110,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.EventExpectations eventExp = new ScenarioConfigV2.EventExpectations(
                 List.of("AGENT_DELEGATED", "TOOL_RESULT"), null);
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, eventExp, null, null);
+                null, eventExp, null, null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -132,9 +133,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.EventExpectations eventExp = new ScenarioConfigV2.EventExpectations(
                 null, Map.of("TOOL_RESULT", 2, "TOOL_CALL_STARTED", 1));
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, eventExp, null, null);
+                null, eventExp, null, null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -153,9 +154,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.EventExpectations eventExp = new ScenarioConfigV2.EventExpectations(
                 null, Map.of("TOOL_RESULT", 3));
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, eventExp, null, null);
+                null, eventExp, null, null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -174,9 +175,9 @@ class ScenarioAssertsTest {
                 Map.of("projectId", "sprint-tracker"),
                 new ScenarioConfigV2.AssertCondition(null, 2, null, null, null, null));
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, List.of(ma), null);
+                null, null, List.of(ma), null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -194,9 +195,9 @@ class ScenarioAssertsTest {
                 Map.of("projectId", "sprint-tracker"),
                 new ScenarioConfigV2.AssertCondition(null, 5, null, null, null, null));
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, List.of(ma), null);
+                null, null, List.of(ma), null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -213,9 +214,9 @@ class ScenarioAssertsTest {
                 Map.of("key", "framework-version"),
                 new ScenarioConfigV2.AssertCondition(0, null, null, null, null, null));
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, List.of(ma), null);
+                null, null, List.of(ma), null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -232,9 +233,9 @@ class ScenarioAssertsTest {
                 Map.of("key", "framework-version"),
                 new ScenarioConfigV2.AssertCondition(null, null, null, true, null, null));
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, List.of(ma), null);
+                null, null, List.of(ma), null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -251,9 +252,9 @@ class ScenarioAssertsTest {
                 Map.of("key", "framework-version"),
                 new ScenarioConfigV2.AssertCondition(null, null, null, false, null, null));
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, List.of(ma), null);
+                null, null, List.of(ma), null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -270,9 +271,9 @@ class ScenarioAssertsTest {
                 Map.of("sessionId", "{{sessionId}}"),
                 new ScenarioConfigV2.AssertCondition(null, 1, null, null, null, null));
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, List.of(ma), null);
+                null, null, List.of(ma), null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -293,9 +294,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.MessageExpectations msgExp = new ScenarioConfigV2.MessageExpectations(
                 "ticket", null, null);
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, null, msgExp);
+                null, null, null, msgExp, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -314,9 +315,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.MessageExpectations msgExp = new ScenarioConfigV2.MessageExpectations(
                 "database migration", null, null);
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, null, msgExp);
+                null, null, null, msgExp, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -334,9 +335,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.MessageExpectations msgExp = new ScenarioConfigV2.MessageExpectations(
                 null, "ticket #\\d+", null);
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, null, msgExp);
+                null, null, null, msgExp, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -356,9 +357,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.MessageExpectations msgExp = new ScenarioConfigV2.MessageExpectations(
                 null, null, "migration");
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                null, null, null, msgExp);
+                null, null, null, msgExp, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 
@@ -369,7 +370,7 @@ class ScenarioAssertsTest {
     @Test
     void nullExpects_returnsEmptyList() {
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(null, ctx);
 
@@ -388,9 +389,9 @@ class ScenarioAssertsTest {
         ScenarioConfigV2.EventExpectations eventExp = new ScenarioConfigV2.EventExpectations(
                 List.of("AGENT_DELEGATED"), null);
         ScenarioConfigV2.StepExpectations expects = new ScenarioConfigV2.StepExpectations(
-                "COMPLETED", eventExp, null, null);
+                "COMPLETED", eventExp, null, null, null);
         ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
-                SESSION_ID, PROJECT_ID, 0, "COMPLETED");
+                SESSION_ID, PROJECT_ID, 0, "COMPLETED", null);
 
         List<AssertionResult> results = scenarioAsserts.evaluate(expects, ctx);
 

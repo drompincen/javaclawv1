@@ -1,0 +1,541 @@
+================================================================================
+ TODO: checklist_agent Agent
+ Purpose: Generate and maintain checklists (ORR, release readiness, operational
+          runbooks, onboarding), track status and owners, tie to milestones
+          and phases
+================================================================================
+
+Context:
+  - JavaClaw v1: Spring Boot 3.3.1, MongoDB, Spring AI, LangGraph4j, Java 21
+  - Multi-module Maven: protocol, persistence, runtime, tools, gateway, ui
+  - ChecklistDocument already exists with: checklistId, projectId, phaseId,
+    templateId, ticketIds, items (List of: text, assignee, checked, notes,
+    linkedTicketId), status (PENDING/IN_PROGRESS/COMPLETED)
+  - PhaseDocument exists with checklistIds
+  - No agent currently generates or maintains checklists
+
+================================================================================
+ 1. AGENT DEFINITION
+================================================================================
+
+  agentId:       checklist_agent
+  name:          Checklist Agent
+  role:          SPECIALIST
+  skills:        ["checklist_generation", "orr_management",
+                  "release_readiness", "runbook_creation", "status_tracking"]
+  allowedTools:  ["create_checklist", "update_checklist", "read_checklists",
+                  "read_phases", "read_tickets", "read_objectives", "memory",
+                  "write_file", "read_file"]
+
+  Detailed system prompt covering:
+    - Generate checklists from templates or from thread/ticket analysis
+    - Support checklist types: ORR (Operational Readiness Review), release
+      readiness, onboarding, sprint close, deployment, rollback
+    - Create checklist templates that can be reused across projects
+    - Track item-level completion: flag overdue items, items with no assignee
+    - Tie checklists to phases (entry/exit gate checklists)
+    - Tie checklist items to tickets for traceability
+    - Generate progress reports: X/Y items complete, blockers
+    - Detect stale checklists (no updates in N days while IN_PROGRESS)
+    - When generating from threads, extract action items and convert to
+      checklist items
+
+================================================================================
+ 2. NEW DOCUMENT: ChecklistTemplateDocument (persistence module)
+================================================================================
+
+  Collection: checklist_templates
+
+  Fields:
+    templateId          String, @Id
+    name                String (e.g., "ORR Checklist", "Release Readiness",
+                                      "Onboarding")
+    description         String
+    category            ChecklistCategory enum: ORR, RELEASE_READINESS,
+                        ONBOARDING, SPRINT_CLOSE, DEPLOYMENT, ROLLBACK, CUSTOM
+    items               List of:
+                          text                 String
+                          defaultAssigneeRole  String
+                          required             boolean
+                          sortOrder            int
+    projectId           String, nullable (null means global template)
+    createdAt           Instant
+    updatedAt           Instant
+
+  Repository: ChecklistTemplateRepository
+    findByCategory(ChecklistCategory category)
+    findByProjectIdOrProjectIdIsNull(String projectId)
+
+================================================================================
+ 3. NEW TOOLS
+================================================================================
+
+  a) create_checklist
+     (may already exist from thread-extractor plan -- enhance if so)
+     Risk:    WRITE_FILES
+     Params:  projectId, title, phaseId (opt), templateId (opt),
+              items (list of: text, assignee, required), milestoneId (opt)
+     Returns: checklistId, itemCount
+     Note:    If templateId provided, pre-populate items from template
+
+  b) update_checklist
+     Risk:    WRITE_FILES
+     Params:  checklistId, operations (list of:
+                { action: "check"|"uncheck"|"assign"|"add"|"remove"|
+                          "update_notes",
+                  itemIndex, value })
+     Returns: checklistId, itemsComplete, itemsTotal, status
+     Note:    Auto-transitions status:
+                all checked   -> COMPLETED
+                any unchecked -> IN_PROGRESS
+
+  c) create_checklist_template
+     Risk:    WRITE_FILES
+     Params:  name, description, category, items (list), projectId (opt)
+     Returns: templateId
+
+  d) checklist_progress
+     Risk:    READ_ONLY
+     Params:  projectId, phaseId (opt), status (opt)
+     Returns: List of checklists with progress:
+                { checklistId, title, complete, total, percentDone,
+                  overdueItems, unassignedItems }
+
+================================================================================
+ 4. NEW ENUM: ChecklistCategory (protocol module)
+================================================================================
+
+  Values:
+    ORR
+    RELEASE_READINESS
+    ONBOARDING
+    SPRINT_CLOSE
+    DEPLOYMENT
+    ROLLBACK
+    CUSTOM
+
+================================================================================
+ 5. NEW EVENT TYPES
+================================================================================
+
+  CHECKLIST_CREATED
+  CHECKLIST_UPDATED
+  CHECKLIST_COMPLETED
+  CHECKLIST_ITEM_CHECKED
+  CHECKLIST_ITEM_OVERDUE
+  CHECKLIST_TEMPLATE_CREATED
+  CHECKLIST_STALE_DETECTED
+
+================================================================================
+ 6. ENDPOINTS
+================================================================================
+
+  POST /api/projects/{projectId}/checklists/generate
+       Trigger agent to generate checklists (from template or analysis)
+
+  GET  /api/projects/{projectId}/checklists/progress
+       Get progress report for all checklists
+
+  POST /api/checklist-templates
+       Create checklist template
+
+  GET  /api/checklist-templates
+       List templates (filterable by category)
+
+  GET  /api/checklist-templates/{templateId}
+       Get template detail
+
+================================================================================
+ 7. MODIFIED FILES
+================================================================================
+
+  - runtime/agent/AgentBootstrapService.java
+  - protocol/event/EventType.java
+  - tools/META-INF/services
+  - persistence/mongo-init.js
+
+================================================================================
+ 8. SCENARIO-BASED TESTING
+================================================================================
+
+  Test Scenario 1: Generate ORR Checklist from Template
+    Setup:    ORR template with 8 items, project with active phase
+    Expected: Checklist created with 8 items, linked to phase, all unchecked
+
+  Test Scenario 2: Generate Checklist from Thread Analysis
+    Setup:    Thread with messages containing action items
+              ("need to verify...", "make sure we...", "don't forget to...")
+    Expected: Checklist created with extracted action items
+
+  Test Scenario 3: Track Progress
+    Setup:    Checklist with 6 items, 4 checked, 1 with no assignee
+    Expected: Progress report shows 66%, flags unassigned item
+
+  Test Scenario 4: Detect Stale Checklist
+    Setup:    Checklist IN_PROGRESS, no updates for 14 days
+    Expected: CHECKLIST_STALE_DETECTED event, agent recommends action
+
+  Test Scenario 5: Phase Gate Checklist
+    Setup:    Phase "Testing" with exit checklist, 2/3 items checked
+    Expected: Agent reports phase cannot exit, identifies blocking items
+
+================================================================================
+ 9. MOCK DATA (staged in test/scenarios/checklist_agent/)
+================================================================================
+
+  ---- test/scenarios/checklist_agent/mongo-seed-projects.json ----
+
+  [
+    {
+      "projectId": "proj-epsilon",
+      "name": "Project Epsilon",
+      "description": "Platform reliability initiative",
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-02-18T00:00:00Z"
+    }
+  ]
+
+  ---- test/scenarios/checklist_agent/mongo-seed-checklist-templates.json ----
+
+  [
+    {
+      "templateId": "tmpl-orr",
+      "name": "Operational Readiness Review",
+      "description": "Standard ORR checklist for production launches",
+      "category": "ORR",
+      "items": [
+        {
+          "text": "Monitoring and alerting configured",
+          "defaultAssigneeRole": "SRE",
+          "required": true,
+          "sortOrder": 1
+        },
+        {
+          "text": "Runbook documented and reviewed",
+          "defaultAssigneeRole": "SRE",
+          "required": true,
+          "sortOrder": 2
+        },
+        {
+          "text": "Load testing completed (target: 2x expected peak)",
+          "defaultAssigneeRole": "QA",
+          "required": true,
+          "sortOrder": 3
+        },
+        {
+          "text": "Rollback procedure documented and tested",
+          "defaultAssigneeRole": "Engineer",
+          "required": true,
+          "sortOrder": 4
+        },
+        {
+          "text": "Security review completed",
+          "defaultAssigneeRole": "Security",
+          "required": true,
+          "sortOrder": 5
+        },
+        {
+          "text": "On-call rotation confirmed for launch week",
+          "defaultAssigneeRole": "SRE",
+          "required": true,
+          "sortOrder": 6
+        },
+        {
+          "text": "Customer support briefed on changes",
+          "defaultAssigneeRole": "PM",
+          "required": false,
+          "sortOrder": 7
+        },
+        {
+          "text": "Feature flags configured for gradual rollout",
+          "defaultAssigneeRole": "Engineer",
+          "required": false,
+          "sortOrder": 8
+        }
+      ],
+      "projectId": null
+    },
+    {
+      "templateId": "tmpl-release",
+      "name": "Release Readiness",
+      "description": "Pre-release checklist",
+      "category": "RELEASE_READINESS",
+      "items": [
+        {
+          "text": "All P0 tickets in DONE status",
+          "defaultAssigneeRole": "PM",
+          "required": true,
+          "sortOrder": 1
+        },
+        {
+          "text": "Regression test suite passing",
+          "defaultAssigneeRole": "QA",
+          "required": true,
+          "sortOrder": 2
+        },
+        {
+          "text": "Release notes drafted",
+          "defaultAssigneeRole": "PM",
+          "required": true,
+          "sortOrder": 3
+        },
+        {
+          "text": "Database migrations tested on staging",
+          "defaultAssigneeRole": "Engineer",
+          "required": true,
+          "sortOrder": 4
+        },
+        {
+          "text": "Changelog updated",
+          "defaultAssigneeRole": "Engineer",
+          "required": false,
+          "sortOrder": 5
+        }
+      ],
+      "projectId": null
+    }
+  ]
+
+  ---- test/scenarios/checklist_agent/mongo-seed-checklists.json ----
+
+  [
+    {
+      "checklistId": "cl-101",
+      "projectId": "proj-epsilon",
+      "phaseId": "phase-eps-002",
+      "templateId": "tmpl-orr",
+      "title": "ORR - Platform Reliability Launch",
+      "items": [
+        {
+          "text": "Monitoring and alerting configured",
+          "assignee": "alice",
+          "checked": true,
+          "notes": "Datadog dashboards live",
+          "linkedTicketId": "ticket-501"
+        },
+        {
+          "text": "Runbook documented and reviewed",
+          "assignee": "alice",
+          "checked": true,
+          "notes": "Confluence page updated",
+          "linkedTicketId": null
+        },
+        {
+          "text": "Load testing completed",
+          "assignee": "bob",
+          "checked": true,
+          "notes": "3x peak sustained for 1hr",
+          "linkedTicketId": "ticket-502"
+        },
+        {
+          "text": "Rollback procedure documented and tested",
+          "assignee": "bob",
+          "checked": true,
+          "notes": "",
+          "linkedTicketId": null
+        },
+        {
+          "text": "Security review completed",
+          "assignee": null,
+          "checked": false,
+          "notes": "",
+          "linkedTicketId": null
+        },
+        {
+          "text": "On-call rotation confirmed",
+          "assignee": "alice",
+          "checked": false,
+          "notes": "Pending schedule from SRE manager",
+          "linkedTicketId": null
+        }
+      ],
+      "status": "IN_PROGRESS"
+    },
+    {
+      "checklistId": "cl-102",
+      "projectId": "proj-epsilon",
+      "phaseId": null,
+      "templateId": null,
+      "title": "Sprint 4 Close Tasks",
+      "items": [
+        {
+          "text": "Demo recording uploaded",
+          "assignee": "charlie",
+          "checked": false,
+          "notes": "",
+          "linkedTicketId": null
+        },
+        {
+          "text": "Retro action items created as tickets",
+          "assignee": "charlie",
+          "checked": false,
+          "notes": "",
+          "linkedTicketId": null
+        },
+        {
+          "text": "Velocity metrics updated",
+          "assignee": "charlie",
+          "checked": false,
+          "notes": "",
+          "linkedTicketId": null
+        }
+      ],
+      "status": "PENDING"
+    }
+  ]
+
+  ---- test/scenarios/checklist_agent/mongo-seed-phases.json ----
+
+  [
+    {
+      "phaseId": "phase-eps-001",
+      "projectId": "proj-epsilon",
+      "name": "Implementation",
+      "status": "COMPLETED",
+      "sortOrder": 1,
+      "checklistIds": [],
+      "objectiveIds": []
+    },
+    {
+      "phaseId": "phase-eps-002",
+      "projectId": "proj-epsilon",
+      "name": "Pre-Launch",
+      "status": "ACTIVE",
+      "entryCriteria": "All P0 features complete",
+      "exitCriteria": "ORR checklist complete, security review passed",
+      "sortOrder": 2,
+      "checklistIds": ["cl-101"],
+      "objectiveIds": []
+    }
+  ]
+
+  ---- test/scenarios/checklist_agent/mongo-seed-threads.json ----
+
+  [
+    {
+      "threadId": "thread-eps-001",
+      "projectIds": ["proj-epsilon"],
+      "title": "Launch Planning Discussion",
+      "lifecycle": "ACTIVE",
+      "summary": "Discussion about launch readiness and remaining tasks"
+    }
+  ]
+
+  ---- test/scenarios/checklist_agent/mongo-seed-messages.json ----
+
+  [
+    {
+      "messageId": "msg-eps-001",
+      "sessionId": "sess-eps-001",
+      "seq": 1,
+      "role": "user",
+      "content": "For the launch we need to make sure we have: 1) DNS cutover plan ready 2) CDN cache invalidation tested 3) Third-party API rate limits confirmed 4) Customer migration emails scheduled",
+      "timestamp": "2026-02-15T10:00:00Z"
+    },
+    {
+      "messageId": "msg-eps-002",
+      "sessionId": "sess-eps-001",
+      "seq": 2,
+      "role": "user",
+      "content": "Also don't forget to verify the SSL certs are renewed before launch day",
+      "timestamp": "2026-02-15T10:05:00Z"
+    }
+  ]
+
+  ---- test/scenarios/checklist_agent/scenario-generate-orr.json ----
+
+  {
+    "name": "checklist-agent-generate-orr",
+    "description": "Generate ORR checklist from template for pre-launch phase",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "phases": "mongo-seed-phases.json",
+      "checklist_templates": "mongo-seed-checklist-templates.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Generate an ORR checklist for Project Epsilon's pre-launch phase using the standard ORR template"
+      }
+    ],
+    "expectedOutcomes": [
+      { "type": "CHECKLIST_CREATED", "itemCount": 8 },
+      { "type": "CHECKLIST_CREATED", "phaseId": "phase-eps-002" }
+    ]
+  }
+
+  ---- test/scenarios/checklist_agent/scenario-from-thread.json ----
+
+  {
+    "name": "checklist-agent-from-thread",
+    "description": "Extract checklist from thread discussion",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "threads": "mongo-seed-threads.json",
+      "messages": "mongo-seed-messages.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Review thread-eps-001 and create a checklist of all launch tasks mentioned"
+      }
+    ],
+    "expectedOutcomes": [
+      { "type": "CHECKLIST_CREATED", "minItemCount": 5 }
+    ]
+  }
+
+  ---- test/scenarios/checklist_agent/scenario-progress-report.json ----
+
+  {
+    "name": "checklist-agent-progress",
+    "description": "Report progress on ORR checklist and identify blockers",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "phases": "mongo-seed-phases.json",
+      "checklists": "mongo-seed-checklists.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Report on checklist progress for Project Epsilon pre-launch phase. Identify blockers."
+      }
+    ],
+    "expectedOutcomes": [
+      {
+        "type": "CHECKLIST_ITEM_OVERDUE",
+        "description": "security review unassigned"
+      },
+      {
+        "type": "PHASE_TRANSITION_BLOCKED",
+        "reason": "ORR 4/6 items complete"
+      }
+    ]
+  }
+
+================================================================================
+ 10. FILE MANIFEST
+================================================================================
+
+  NEW FILES:
+    protocol/  ChecklistCategory.java
+    persistence/  ChecklistTemplateDocument.java
+    persistence/  ChecklistTemplateRepository.java
+    tools/  CreateChecklistTool.java  (or enhance existing)
+    tools/  UpdateChecklistTool.java
+    tools/  CreateChecklistTemplateTool.java
+    tools/  ChecklistProgressTool.java
+    gateway/  ChecklistAgentController.java
+    gateway/  ChecklistTemplateController.java
+    test/scenarios/checklist_agent/  (all mock + scenario files listed above)
+
+  MODIFIED FILES:
+    runtime/agent/AgentBootstrapService.java
+    protocol/event/EventType.java
+    tools/META-INF/services
+    persistence/mongo-init.js
+
+================================================================================
+ END OF PLAN
+================================================================================

@@ -37,18 +37,17 @@ public class ThreadController {
     }
 
     @PostMapping
-    public ResponseEntity<ThreadDto> create(@PathVariable String projectId, @RequestBody CreateThreadRequest req) {
+    public ResponseEntity<ThreadDto> create(@PathVariable String projectId, @RequestBody Map<String, Object> body) {
         ThreadDocument doc = new ThreadDocument();
         doc.setThreadId(UUID.randomUUID().toString());
-        doc.setProjectIds(java.util.List.of(projectId));
-        doc.setTitle(req.title() != null ? req.title() : "New Thread");
-        doc.setStatus(SessionStatus.IDLE);
-        doc.setModelConfig(req.modelConfig() != null ? req.modelConfig() : ModelConfig.defaults());
-        doc.setToolPolicy(req.toolPolicy() != null ? req.toolPolicy() : ToolPolicy.allowAll());
+        doc.setProjectIds(List.of(projectId));
+        doc.setTitle((String) body.get("title"));
+        doc.setContent((String) body.get("content"));
+        doc.setSummary((String) body.get("summary"));
         doc.setCreatedAt(Instant.now());
         doc.setUpdatedAt(Instant.now());
         threadRepository.save(doc);
-        return ResponseEntity.ok(toDto(doc));
+        return ResponseEntity.status(201).body(toDto(doc));
     }
 
     @GetMapping
@@ -105,6 +104,19 @@ public class ThreadController {
         return ResponseEntity.accepted().build();
     }
 
+    @DeleteMapping("/{threadId}")
+    public ResponseEntity<Void> delete(@PathVariable String projectId, @PathVariable String threadId) {
+        return threadRepository.findById(threadId)
+                .filter(t -> t.getEffectiveProjectIds().contains(projectId))
+                .map(t -> {
+                    agentLoop.stop(threadId);
+                    messageRepository.deleteBySessionId(threadId);
+                    threadRepository.deleteById(threadId);
+                    return ResponseEntity.noContent().<Void>build();
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @PostMapping("/{threadId}/pause")
     public ResponseEntity<?> pause(@PathVariable String projectId, @PathVariable String threadId) {
         agentLoop.stop(threadId);
@@ -118,8 +130,24 @@ public class ThreadController {
     }
 
     private ThreadDto toDto(ThreadDocument doc) {
+        List<ThreadDto.DecisionDto> decisions = doc.getDecisions() != null
+                ? doc.getDecisions().stream()
+                    .map(d -> new ThreadDto.DecisionDto(d.getText(), d.getDecidedBy()))
+                    .collect(Collectors.toList())
+                : List.of();
+
+        List<ThreadDto.ActionDto> actions = doc.getActions() != null
+                ? doc.getActions().stream()
+                    .map(a -> new ThreadDto.ActionDto(a.getText(), a.getAssignee(),
+                            a.getStatus() != null ? a.getStatus() : "OPEN"))
+                    .collect(Collectors.toList())
+                : List.of();
+
         return new ThreadDto(doc.getThreadId(), doc.getEffectiveProjectIds(), doc.getTitle(),
                 doc.getStatus(), doc.getModelConfig(), doc.getToolPolicy(),
-                doc.getCurrentCheckpointId(), doc.getCreatedAt(), doc.getUpdatedAt());
+                doc.getCurrentCheckpointId(), doc.getCreatedAt(), doc.getUpdatedAt(),
+                doc.getSummary(), doc.getContent(), decisions, actions,
+                doc.getEvidence() != null ? doc.getEvidence().size() : 0,
+                doc.getObjectiveIds() != null ? doc.getObjectiveIds() : List.of());
     }
 }

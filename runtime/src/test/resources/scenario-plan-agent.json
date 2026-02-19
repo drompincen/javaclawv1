@@ -1,0 +1,54 @@
+{
+  "projectName": "Project Delta",
+  "description": "Plan agent: create phases and milestones for a project",
+  "steps": [
+    {
+      "userQuery": "use project Project Delta",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Create a Design phase for Project Delta with entry criteria: requirements doc approved, and exit criteria: architecture doc approved, wireframes signed off. Set sort order 1.",
+      "description": "Plan agent creates a phase",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"plan-agent\", \"subTask\": \"create design phase\"}"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "I'll create the Design phase.\n\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"project-delta\", \"name\": \"Design\", \"description\": \"UI/UX design and architecture\", \"entryCriteria\": [\"Requirements doc approved\"], \"exitCriteria\": [\"Architecture doc approved\", \"Wireframes signed off\"], \"sortOrder\": 1}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Design phase created with entry/exit criteria. Next, I recommend creating an Implementation phase."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Plan agent created Design phase with criteria\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "Generate a project plan document for Project Delta.",
+      "description": "Plan agent generates plan artifact",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"plan-agent\", \"subTask\": \"generate plan document\"}"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "I'll generate the plan document.\n\n<tool_call>\n{\"name\": \"generate_plan_artifact\", \"args\": {\"projectId\": \"project-delta\", \"includeTimeline\": true}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Plan artifact generated with 1 phase and timeline. The document includes phase details and criteria."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Plan agent generated plan artifact\"}"
+        }
+      ]
+    }
+  ]
+}

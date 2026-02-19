@@ -5,6 +5,7 @@ import io.github.drompincen.javaclawv1.persistence.repository.MemoryRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -61,8 +62,19 @@ public class MemoryController {
         }
         doc.setCreatedAt(Instant.now());
         doc.setUpdatedAt(Instant.now());
+        doc.setExpiresAt(computeExpiresAt(doc.getScope()));
         memoryRepository.save(doc);
         return ResponseEntity.ok(doc);
+    }
+
+    private Instant computeExpiresAt(MemoryDocument.MemoryScope scope) {
+        Instant now = Instant.now();
+        return switch (scope) {
+            case SESSION -> now.plus(Duration.ofHours(24));
+            case THREAD -> now.plus(Duration.ofDays(7));
+            case PROJECT -> now.plus(Duration.ofDays(30));
+            case GLOBAL -> null;
+        };
     }
 
     @DeleteMapping("/{id}")

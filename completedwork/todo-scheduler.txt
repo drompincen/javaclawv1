@@ -1,0 +1,846 @@
+================================================================================
+ Scheduler-Driven Async Agent Execution Engine
+ Spring @EnableScheduling + MongoDB atomic claims + future/past executions
+================================================================================
+
+GOALS:
+  - Allow each agent to declare a cron-like schedule (or "immediate")
+  - Maintain a Future Executions collection ("what should run today")
+  - Execute due items asynchronously with controlled concurrency
+  - Persist Past Executions with duration + outcome + artifact pointers
+  - Reset the day's plan at midnight (per timezone) without losing history
+
+
+1. COLLECTION: agent_schedules (persistence module)
+--------------------------------------------------------------------------------
+File: persistence/src/main/java/.../document/AgentScheduleDocument.java
+
+  Defines "what runs when" per agent, per project scope, with timezone.
+
+  Collection: agent_schedules
+
+  Fields:
+    - scheduleId         (String, @Id, auto-generated)
+    - agentId            (String, required — e.g., "planner", "reconciler",
+                          "thread-extractor", "distiller", "reminder")
+    - enabled            (boolean, default true)
+    - timezone           (String, IANA — e.g., "America/Denver")
+    - scheduleType       (ScheduleType enum — CRON / FIXED_TIMES / INTERVAL
+                          / IMMEDIATE)
+    - cronExpr           (String, nullable — if CRON, e.g., "0 0 */2 * * *")
+    - timesOfDay         (List<String>, nullable — if FIXED_TIMES,
+                          e.g., ["09:00", "13:00"])
+    - intervalMinutes    (Integer, nullable — if INTERVAL, e.g., 30)
+    - projectScope       (ProjectScope enum — GLOBAL / PROJECT)
+    - projectId          (String, nullable — required when scope = PROJECT)
+    - inputsPolicy       (InputsPolicy embedded object — see below)
+    - executorPolicy     (ExecutorPolicy embedded object — see below)
+    - version            (long, optimistic locking)
+    - createdAt          (Instant)
+    - updatedAt          (Instant)
+
+  InputsPolicy (embedded):
+    - inputType          (String — "threads_since_last_run",
+                          "latest_intake_window", "all", "none")
+    - windowMinutes      (Integer, nullable — for intake window)
+    - threadFilter       (String, nullable — lifecycle or tag filter)
+
+  ExecutorPolicy (embedded):
+    - maxConcurrent      (int, default 1 — how many parallel runs of this
+                          agent are allowed)
+    - priority           (int, default 5 — 1=lowest, 10=highest)
+    - maxAttempts        (int, default 3)
+    - retryBackoffMs     (long, default 60000 — backoff between retries)
+    - riskGate           (boolean, default false — require approval before
+                          running tools with WRITE/EXEC risk)
+
+  Indexes (add to mongo-init.js):
+    - Unique: { agentId: 1, projectId: 1 }  (one schedule per agent per project)
+    - Query:  { enabled: 1, scheduleType: 1 }
+    - Query:  { updatedAt: -1 }
+
+File: persistence/src/main/java/.../repository/AgentScheduleRepository.java
+
+  interface AgentScheduleRepository extends MongoRepository<AgentScheduleDocument, String>
+    - findByEnabled(boolean enabled)
+    - findByAgentId(String agentId)
+    - findByAgentIdAndProjectId(String agentId, String projectId)
+    - findByUpdatedAtGreaterThan(Instant since)
+
+
+2. COLLECTION: future_executions (persistence module)
+--------------------------------------------------------------------------------
+File: persistence/src/main/java/.../document/FutureExecutionDocument.java
+
+  The day's planned execution queue (rolling horizon = today per timezone).
+
+  Collection: future_executions
+
+  Fields:
+    - executionId              (String, @Id, auto-generated)
+    - idempotencyKey           (String, unique — prevents duplicates;
+                                = dateKey + agentId + projectId + scheduledAt)
+    - dateKey                  (String — e.g., "2026-02-18", in schedule tz)
+    - agentId                  (String, required)
+    - projectId                (String, nullable — null for GLOBAL scope)
+    - timezone                 (String, IANA)
+    - scheduledAt              (Instant — when this execution should fire)
+    - plannedHour              (int — 0-23 for display, or -1 for IMMEDIATE)
+    - plannedMinute            (int — 0-59 for display)
+    - immediate                (boolean — shortcut for plannedHour == -1)
+    - execStatus               (ExecStatus enum — READY / PENDING / RUNNING /
+                                SKIPPED / CANCELLED / FAILED_RETRYABLE)
+    - priority                 (int — copied from executorPolicy)
+    - lockOwner                (String, nullable — executor instance ID)
+    - lockedAt                 (Instant, nullable)
+    - leaseUntil               (Instant, nullable — lock expiry)
+    - attempt                  (int, default 0)
+    - maxAttempts              (int — copied from executorPolicy)
+    - retryBackoffMs           (long — copied from executorPolicy)
+    - scheduleId               (String — back-reference to agent_schedules)
+    - createdFromScheduleVersion (long — for drift detection)
+    - createdAt                (Instant)
+    - lastUpdatedAt            (Instant)
+
+  ExecStatus enum:
+    - READY              (eligible for pickup)
+    - PENDING            (claimed by executor, not yet running)
+    - RUNNING            (agent loop in progress)
+    - SKIPPED            (planner skipped — e.g., schedule disabled)
+    - CANCELLED          (schedule changed, item no longer valid)
+    - FAILED_RETRYABLE   (failed but eligible for retry with backoff)
+
+  Indexes (add to mongo-init.js):
+    - Unique: { idempotencyKey: 1 }
+    - Query:  { execStatus: 1, scheduledAt: 1 }       (executor pickup)
+    - Query:  { dateKey: 1, agentId: 1, projectId: 1 } (planner reconcile)
+    - Query:  { leaseUntil: 1 }                        (stale lease recovery)
+    - TTL:    { lastUpdatedAt: 1 }, expireAfterSeconds: 172800
+              (auto-delete completed/cancelled items after 48h)
+
+File: persistence/src/main/java/.../repository/FutureExecutionRepository.java
+
+  interface FutureExecutionRepository extends MongoRepository<...>
+    - findByExecStatusAndScheduledAtLessThanEqualOrderByPriorityDescScheduledAtAsc(
+        ExecStatus status, Instant now)
+    - findByDateKeyAndAgentIdAndProjectId(String dateKey, String agentId,
+        String projectId)
+    - findByDateKeyAndExecStatusNotIn(String dateKey, List<ExecStatus> exclude)
+    - deleteByDateKeyAndExecStatusIn(String dateKey, List<ExecStatus> statuses)
+    - existsByIdempotencyKey(String key)
+
+
+3. COLLECTION: past_executions (persistence module)
+--------------------------------------------------------------------------------
+File: persistence/src/main/java/.../document/PastExecutionDocument.java
+
+  Immutable audit/history + performance metrics.
+
+  Collection: past_executions
+
+  Fields:
+    - pastExecutionId    (String, @Id, auto-generated)
+    - executionId        (String — links back to the future_executions item)
+    - agentId            (String)
+    - projectId          (String, nullable)
+    - scheduleId         (String — back-reference to agent_schedules)
+    - scheduledAt        (Instant — originally planned time)
+    - startedAt          (Instant)
+    - endedAt            (Instant)
+    - durationMs         (long)
+    - resultStatus       (ResultStatus enum — SUCCESS / FAIL / CANCELLED /
+                          SKIPPED)
+    - errorCode          (String, nullable — e.g., "LLM_TIMEOUT",
+                          "TOOL_FAILURE", "LOCK_CONTENTION")
+    - errorMessage       (String, nullable — short description)
+    - responseSummary    (String, nullable — agent's final summary text)
+    - responseRefs       (ResponseRefs embedded object — see below)
+    - llmMetrics         (LlmMetrics embedded object — see below)
+    - toolCallSummary    (ToolCallSummary embedded object — see below)
+    - sessionId          (String, nullable — the agent session used)
+    - threadId           (String, nullable — if thread-scoped)
+    - attempt            (int — which attempt this was, 1-based)
+    - createdAt          (Instant)
+
+  ResponseRefs (embedded):
+    - threadIds          (List<String>)
+    - ticketIds          (List<String>)
+    - checklistIds       (List<String>)
+    - reminderIds        (List<String>)
+    - blindspotIds       (List<String>)
+    - memoryKeys         (List<String>)
+
+  LlmMetrics (embedded):
+    - provider           (String — "anthropic" / "openai")
+    - model              (String — e.g., "claude-sonnet-4-5-20250929")
+    - promptTokens       (long)
+    - completionTokens   (long)
+    - totalTokens        (long)
+    - llmCalls           (int — number of LLM round trips)
+    - estimatedCostUsd   (double, nullable)
+
+  ToolCallSummary (embedded):
+    - totalCalls         (int)
+    - readOnlyCalls      (int)
+    - writeCalls         (int)
+    - execCalls          (int)
+    - failedCalls        (int)
+
+  ResultStatus enum:
+    - SUCCESS
+    - FAIL
+    - CANCELLED
+    - SKIPPED
+
+  Indexes (add to mongo-init.js):
+    - { agentId: 1, startedAt: -1 }
+    - { projectId: 1, startedAt: -1 }
+    - { resultStatus: 1, startedAt: -1 }
+    - { scheduleId: 1, startedAt: -1 }
+    - { executionId: 1 }           (link back to future item)
+    - TTL: { createdAt: 1 }, expireAfterSeconds: 7776000
+            (auto-delete after 90 days — configurable)
+
+File: persistence/src/main/java/.../repository/PastExecutionRepository.java
+
+  interface PastExecutionRepository extends MongoRepository<...>
+    - findByAgentIdOrderByStartedAtDesc(String agentId, Pageable pageable)
+    - findByProjectIdOrderByStartedAtDesc(String projectId, Pageable pageable)
+    - findByExecutionId(String executionId)
+    - findByScheduleIdAndStartedAtBetween(String scheduleId, Instant from,
+        Instant to)
+    - countByAgentIdAndResultStatus(String agentId, ResultStatus status)
+
+
+4. ENUMS & DTOs (protocol module)
+--------------------------------------------------------------------------------
+
+File: protocol/src/main/java/.../schedule/ScheduleType.java
+  enum: CRON, FIXED_TIMES, INTERVAL, IMMEDIATE
+
+File: protocol/src/main/java/.../schedule/ProjectScope.java
+  enum: GLOBAL, PROJECT
+
+File: protocol/src/main/java/.../schedule/ExecStatus.java
+  enum: READY, PENDING, RUNNING, SKIPPED, CANCELLED, FAILED_RETRYABLE
+
+File: protocol/src/main/java/.../schedule/ResultStatus.java
+  enum: SUCCESS, FAIL, CANCELLED, SKIPPED
+
+File: protocol/src/main/java/.../dto/ScheduleRequest.java
+  ScheduleRequest:
+    - agentId            (String, required)
+    - enabled            (boolean, default true)
+    - timezone           (String, default "UTC")
+    - scheduleType       (ScheduleType, required)
+    - cronExpr           (String, optional)
+    - timesOfDay         (List<String>, optional)
+    - intervalMinutes    (Integer, optional)
+    - projectScope       (ProjectScope, default GLOBAL)
+    - projectId          (String, optional)
+    - inputsPolicy       (InputsPolicy, optional)
+    - executorPolicy     (ExecutorPolicy, optional)
+
+File: protocol/src/main/java/.../dto/ScheduleResponse.java
+  ScheduleResponse:
+    - scheduleId         (String)
+    - agentId            (String)
+    - enabled            (boolean)
+    - scheduleType       (ScheduleType)
+    - nextExecutionAt    (Instant, nullable — computed)
+    - version            (long)
+    - createdAt          (Instant)
+    - updatedAt          (Instant)
+
+File: protocol/src/main/java/.../dto/ExecutionStatusResponse.java
+  ExecutionStatusResponse:
+    - executionId        (String)
+    - agentId            (String)
+    - projectId          (String)
+    - scheduledAt        (Instant)
+    - plannedHour        (int)
+    - plannedMinute      (int)
+    - immediate          (boolean)
+    - execStatus         (ExecStatus)
+    - attempt            (int)
+    - lockOwner          (String)
+
+File: protocol/src/main/java/.../dto/PastExecutionResponse.java
+  PastExecutionResponse:
+    - pastExecutionId    (String)
+    - agentId            (String)
+    - projectId          (String)
+    - scheduledAt        (Instant)
+    - startedAt          (Instant)
+    - endedAt            (Instant)
+    - durationMs         (long)
+    - resultStatus       (ResultStatus)
+    - responseSummary    (String)
+    - responseRefs       (ResponseRefs)
+    - llmMetrics         (LlmMetrics)
+    - toolCallSummary    (ToolCallSummary)
+
+Add new EventTypes to protocol/event/EventType.java:
+    - EXEC_PLANNED       (future execution created by planner)
+    - EXEC_CLAIMED       (executor claimed a READY item)
+    - EXEC_STARTED       (agent loop began)
+    - EXEC_FINISHED      (agent loop completed — success or fail)
+    - EXEC_RETRYING      (failed, requeued with backoff)
+    - EXEC_CANCELLED     (schedule changed, item voided)
+    - SCHEDULE_CREATED   (new agent_schedule created)
+    - SCHEDULE_UPDATED   (agent_schedule modified)
+    - SCHEDULE_DISABLED  (agent_schedule disabled)
+    - MIDNIGHT_REBUILD   (daily plan rebuilt)
+
+
+5. SCHEDULE PLANNER SERVICE (runtime module)
+--------------------------------------------------------------------------------
+File: runtime/src/main/java/.../scheduler/SchedulePlannerService.java
+
+  Responsibilities: Keep future_executions current with agent_schedules.
+
+  Spring Configuration:
+    - @EnableScheduling on gateway application class
+    - Inject a ThreadPoolTaskScheduler bean (pool size configurable,
+      default 4 threads)
+
+  @Scheduled Methods:
+
+  a) reconcileSchedules() — runs every 60 seconds
+     -----------------------------------------------
+     1. Load planner state (last reconcile timestamp) from a
+        planner_state singleton document in MongoDB
+     2. Query agent_schedules where updatedAt > lastReconcileAt
+        (cheap — only changed schedules)
+     3. For each changed schedule:
+        - Compute expected execution times for today (in schedule timezone)
+        - For each expected time:
+          * Build idempotencyKey = dateKey + agentId + projectId + scheduledAt
+          * Upsert into future_executions (insert if not exists)
+          * Set execStatus = READY, copy priority/maxAttempts from policy
+        - Cancel stale future items:
+          * Find items for this schedule where
+            createdFromScheduleVersion < schedule.version
+            AND execStatus NOT IN (RUNNING, PENDING)
+          * Set execStatus = CANCELLED
+     4. Update planner_state.lastReconcileAt = now
+     5. Emit EXEC_PLANNED events for newly created items
+
+  b) midnightRebuild() — runs via cron per timezone group
+     -----------------------------------------------
+     1. Group enabled schedules by timezone
+     2. For each timezone, schedule a task at midnight local:
+        - Delete all future_executions for yesterday's dateKey where
+          execStatus NOT IN (RUNNING)
+        - Regenerate full day's plan from all enabled schedules
+          for that timezone
+        - Insert future_executions with deterministic idempotencyKeys
+     3. Emit MIDNIGHT_REBUILD event
+
+     Implementation note: Use ZonedDateTime.now(ZoneId.of(tz)) to
+     compute "midnight" per timezone. Group schedules by timezone to
+     minimize the number of midnight jobs.
+
+  c) handleImmediateSchedules()
+     -----------------------------------------------
+     When a schedule with type=IMMEDIATE is created or enabled:
+     - Insert a future_execution with plannedHour=-1,
+       scheduledAt=now(), execStatus=READY
+     - This is triggered reactively (not polled) via a MongoDB
+       change stream on agent_schedules OR called from the
+       ScheduleController when a new IMMEDIATE schedule is created
+
+  Planner State Document:
+    Collection: planner_state (singleton)
+    Fields:
+      - _id: "planner"
+      - lastReconcileAt (Instant)
+      - lastMidnightRebuilds (Map<String, Instant> — timezone → last rebuild)
+
+
+6. EXECUTION ENGINE SERVICE (runtime module)
+--------------------------------------------------------------------------------
+File: runtime/src/main/java/.../scheduler/ExecutionEngineService.java
+
+  Responsibilities: Pick up READY items and execute them via agent loop.
+
+  @Scheduled Method:
+
+  pollAndExecute() — runs every 5 seconds (configurable)
+  -----------------------------------------------
+  1. Query future_executions:
+       execStatus = READY
+       scheduledAt <= now()
+       ORDER BY priority DESC, scheduledAt ASC
+       LIMIT = available thread pool capacity
+
+  2. For each candidate, claim atomically via findAndModify:
+       Criteria:
+         _id = candidate._id
+         execStatus = READY
+         (leaseUntil == null OR leaseUntil < now())   <- stale lease recovery
+       Update:
+         execStatus = PENDING
+         lockOwner = instanceId   (UUID generated at app startup)
+         lockedAt = now()
+         leaseUntil = now() + 90s
+       Return: updated document or null (lost race)
+
+  3. If claim succeeded, submit to ThreadPoolTaskExecutor:
+
+     executeAgent(FutureExecutionDocument exec):
+     -------------------------------------------
+     a) Mark RUNNING:
+        - Update execStatus = RUNNING, lastUpdatedAt = now()
+        - Emit EXEC_STARTED event
+
+     b) Start lease heartbeat (separate scheduled task):
+        - Every 30s while RUNNING: update leaseUntil = now() + 90s
+        - Prevents stale-lease recovery from stealing active work
+
+     c) Execute via existing agent orchestration:
+        - Create a SessionDocument (or reuse if resumable)
+        - Build agent prompt based on schedule's inputsPolicy:
+          * "threads_since_last_run" -> query threads updated since
+            last past_execution for this schedule
+          * "all" -> process everything
+          * "none" -> agent uses its own tools to decide
+        - Call AgentLoop.run(sessionId) with forced agentId
+        - Collect results (created artifacts, LLM metrics)
+
+     d) On SUCCESS:
+        - Build PastExecutionDocument:
+          * Copy identifiers (agentId, projectId, scheduleId)
+          * Set startedAt, endedAt, durationMs
+          * Set resultStatus = SUCCESS
+          * Populate responseRefs from tool call results
+          * Populate llmMetrics from LlmInteractionDocuments
+          * Populate toolCallSummary from event log
+        - Insert into past_executions
+        - Delete (or update to terminal) the future_execution item
+        - Emit EXEC_FINISHED event
+        - Cancel lease heartbeat
+
+     e) On FAILURE:
+        - Build PastExecutionDocument with resultStatus = FAIL,
+          errorCode, errorMessage
+        - Insert into past_executions
+        - If attempt < maxAttempts:
+          * Update future_execution:
+            execStatus = FAILED_RETRYABLE
+            attempt++
+            scheduledAt = now() + retryBackoffMs
+            lockOwner = null, leaseUntil = null
+          * Emit EXEC_RETRYING event
+        - If attempt >= maxAttempts:
+          * Update future_execution: execStatus = CANCELLED
+          * Emit EXEC_FINISHED event with FAIL
+        - Cancel lease heartbeat
+
+  Concurrency Control:
+  -----------------------------------------------
+  - ThreadPoolTaskExecutor bean:
+      corePoolSize:    4  (configurable via application.yml)
+      maxPoolSize:     8
+      queueCapacity:   20
+      threadNamePrefix: "agent-exec-"
+
+  - Per-agent concurrency cap (from executorPolicy.maxConcurrent):
+      Before submitting, count currently RUNNING future_executions
+      for the same agentId. If count >= maxConcurrent, skip this item
+      (it stays READY and will be picked up on next poll).
+
+  Stale Lease Recovery:
+  -----------------------------------------------
+  - pollAndExecute also checks for items where:
+      execStatus = RUNNING OR PENDING
+      leaseUntil < now() - 30s (grace period)
+    These are "stuck" — reset to READY (or FAILED_RETRYABLE if
+    attempt > 0) so they can be re-claimed.
+
+File: runtime/src/main/java/.../scheduler/LeaseHeartbeatService.java
+
+  Simple service that maintains a Map<String, ScheduledFuture> of active
+  heartbeats. Exposes:
+    - startHeartbeat(executionId) -> schedules 30s renewal
+    - stopHeartbeat(executionId) -> cancels the renewal
+
+
+7. SPRING BOOT CONFIGURATION (gateway module)
+--------------------------------------------------------------------------------
+File: gateway/src/main/java/.../config/SchedulerConfig.java
+
+  @Configuration
+  @EnableScheduling
+  public class SchedulerConfig {
+
+      @Bean
+      ThreadPoolTaskScheduler taskScheduler() {
+          var scheduler = new ThreadPoolTaskScheduler();
+          scheduler.setPoolSize(4);
+          scheduler.setThreadNamePrefix("schedule-");
+          scheduler.setWaitForTasksToCompleteOnShutdown(true);
+          scheduler.setAwaitTerminationSeconds(30);
+          return scheduler;
+      }
+
+      @Bean("agentExecutor")
+      ThreadPoolTaskExecutor agentExecutor() {
+          var executor = new ThreadPoolTaskExecutor();
+          executor.setCorePoolSize(4);
+          executor.setMaxPoolSize(8);
+          executor.setQueueCapacity(20);
+          executor.setThreadNamePrefix("agent-exec-");
+          executor.setRejectedExecutionHandler(
+              new ThreadPoolExecutor.CallerRunsPolicy());
+          executor.setWaitForTasksToCompleteOnShutdown(true);
+          executor.setAwaitTerminationSeconds(60);
+          return executor;
+      }
+  }
+
+File: gateway/src/main/resources/application.yml (additions)
+
+  javaclaw:
+    scheduler:
+      enabled: ${JAVACLAW_SCHEDULER_ENABLED:true}
+      planner-interval-seconds: 60
+      executor-poll-interval-seconds: 5
+      executor-pool-size: 4
+      executor-max-pool-size: 8
+      lease-duration-seconds: 90
+      lease-heartbeat-seconds: 30
+      default-timezone: ${JAVACLAW_DEFAULT_TZ:America/Denver}
+      past-execution-ttl-days: 90
+      future-execution-ttl-hours: 48
+
+
+8. SCHEDULE CONTROLLER (gateway module)
+--------------------------------------------------------------------------------
+File: gateway/src/main/java/.../controller/ScheduleController.java
+
+  Endpoints:
+
+  --- Agent Schedule CRUD ---
+
+  POST /api/schedules
+    Request Body:  ScheduleRequest
+    Response:      ScheduleResponse (201 Created)
+    Behavior:      Creates agent_schedule; if IMMEDIATE, also creates
+                   a future_execution with READY status
+
+  GET /api/schedules
+    Query Params:  agentId (optional), enabled (optional)
+    Response:      List<ScheduleResponse>
+
+  GET /api/schedules/{scheduleId}
+    Response:      ScheduleResponse (with computed nextExecutionAt)
+
+  PUT /api/schedules/{scheduleId}
+    Request Body:  ScheduleRequest (partial update)
+    Response:      ScheduleResponse (updated, version bumped)
+    Behavior:      Bumps version -> planner detects drift on next cycle
+
+  DELETE /api/schedules/{scheduleId}
+    Response:      204 No Content
+    Behavior:      Deletes schedule + cancels all READY/PENDING future items
+
+  --- Future Executions (today's queue) ---
+
+  GET /api/executions/future
+    Query Params:  agentId (optional), dateKey (optional, default today),
+                   execStatus (optional)
+    Response:      List<ExecutionStatusResponse>
+
+  POST /api/executions/future/{executionId}/cancel
+    Response:      ExecutionStatusResponse (execStatus = CANCELLED)
+    Behavior:      Only cancels if not already RUNNING
+
+  POST /api/executions/trigger
+    Request Body:  { agentId, projectId (optional) }
+    Response:      ExecutionStatusResponse (202 Accepted)
+    Behavior:      Manual trigger — creates a future_execution with
+                   plannedHour=-1, immediate=true, execStatus=READY,
+                   scheduledAt=now()
+
+  --- Past Executions (history) ---
+
+  GET /api/executions/past
+    Query Params:  agentId (optional), projectId (optional),
+                   resultStatus (optional), from (ISO date), to (ISO date),
+                   page, size (default 20)
+    Response:      Page<PastExecutionResponse>
+
+  GET /api/executions/past/{pastExecutionId}
+    Response:      PastExecutionResponse (full detail)
+
+  --- Execution Metrics ---
+
+  GET /api/executions/metrics
+    Query Params:  agentId (optional), from (ISO date), to (ISO date)
+    Response:      ExecutionMetrics
+    Fields:
+      - totalRuns          (int)
+      - successCount       (int)
+      - failCount          (int)
+      - avgDurationMs      (long)
+      - totalTokens        (long)
+      - estimatedCostUsd   (double)
+      - runsByAgent        (Map<String, Integer>)
+
+
+9. DATA FLOW
+================================================================================
+
+  Midnight                SchedulePlanner         MongoDB
+    |                          |                      |
+    | (cron fires)             |                      |
+    |------------------------->|                      |
+    |                          |-- delete yesterday's |
+    |                          |   non-running items->|
+    |                          |-- rebuild today's    |
+    |                          |   future_executions->|
+    |                          |-- emit MIDNIGHT_     |
+    |                          |   REBUILD event ---->|
+    |                          |                      |
+
+  Every 60s              SchedulePlanner         MongoDB
+    |                          |                      |
+    | (tick)                   |                      |
+    |------------------------->|                      |
+    |                          |-- query changed      |
+    |                          |   schedules -------->|
+    |                          |<-- changed list -----|
+    |                          |-- upsert/cancel      |
+    |                          |   future items ----->|
+    |                          |                      |
+
+  Every 5s               ExecutionEngine         MongoDB        AgentLoop
+    |                          |                    |                |
+    | (tick)                   |                    |                |
+    |------------------------->|                    |                |
+    |                          |-- query READY      |                |
+    |                          |   items ---------->|                |
+    |                          |<-- candidates -----|                |
+    |                          |-- findAndModify    |                |
+    |                          |   (claim) -------->|                |
+    |                          |                    |                |
+    |                          |-- submit to thread pool             |
+    |                          |         |                           |
+    |                          |         |-- mark RUNNING ---------->|
+    |                          |         |-- start heartbeat         |
+    |                          |         |-- AgentLoop.run() ------->|
+    |                          |         |                           |
+    |                          |         |     [agent executes tools, LLM calls]
+    |                          |         |                           |
+    |                          |         |<-- result (success/fail) -|
+    |                          |         |-- insert past_execution ->|
+    |                          |         |-- remove/terminal future->|
+    |                          |         |-- stop heartbeat          |
+    |                          |         |-- emit EXEC_FINISHED ---->|
+    |                          |                    |                |
+
+  Manual Trigger         Client      ScheduleController     MongoDB
+    |                      |                |                    |
+    |-- POST /trigger ---->|                |                    |
+    |                      |-- insert       |                    |
+    |                      |   immediate -->|                    |
+    |                      |                |-- future_execution |
+    |                      |                |   (READY, now) --->|
+    |<-- 202 Accepted -----|                |                    |
+    |                      |                |                    |
+    |   (executor picks up on next 5s poll cycle)                |
+
+
+10. END-TO-END EXAMPLE
+================================================================================
+
+  Given these schedules:
+
+  1. "reconciler"    CRON: "0 0 */2 * * *"  tz: America/Denver  scope: PROJECT
+     -> runs every 2 hours: 00:00, 02:00, 04:00, ..., 22:00 MST
+
+  2. "thread-extractor"  FIXED_TIMES: ["09:00","17:00"]  tz: America/Denver
+     -> runs at 9am and 5pm MST daily
+
+  3. "distiller"     INTERVAL: 30 minutes  tz: UTC  scope: GLOBAL
+     -> runs every 30 minutes: 00:00, 00:30, 01:00, ...
+
+  Midnight Rebuild (America/Denver, 00:00 MST = 07:00 UTC):
+    - Planner creates 12 future_executions for reconciler (every 2h)
+    - Planner creates 2 future_executions for thread-extractor (09:00, 17:00)
+
+  Midnight Rebuild (UTC, 00:00 UTC):
+    - Planner creates 48 future_executions for distiller (every 30m)
+
+  At 09:00 MST:
+    - Executor picks up thread-extractor READY item
+    - Claims via findAndModify
+    - Runs AgentLoop -> reads threads -> extracts TODOs/reminders
+    - Inserts past_execution: SUCCESS, 45s duration, 3 reminders created
+    - Deletes the future_execution item
+
+  At 10:00 MST:
+    - Executor picks up reconciler READY item
+    - Runs AgentLoop -> reads tickets/objectives -> finds 2 blindspots
+    - Inserts past_execution: SUCCESS, 120s duration, 2 blindspots created
+
+  At 10:15 MST (user triggers manual run):
+    - POST /api/executions/trigger { agentId: "reconciler", projectId: "xyz" }
+    - Creates immediate future_execution (READY, now)
+    - Executor picks up on next 5s cycle
+    - Runs and records as normal
+
+  At 10:30 MST (schedule updated):
+    - PUT /api/schedules/{id} -> thread-extractor now FIXED_TIMES: ["09:00","13:00","17:00"]
+    - Version bumped
+    - Next planner cycle (within 60s) detects change:
+      * Existing 17:00 item retained (idempotencyKey matches)
+      * New 13:00 item created (READY)
+      * 09:00 already executed — no action needed
+
+
+11. FILE MANIFEST
+================================================================================
+
+  NEW FILES:
+  ----------
+  protocol/  ScheduleType.java              - Enum (CRON/FIXED_TIMES/etc.)
+  protocol/  ProjectScope.java              - Enum (GLOBAL/PROJECT)
+  protocol/  ExecStatus.java                - Enum (READY/PENDING/RUNNING/etc.)
+  protocol/  ResultStatus.java              - Enum (SUCCESS/FAIL/etc.)
+  protocol/  ScheduleRequest.java           - Schedule CRUD DTO
+  protocol/  ScheduleResponse.java          - Schedule response DTO
+  protocol/  ExecutionStatusResponse.java   - Future execution DTO
+  protocol/  PastExecutionResponse.java     - Past execution DTO
+
+  persistence/ AgentScheduleDocument.java   - Schedule definition document
+  persistence/ AgentScheduleRepository.java - Schedule Spring Data repo
+  persistence/ FutureExecutionDocument.java - Today's execution queue document
+  persistence/ FutureExecutionRepository.java - Future exec repo
+  persistence/ PastExecutionDocument.java   - Execution history document
+  persistence/ PastExecutionRepository.java - Past exec repo
+
+  runtime/   SchedulePlannerService.java    - Keeps future_executions current
+  runtime/   ExecutionEngineService.java    - Claims and runs READY items
+  runtime/   LeaseHeartbeatService.java     - Lease renewal for long runs
+
+  gateway/   SchedulerConfig.java           - ThreadPool + scheduler beans
+  gateway/   ScheduleController.java        - Schedule + execution endpoints
+
+  MODIFIED FILES:
+  ---------------
+  protocol/event/EventType.java              - 10 new scheduler event types
+  gateway/application.yml                    - javaclaw.scheduler.* properties
+  gateway/JavaClawApplication.java           - @EnableScheduling annotation
+  persistence/mongo-init.js                  - 3 new collection indexes
+                                               (agent_schedules,
+                                                future_executions,
+                                                past_executions)
+
+
+12. ENDPOINT SUMMARY
+================================================================================
+
+  Method  Path                                          Description
+  ------  --------------------------------------------  ---------------------------
+  POST    /api/schedules                                Create agent schedule
+  GET     /api/schedules                                List schedules
+  GET     /api/schedules/{sid}                          Get schedule detail
+  PUT     /api/schedules/{sid}                          Update schedule
+  DELETE  /api/schedules/{sid}                          Delete schedule
+  GET     /api/executions/future                        Today's execution queue
+  POST    /api/executions/future/{eid}/cancel           Cancel queued execution
+  POST    /api/executions/trigger                       Manual immediate trigger
+  GET     /api/executions/past                          Execution history (paged)
+  GET     /api/executions/past/{peid}                   Past execution detail
+  GET     /api/executions/metrics                       Execution metrics/stats
+
+
+13. TESTING STRATEGY
+================================================================================
+
+  a) Unit Tests:
+     - SchedulePlannerService:
+       * Given a CRON schedule, verify correct future_execution times generated
+       * Given a FIXED_TIMES schedule, verify items for each time
+       * Given an INTERVAL schedule, verify items at correct intervals
+       * Verify version drift cancels stale items
+       * Verify midnight rebuild clears and regenerates
+       * Verify idempotencyKey prevents duplicates on replanner runs
+
+     - ExecutionEngineService:
+       * Verify atomic claim via findAndModify (mock MongoTemplate)
+       * Verify RUNNING status set before AgentLoop called
+       * Verify past_execution inserted on success with correct metrics
+       * Verify retry logic: attempt++, backoff, FAILED_RETRYABLE
+       * Verify max attempts exceeded -> CANCELLED
+       * Verify per-agent concurrency cap respected
+       * Verify stale lease recovery resets stuck items
+
+     - LeaseHeartbeatService:
+       * Verify heartbeat updates leaseUntil every 30s
+       * Verify heartbeat stops on cancellation
+
+  b) Integration Tests:
+     - Full cycle: create schedule -> planner generates items ->
+       executor claims -> AgentLoop runs (test mode) -> past_execution
+       recorded with SUCCESS
+     - Manual trigger: POST /trigger -> immediate item created ->
+       picked up within 5s -> executed
+     - Schedule update: change times -> planner cancels old, creates new
+     - Failure + retry: agent fails -> FAILED_RETRYABLE -> backoff ->
+       re-claimed -> succeeds on attempt 2
+     - Concurrent claims: two executor instances race for same item ->
+       only one wins (findAndModify atomicity)
+
+  c) Timezone Tests:
+     - Schedule in America/Denver, server in UTC -> verify correct
+       scheduledAt Instants computed
+     - Midnight rebuild at correct local time per timezone
+     - DST transition: verify spring-forward/fall-back handled
+       (schedule at 02:30 during DST change)
+
+
+14. RISKS & CONSIDERATIONS
+================================================================================
+
+  a) Clock Skew:
+     - Multiple server instances may have slightly different clocks
+     - Mitigation: Use MongoDB server time for comparisons where possible;
+       leaseUntil has 30s grace period; NTP sync recommended
+
+  b) Scheduler Starvation:
+     - Too many agents scheduled at same time overwhelms thread pool
+     - Mitigation: Priority field ensures critical agents run first;
+       per-agent maxConcurrent caps prevent one agent hogging all threads;
+       queue capacity + CallerRunsPolicy provides backpressure
+
+  c) Long-Running Agents:
+     - Some agents (e.g., reconciler on large projects) may run 5+ minutes
+     - Mitigation: Lease heartbeat extends leaseUntil while running;
+       configurable lease duration; past_execution records durationMs
+       for monitoring
+
+  d) Schedule Explosion:
+     - INTERVAL of 1 minute across 50 projects = 72,000 future items/day
+     - Mitigation: Minimum interval enforced (e.g., 5 minutes); TTL index
+       auto-cleans completed items after 48h; warn on schedule creation
+       if daily execution count > threshold
+
+  e) Idempotency on Restart:
+     - App restart mid-day should not duplicate future_executions
+     - Mitigation: idempotencyKey unique index prevents dupes; planner
+       upserts rather than blind inserts; RUNNING items recovered via
+       stale lease detection
+
+  f) Cost Control:
+     - Scheduled agents consume LLM tokens automatically
+     - Mitigation: past_executions.llmMetrics tracks token usage;
+       /api/executions/metrics endpoint shows cost estimates;
+       executorPolicy.riskGate can require approval for expensive agents;
+       schedules can be disabled per-project
+
+================================================================================
+ END OF PLAN
+================================================================================

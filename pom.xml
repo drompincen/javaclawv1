@@ -16,7 +16,7 @@
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>JavaClaw</name>
-    <description>AI agent workbench with project management, LLM integration, and desktop UI</description>
+    <description>AI agent workbench with project management, LLM integration, and web UI</description>
     <url>https://github.com/drompincen/javaclawv1</url>
 
     <licenses>
@@ -46,7 +46,7 @@
         <module>runtime</module>
         <module>tools</module>
         <module>gateway</module>
-        <module>ui</module>
+        <!-- ui module deprecated: web UI now served from gateway static resources -->
     </modules>
 
     <properties>
@@ -56,7 +56,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-ai.version>1.0.0-M6</spring-ai.version>
         <langgraph4j.version>1.8.2</langgraph4j.version>
-        <flatlaf.version>3.4</flatlaf.version>
         <poi.version>5.2.5</poi.version>
     </properties>
 
@@ -107,13 +106,6 @@
                 <groupId>org.bsc.langgraph4j</groupId>
                 <artifactId>langgraph4j-core</artifactId>
                 <version>${langgraph4j.version}</version>
-            </dependency>
-
-            <!-- FlatLaf (Swing look and feel) -->
-            <dependency>
-                <groupId>com.formdev</groupId>
-                <artifactId>flatlaf</artifactId>
-                <version>${flatlaf.version}</version>
             </dependency>
 
             <!-- Apache POI (Excel support) -->

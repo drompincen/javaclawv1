@@ -49,7 +49,7 @@ public class CreateReminderTool implements Tool {
     }
 
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
-    @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.WRITE_FILES); }
+    @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
     public void setReminderRepository(ReminderRepository reminderRepository) {
         this.reminderRepository = reminderRepository;
@@ -82,6 +82,11 @@ public class CreateReminderTool implements Tool {
         doc.setTriggered(false);
         doc.setRecurring(input.path("recurring").asBoolean(false));
         doc.setSessionId(ctx.sessionId());
+
+        String sourceThreadId = input.path("sourceThreadId").asText(null);
+        if (sourceThreadId != null && !sourceThreadId.isBlank()) {
+            doc.setSourceThreadId(sourceThreadId);
+        }
 
         String triggerAtStr = input.path("triggerAt").asText(null);
         if (triggerAtStr != null && !triggerAtStr.isBlank()) {

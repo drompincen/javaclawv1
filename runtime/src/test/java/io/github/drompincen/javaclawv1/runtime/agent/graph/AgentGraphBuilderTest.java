@@ -481,6 +481,34 @@ class AgentGraphBuilderTest {
     }
 
     // ---------------------------------------------------------------
+    // 12. Forced agent routing skips controller
+    // ---------------------------------------------------------------
+
+    @Test
+    void runGraph_forcedAgentId_skipsControllerAndRoutesDirectly() {
+        AgentDocument threadExtractor = makeAgent("thread-extractor", AgentRole.SPECIALIST, "You extract action items.");
+        when(agentRepository.findByEnabledTrue())
+                .thenReturn(List.of(controller, generalist, checker, threadExtractor));
+
+        when(llmService.streamResponse(any()))
+                .thenReturn(Flux.just("Extracted 3 items from thread."));
+
+        AgentState initial = makeState("thread-13", "extract items from thread");
+        initial.setForcedAgentId("thread-extractor");
+        AgentState result = builder.runGraph(initial);
+
+        // Specialist should have been called via streamResponse (pipeline mode)
+        assertThat(allAssistantMessages(result)).anyMatch(m -> m.equals("Extracted 3 items from thread."));
+
+        // Forced agent routing skips controller AND checker — no blockingResponse calls
+        verify(llmService, never()).blockingResponse(any());
+
+        // AGENT_DELEGATED should have been emitted (from forced routing)
+        verify(eventService).emit(eq("thread-13"), eq(EventType.AGENT_DELEGATED),
+                argThat(m -> m instanceof Map && "thread-extractor".equals(((Map<?,?>) m).get("targetAgentId"))));
+    }
+
+    // ---------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------
 

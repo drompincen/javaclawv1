@@ -5,5 +5,6 @@ public enum ToolRiskProfile {
     WRITE_FILES,
     EXEC_SHELL,
     BROWSER_CONTROL,
-    NETWORK_CALLS
+    NETWORK_CALLS,
+    AGENT_INTERNAL
 }

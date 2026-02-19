@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 5 Plan Creation Test",
+  "description": "E2E: Plan agent creates phases and milestones from seeded threads, generates plan artifact",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed threads",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Evidence Service Design",
+            "content": "Define evidence service API, storage model, and validation rules. Use S3 for storage, REST API with versioning. Owner: Alice."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Onboarding Flow",
+            "content": "Client onboarding steps including identity verification and document upload. 3-step wizard with KYC check integration. Owner: Bob."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create plan from threads",
+      "userQuery": "Create a plan from the current threads",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"plan-agent\", \"subTask\": \"create phases and milestones from threads\"}"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Analysing threads to derive project plan. Creating phases and milestones.\n\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Phase 1: Facade and Tooling\", \"sortOrder\": 1, \"description\": \"Stand up Evidence Service API facade, set up S3 storage, configure CI/CD pipeline and test harness\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Phase 2: Threaded Execution\", \"sortOrder\": 2, \"description\": \"Implement onboarding wizard, integrate KYC checks, build upload component, wire end-to-end flow\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Phases created. Now creating milestones for each phase.\n\n<tool_call>\n{\"name\": \"create_milestone\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Evidence Service API Ready\", \"targetDate\": \"2026-03-15\", \"owner\": \"Alice\", \"description\": \"Evidence API operational with S3 integration and validation rules passing\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_milestone\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Onboarding Flow Complete\", \"targetDate\": \"2026-03-28\", \"owner\": \"Bob\", \"description\": \"Onboarding wizard with identity verification and document upload live in staging\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Generating plan artifact.\n\n<tool_call>\n{\"name\": \"generate_plan_artifact\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Plan created from 2 threads:\n\n**Phase 1: Facade and Tooling** (sort: 1)\n- Evidence Service API facade, S3 storage setup, CI/CD pipeline\n- Milestone: Evidence Service API Ready — Owner: Alice, Target: 2026-03-15\n\n**Phase 2: Threaded Execution** (sort: 2)\n- Onboarding wizard, KYC integration, upload component\n- Milestone: Onboarding Flow Complete — Owner: Bob, Target: 2026-03-28\n\nPlan artifact generated for project dashboard."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Plan agent created 2 phases and 2 milestones from thread analysis. Phase 1 covers Evidence Service (due Mar 15), Phase 2 covers Onboarding (due Mar 28). Plan artifact generated.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "phases",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "phases",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "name", "anyMatchPattern": "Facade"}
+          },
+          {
+            "collection": "milestones",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "milestones",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "name", "anyMatchPattern": "Evidence Service"}
+          }
+        ],
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/phases",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/milestones",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2,
+            "bodyContains": "Onboarding"
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "Phase"
+        }
+      }
+    }
+  ]
+}

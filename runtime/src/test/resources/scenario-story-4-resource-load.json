@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 4 Resource Load Test",
+  "description": "E2E: Resource agent maps people to tickets to objectives and analyses capacity load",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed threads, tickets, objectives, and resources",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Evidence Service Design",
+            "content": "Define evidence service API, storage model, and validation rules."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Onboarding Flow",
+            "content": "Client onboarding steps including identity verification and document upload."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-101: Build Evidence API",
+            "description": "Epic: Evidence Service | Owner: Alice | Estimate: 30h",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-102: UI for onboarding",
+            "description": "Epic: Onboarding | Owner: Bob | Estimate: 20h",
+            "priority": "MEDIUM"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-103: Validation rules",
+            "description": "Epic: Evidence Service | Owner: Alice | Estimate: 25h",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-104: Refactor intake",
+            "description": "Epic: (none) | Owner: Bob | Estimate: 15h",
+            "priority": "LOW"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 7",
+            "outcome": "Deliver Evidence Service MVP",
+            "measurableSignal": "Evidence API passes integration tests",
+            "risks": ["Retention policy undecided"],
+            "coveragePercent": 50
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 7",
+            "outcome": "Complete Onboarding Flow",
+            "measurableSignal": "Onboarding wizard passes UAT",
+            "risks": ["Dependency on Evidence API"],
+            "coveragePercent": 0
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Alice",
+            "role": "ENGINEER",
+            "skills": ["Java", "Spring", "MongoDB"],
+            "capacity": 40
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Bob",
+            "role": "ENGINEER",
+            "skills": ["React", "TypeScript", "Java"],
+            "capacity": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analyse resource load",
+      "userQuery": "Who is working on what this sprint?",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"resource-agent\", \"subTask\": \"resource mapping and capacity analysis\"}"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "Reading resources and computing capacity report.\n\n<tool_call>\n{\"name\": \"read_resources\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"capacity_report\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "Resource load analysis for Sprint 7:\n\n**Alice (Platform — Engineer)**\n- Capacity: 40h/sprint\n- Assigned: J-101 Build Evidence API (30h) + J-103 Validation rules (25h) = 55h\n- Load: 138% — OVERLOADED\n- Objective: Deliver Evidence Service MVP\n- Risk: Alice is 15h over capacity. Validation rules may slip.\n\n**Bob (Platform — Engineer)**\n- Capacity: 40h/sprint\n- Assigned: J-102 UI for onboarding (20h) + J-104 Refactor intake (15h) = 35h\n- Load: 88% — has 5h spare capacity\n- Objective: Complete Onboarding Flow\n\n**Recommendation:** Consider moving J-103 (Validation rules) to Bob to balance load. Bob has relevant Java skills and 5h spare capacity, though the ticket estimate (25h) exceeds his remaining bandwidth. Alternatively, split J-103 across both engineers."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Resource agent mapped 2 engineers to 4 tickets across 2 objectives. Identified Alice as overloaded at 138% and Bob with spare capacity at 88%. Actionable rebalancing recommendation provided.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/resources",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/tickets",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 4
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/objectives",
+            "expectedStatus": 200
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "capacity"
+        }
+      }
+    }
+  ]
+}

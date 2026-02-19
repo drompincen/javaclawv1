@@ -1,0 +1,32 @@
+{
+  "projectName": "Project Alpha",
+  "description": "Intake pipeline: triage meeting notes with 3 topics, expect classify_content tool call and structured output",
+  "steps": [
+    {
+      "userQuery": "use project Project Alpha",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Classify and organize the following raw content. Identify distinct topics and for each topic provide:\n\n### Topic: [Topic Name]\n**Type:** [architecture_decision / open_question / action_item / discussion]\n**Decisions:** [list]\n**Open Questions:** [list]\n**Action Items:** [list]\n**Key Content:** [organized notes]\n\nUse `classify_content` to determine the overall content type first.\n\n---\nRAW CONTENT:\nMeeting: KYC-SVC Architecture Review\nDate: 2026-02-15\nAttendees: Alice, Bob, Charlie, Dave\n\n1. KYC Service Phase 1\n- Agreed to use event-driven architecture with Kafka\n- Bob to set up Kafka cluster by Friday\n- Decision: PostgreSQL for primary store, Redis for caching\n- Open question: should we use gRPC or REST for inter-service calls?\n\n2. Evidence Service Discussion\n- Charlie presented the evidence collection flow\n- Decision: store evidence in S3 with metadata in MongoDB\n- Action: Charlie to write the evidence API spec by next Wednesday\n- Action: Dave to review existing evidence schemas\n- Question: how do we handle evidence expiry?\n\n3. Operational Readiness\n- Need ORR checklist before go-live\n- Alice to create the ORR template\n- Decision: target go-live date is March 15\n- Must have monitoring dashboards ready\n- Need runbook for incident response",
+      "description": "Intake triage classifies meeting notes with 3 distinct topics",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"intake-triage\", \"subTask\": \"classify and triage meeting notes with multiple topics\"}"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "I'll classify this content first.\n\n<tool_call>\n{\"name\": \"classify_content\", \"args\": {\"content\": \"Meeting: KYC-SVC Architecture Review\\nDate: 2026-02-15\\nAttendees: Alice, Bob, Charlie, Dave\\n\\n1. KYC Service Phase 1 - event-driven architecture with Kafka\\n2. Evidence Service Discussion - evidence collection flow\\n3. Operational Readiness - ORR checklist before go-live\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Content classified as **MEETING_NOTES** (confidence: 0.95)\n\n### Topic: KYC Service Phase 1 Architecture\n**Type:** architecture_decision\n**Decisions:**\n- Use event-driven architecture with Kafka\n- PostgreSQL for primary store, Redis for caching\n**Open Questions:**\n- Should we use gRPC or REST for inter-service calls?\n**Action Items:**\n- Bob to set up Kafka cluster by Friday\n**Key Content:** Architecture decisions for the KYC service first phase.\n\n### Topic: Evidence Service Discussion\n**Type:** discussion\n**Decisions:**\n- Store evidence in S3 with metadata in MongoDB\n**Open Questions:**\n- How do we handle evidence expiry?\n**Action Items:**\n- Charlie to write the evidence API spec by next Wednesday\n- Dave to review existing evidence schemas\n**Key Content:** Evidence collection flow design and storage decisions.\n\n### Topic: Operational Readiness\n**Type:** action_item\n**Decisions:**\n- Target go-live date is March 15\n**Open Questions:** (none)\n**Action Items:**\n- Alice to create the ORR template\n- Set up monitoring dashboards\n- Create runbook for incident response\n**Key Content:** Pre-launch operational readiness requirements."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Intake triage correctly classified meeting notes and organized into 3 distinct topics with structured output\"}"
+        }
+      ]
+    }
+  ]
+}

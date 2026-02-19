@@ -9,7 +9,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @ConditionalOnProperty(name = "javaclaw.scenario.file")
@@ -21,6 +25,12 @@ public class ScenarioService {
     private ScenarioConfig config;
     private ScenarioConfigV2 configV2;
     private boolean v2;
+
+    /** Per-agent response counter for pipeline mode (cycles through responses in order) */
+    private final Map<String, AtomicInteger> agentResponseCounters = new ConcurrentHashMap<>();
+
+    /** Current project ID for template resolution in pipeline scenario responses */
+    private volatile String currentProjectId;
 
     public ScenarioService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -58,6 +68,8 @@ public class ScenarioService {
     /**
      * Looks up a response for the given (userQuery, agentName) pair.
      * Works for both v1 and v2 scenarios (v2 steps reuse AgentResponse).
+     * Falls back to agent-name-only cycling for pipeline sessions where
+     * the userQuery is a dynamically built prompt that won't match any step.
      */
     public String getResponseForAgent(String userQuery, String agentName) {
         if (userQuery == null || agentName == null) return null;
@@ -70,7 +82,9 @@ public class ScenarioService {
             List<ScenarioConfig.AgentResponse> responses = getAgentResponses(step);
             if (responses == null) continue;
             if (userQuery.equals(getUserQuery(step))) {
-                return findAgentResponse(responses, agentName);
+                String response = findAgentResponse(responses, agentName);
+                if (response != null) return resolveTemplates(response);
+                break; // Step matched but agent exhausted — fall through to pipeline fallback
             }
         }
 
@@ -79,11 +93,52 @@ public class ScenarioService {
             List<ScenarioConfig.AgentResponse> responses = getAgentResponses(step);
             if (responses == null) continue;
             if (userQuery.equalsIgnoreCase(getUserQuery(step))) {
-                return findAgentResponse(responses, agentName);
+                String response = findAgentResponse(responses, agentName);
+                if (response != null) return resolveTemplates(response);
+                break; // Step matched but agent exhausted — fall through to pipeline fallback
             }
         }
 
-        return null;
+        // Pipeline fallback: no exact query match → cycle through responses by agent name
+        String pipelineResponse = getNextResponseForAgent(agentName);
+        if (pipelineResponse != null) {
+            log.info("[Scenario] Pipeline fallback: returning response #{} for agent '{}'",
+                    agentResponseCounters.get(agentName).get(), agentName);
+            pipelineResponse = resolveTemplates(pipelineResponse);
+        }
+        return pipelineResponse;
+    }
+
+    /**
+     * Get the next response for an agent, cycling through all responses across all steps.
+     * Used for pipeline sessions where the dynamically built prompt won't match any step's userQuery.
+     */
+    public String getNextResponseForAgent(String agentName) {
+        // Collect all responses for this agent across all steps
+        List<String> allResponses = collectAllResponsesForAgent(agentName);
+        if (allResponses.isEmpty()) return null;
+
+        AtomicInteger counter = agentResponseCounters.computeIfAbsent(agentName, k -> new AtomicInteger(0));
+        int idx = counter.getAndIncrement();
+        if (idx >= allResponses.size()) return null; // exhausted all responses
+        return allResponses.get(idx);
+    }
+
+    private List<String> collectAllResponsesForAgent(String agentName) {
+        List<String> result = new ArrayList<>();
+        List<? extends Object> steps = v2 ? getV2Steps() : getSteps();
+        if (steps == null) return result;
+
+        for (Object step : steps) {
+            List<ScenarioConfig.AgentResponse> responses = getAgentResponses(step);
+            if (responses == null) continue;
+            for (ScenarioConfig.AgentResponse ar : responses) {
+                if (agentName.equals(ar.agentName()) && ar.responseFallback() != null) {
+                    result.add(ar.responseFallback());
+                }
+            }
+        }
+        return result;
     }
 
     private String getUserQuery(Object step) {
@@ -99,12 +154,22 @@ public class ScenarioService {
     }
 
     private String findAgentResponse(List<ScenarioConfig.AgentResponse> responses, String agentName) {
+        // Collect all responses for this agent in order
+        List<String> agentResponses = new ArrayList<>();
         for (ScenarioConfig.AgentResponse ar : responses) {
-            if (agentName.equals(ar.agentName())) {
-                return ar.responseFallback();
+            if (agentName.equals(ar.agentName()) && ar.responseFallback() != null) {
+                agentResponses.add(ar.responseFallback());
             }
         }
-        return null;
+        if (agentResponses.isEmpty()) return null;
+
+        // Always use counter-based cycling — this ensures each response is delivered
+        // exactly once, even for single-response agents. When exhausted, return null
+        // so the caller can fall through to pipeline fallback or TestLLMConsumer.
+        AtomicInteger counter = agentResponseCounters.computeIfAbsent(agentName, k -> new AtomicInteger(0));
+        int idx = counter.getAndIncrement();
+        if (idx >= agentResponses.size()) return null; // exhausted — let caller handle fallback
+        return agentResponses.get(idx);
     }
 
     public String getProjectName() {
@@ -136,6 +201,24 @@ public class ScenarioService {
         this.config = null;
         this.configV2 = null;
         this.v2 = false;
+        this.agentResponseCounters.clear();
+        this.currentProjectId = null;
+    }
+
+    /** Reset only the per-agent response counters (for pipeline retries within the same scenario). */
+    public void resetCounters() {
+        agentResponseCounters.clear();
+    }
+
+    /** Set the current project ID for template resolution in scenario responses. */
+    public void setProjectId(String projectId) {
+        this.currentProjectId = projectId;
+    }
+
+    /** Replace {{projectId}} templates in scenario responses with the actual project ID. */
+    private String resolveTemplates(String response) {
+        if (response == null || currentProjectId == null) return response;
+        return response.replace("{{projectId}}", currentProjectId);
     }
 
     // Package-private for testing

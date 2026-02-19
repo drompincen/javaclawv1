@@ -12,6 +12,7 @@ public class ResourceAssignmentDocument {
     private String assignmentId;
     private String resourceId;
     private String ticketId;
+    private String projectId;
     private double percentageAllocation;
 
     public ResourceAssignmentDocument() {}
@@ -24,6 +25,9 @@ public class ResourceAssignmentDocument {
 
     public String getTicketId() { return ticketId; }
     public void setTicketId(String ticketId) { this.ticketId = ticketId; }
+
+    public String getProjectId() { return projectId; }
+    public void setProjectId(String projectId) { this.projectId = projectId; }
 
     public double getPercentageAllocation() { return percentageAllocation; }
     public void setPercentageAllocation(double percentageAllocation) { this.percentageAllocation = percentageAllocation; }

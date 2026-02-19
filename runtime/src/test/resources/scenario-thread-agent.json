@@ -1,0 +1,54 @@
+{
+  "projectName": "Project Alpha",
+  "description": "Thread agent: create, rename, and attach evidence to threads",
+  "steps": [
+    {
+      "userQuery": "use project Project Alpha",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Create a new thread about CI/CD pipeline setup for Project Alpha. Title it ALPHA-cicd-pipeline-2026-02.",
+      "description": "Thread agent creates a new thread",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"thread-agent\", \"subTask\": \"create thread for CI/CD pipeline\"}"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "I'll create a new thread for the CI/CD pipeline setup.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"project-alpha\", \"title\": \"ALPHA-cicd-pipeline-2026-02\", \"summary\": \"CI/CD pipeline setup and configuration for Project Alpha\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Thread created successfully: ALPHA-cicd-pipeline-2026-02. The thread is now active and ready for discussion."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Thread agent created thread with proper naming convention\"}"
+        }
+      ]
+    },
+    {
+      "userQuery": "Rename thread thread-001 to ALPHA-db-migration-2026-02 because its content is about database migration.",
+      "description": "Thread agent renames a thread",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"thread-agent\", \"subTask\": \"rename thread\"}"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "I'll rename the thread with the proper naming convention.\n\n<tool_call>\n{\"name\": \"rename_thread\", \"args\": {\"threadId\": \"thread-001\", \"newTitle\": \"ALPHA-db-migration-2026-02\", \"reason\": \"Content discusses database migration strategy\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Thread renamed from 'untitled-thread-1' to 'ALPHA-db-migration-2026-02'."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Thread renamed with proper convention\"}"
+        }
+      ]
+    }
+  ]
+}

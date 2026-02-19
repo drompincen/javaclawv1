@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Thread Update on Re-intake Test",
+  "description": "Verifies that re-intaking content about an existing thread topic appends content rather than creating a duplicate",
+  "defaults": {
+    "maxWaitMs": 60000
+  },
+  "steps": [
+    {
+      "name": "Initial intake creates thread",
+      "type": "pipeline",
+      "pipelineContent": "Evidence Service Design notes:\n- Define evidence service API, storage model, and validation rules.\n- Decisions: Use S3 for storage, REST API with versioning.\n- Open questions: retention policy.",
+      "agentResponses": [
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Classifying content.\n\n<tool_call>\n{\"name\": \"classify_content\", \"args\": {\"content\": \"Evidence Service Design notes\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** Use S3 for storage, REST API with versioning\n**Key Content:** Define evidence service API, storage model, and validation rules.\n\n### Routes\nTHREAD: yes\nTICKETS: no\nPLAN: no\nRESOURCES: no"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Creating thread.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Evidence Service Design\", \"content\": \"## Evidence Service Design\\n\\nDefine evidence service API, storage model, and validation rules.\\n\\n**Decisions:**\\n- Use S3 for storage\\n- REST API with versioning\", \"decisions\": [\"Use S3 for storage\", \"REST API with versioning\"], \"actions\": []}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Created thread 'Evidence Service Design'."
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}", "title": "Evidence Service Design"},
+            "assert": {"countEq": 1}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"anyMatchField": "content", "anyMatchPattern": "S3"}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Re-intake with updated content about same topic",
+      "type": "pipeline",
+      "pipelineContent": "Updated Evidence Service Design notes:\n- Retention policy decided: 7 years for regulatory compliance\n- Add versioning to evidence documents\n- New action: implement audit trail (Charlie)\n\nDecisions: 7-year retention, versioned documents",
+      "agentResponses": [
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Classifying content.\n\n<tool_call>\n{\"name\": \"classify_content\", \"args\": {\"content\": \"Updated Evidence Service Design notes\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** 7-year retention, versioned documents\n**Action Items:** Implement audit trail (Charlie)\n**Key Content:** Updated evidence service design with retention policy and versioning decisions.\n\n### Routes\nTHREAD: yes\nTICKETS: no\nPLAN: no\nRESOURCES: no"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Updating existing thread with new content.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Evidence Service Design\", \"content\": \"## Updated Design Notes\\n\\nRetention policy decided: 7 years for regulatory compliance.\\nAdd versioning to evidence documents.\\n\\n**New Decisions:**\\n- 7-year retention for regulatory compliance\\n- Versioned documents\", \"decisions\": [\"7-year retention for regulatory compliance\", \"Versioned documents\"], \"actions\": [{\"text\": \"Implement audit trail\", \"assignee\": \"Charlie\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Updated existing thread 'Evidence Service Design' with new content and decisions."
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}", "title": "Evidence Service Design"},
+            "assert": {"countEq": 1}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"anyMatchField": "content", "anyMatchPattern": "retention"}
+          }
+        ]
+      }
+    }
+  ]
+}

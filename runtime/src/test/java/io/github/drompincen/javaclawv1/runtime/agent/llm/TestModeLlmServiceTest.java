@@ -218,7 +218,8 @@ class TestModeLlmServiceTest {
         TestModeLlmService service = new TestModeLlmService(
                 testPromptRepository, objectMapper, 2_000, scenarioService);
 
-        // Use a query that does NOT match the scenario
+        // Use a query that does NOT match the scenario step's userQuery,
+        // but pipeline fallback cycles through all responses for the agent name
         AgentState state = new AgentState();
         state.setThreadId("scenario-fallback");
         state.setCurrentAgentId("controller");
@@ -228,8 +229,8 @@ class TestModeLlmServiceTest {
 
         String response = service.blockingResponse(state);
 
-        // Falls back to TestResponseGenerator — should get delegation JSON
-        assertThat(response).contains("delegate");
+        // Pipeline fallback returns the first available response for the controller agent
+        assertThat(response).isEqualTo("specific response");
     }
 
     @Test

@@ -39,11 +39,28 @@ public class AgentGraphBuilder {
 
     private static final Logger log = LoggerFactory.getLogger(AgentGraphBuilder.class);
     private static final int MAX_STEPS = 50;
+    private static final int MAX_PIPELINE_STEPS = 3;
     private static final int MAX_RETRIES = 3;
+    private static final int MAX_TOOL_NUDGES = 2;
+
+    private static final String TOOL_CALL_NUDGE =
+            "You described what tools you want to call but did NOT use the required XML format. "
+            + "Your tool calls were NOT executed. You MUST output tool calls using <tool_call> XML blocks. "
+            + "Here is the exact format:\n\n"
+            + "<tool_call>\n{\"name\": \"tool_name\", \"args\": {\"key\": \"value\"}}\n</tool_call>\n\n"
+            + "Output your tool calls NOW using this exact format. Do NOT describe them in prose.";
 
     /** Pattern to match inline tool calls: <tool_call>{"name":"...","args":{...}}</tool_call> */
     private static final Pattern TOOL_CALL_PATTERN =
             Pattern.compile("<tool_call>\\s*(\\{.*?\\})\\s*</tool_call>", Pattern.DOTALL);
+
+    /** Fallback pattern for XML sub-element variant: <tool_call><name>x</name><args>{...}</args></tool_call> */
+    private static final Pattern TOOL_CALL_XML_PATTERN =
+            Pattern.compile("<tool_call>\\s*<name>\\s*(.*?)\\s*</name>\\s*<args>\\s*(\\{.*?\\})\\s*</args>\\s*</tool_call>", Pattern.DOTALL);
+
+    /** Fallback pattern for element-name variant: <tool_call><excel>{...}</excel></tool_call> */
+    private static final Pattern TOOL_CALL_ELEMENT_PATTERN =
+            Pattern.compile("<tool_call>\\s*<(\\w+)>\\s*(\\{.*?\\})\\s*</\\1>\\s*</tool_call>", Pattern.DOTALL);
 
     private final LlmService llmService;
     private final ToolRegistry toolRegistry;
@@ -103,8 +120,17 @@ public class AgentGraphBuilder {
             return runSingleAgent(state);
         }
 
+        // Fast path: forced agent (pipeline) — skip controller/checker loop entirely
+        if (state.getForcedAgentId() != null) {
+            return runForcedAgent(state, agents);
+        }
+
         // Multi-agent orchestration loop
         for (int retry = 0; retry < MAX_RETRIES; retry++) {
+            String delegateAgentId;
+            String directResponse = null;
+            String controllerResponse = null;
+
             // Step 1: Controller decides routing (isolated — fork discarded)
             eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
                     Map.of("toAgent", controller.getAgentId()));
@@ -117,19 +143,20 @@ public class AgentGraphBuilder {
             AgentState controllerState = state.withAgent(controller.getAgentId())
                     .withMessage("system", controller.getSystemPrompt()
                             + "\n\nAvailable specialists:\n" + specialistList);
-            String controllerResponse = callLlmForAgentSilent(controllerState, controller);
+            controllerResponse = callLlmForAgentSilent(controllerState, controller);
             // controllerState is discarded — main state is unchanged
 
             if (controllerResponse == null || controllerResponse.isBlank()) break;
 
             // Parse controller decision
-            String delegateAgentId = parseDelegate(controllerResponse);
-            String directResponse = parseDirectResponse(controllerResponse);
+            delegateAgentId = parseDelegate(controllerResponse);
+            directResponse = parseDirectResponse(controllerResponse);
 
             String specialistOutput;
             if (delegateAgentId != null) {
+                String subTaskDesc = parseSubTask(controllerResponse);
                 log.info("[controller] Delegating to '{}', subTask='{}'",
-                        delegateAgentId, parseSubTask(controllerResponse));
+                        delegateAgentId, subTaskDesc);
                 // Step 2: Delegate to specialist (isolated fork, merged back)
                 AgentDocument specialist = agents.stream()
                         .filter(a -> a.getAgentId().equals(delegateAgentId))
@@ -142,7 +169,7 @@ public class AgentGraphBuilder {
                 }
 
                 eventService.emit(state.getThreadId(), EventType.AGENT_DELEGATED,
-                        Map.of("targetAgentId", delegateAgentId, "subTask", parseSubTask(controllerResponse)));
+                        Map.of("targetAgentId", delegateAgentId, "subTask", subTaskDesc));
 
                 eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
                         Map.of("fromAgent", controller.getAgentId(), "toAgent", specialist.getAgentId()));
@@ -152,13 +179,12 @@ public class AgentGraphBuilder {
                         .withMessage("system", specialist.getSystemPrompt());
 
                 // Inject sub-task so specialist knows what to focus on
-                String subTask = parseSubTask(controllerResponse);
-                if (subTask != null && !"delegated task".equals(subTask)) {
+                if (subTaskDesc != null && !"delegated task".equals(subTaskDesc)) {
                     specialistState = specialistState.withMessage("system",
-                            "Your current task: " + subTask);
+                            "Your current task: " + subTaskDesc);
                 }
 
-                specialistState = runAgentSteps(specialistState, specialist);
+                specialistState = runAgentSteps(specialistState, specialist, MAX_STEPS);
                 specialistOutput = getLastAssistantMessage(specialistState);
 
                 // Merge ONLY the specialist's final output into main state
@@ -235,6 +261,46 @@ public class AgentGraphBuilder {
     }
 
     /**
+     * Fast path for forced-agent routing (pipeline sessions).
+     * Runs the specialist once with a low step limit, no controller or checker.
+     */
+    private AgentState runForcedAgent(AgentState state, List<AgentDocument> agents) {
+        String agentId = state.getForcedAgentId();
+        log.info("[routing] Forced agent routing to '{}' (pipeline mode, max {} steps)",
+                agentId, MAX_PIPELINE_STEPS);
+
+        AgentDocument specialist = agents.stream()
+                .filter(a -> a.getAgentId().equals(agentId))
+                .findFirst().orElse(null);
+
+        if (specialist == null) {
+            eventService.emit(state.getThreadId(), EventType.ERROR,
+                    Map.of("message", "Specialist not found: " + agentId));
+            return state;
+        }
+
+        eventService.emit(state.getThreadId(), EventType.AGENT_DELEGATED,
+                Map.of("targetAgentId", agentId, "subTask", "pipeline"));
+        eventService.emit(state.getThreadId(), EventType.AGENT_SWITCHED,
+                Map.of("toAgent", specialist.getAgentId()));
+
+        AgentState specialistState = state.withAgent(specialist.getAgentId())
+                .withMessage("system", specialist.getSystemPrompt());
+
+        specialistState = runAgentSteps(specialistState, specialist, MAX_PIPELINE_STEPS);
+        String output = getLastAssistantMessage(specialistState);
+
+        state = state.withAgent(specialist.getAgentId())
+                .withMessage("assistant", output);
+
+        eventService.emit(state.getThreadId(), EventType.AGENT_RESPONSE,
+                Map.of("agentId", specialist.getAgentId(),
+                        "response", truncate(output, 500)));
+
+        return state;
+    }
+
+    /**
      * Fallback single-agent mode
      */
     private AgentState runSingleAgent(AgentState state) {
@@ -273,9 +339,11 @@ public class AgentGraphBuilder {
      *   1. Call LLM
      *   2. If response contains <tool_call> blocks → execute tools, feed results back, loop
      *   3. If response is pure text → done
+     *   4. If response describes tools in prose (no XML tags), nudge LLM to use XML format
      */
-    private AgentState runAgentSteps(AgentState state, AgentDocument agent) {
-        for (int step = state.getStepNo(); step <= MAX_STEPS; step++) {
+    private AgentState runAgentSteps(AgentState state, AgentDocument agent, int maxSteps) {
+        int nudgeCount = 0;
+        for (int step = state.getStepNo(); step <= maxSteps; step++) {
             state = state.withStep(step);
             eventService.emit(state.getThreadId(), EventType.AGENT_STEP_STARTED,
                     Map.of("step", step, "agentId", agent.getAgentId()));
@@ -301,7 +369,15 @@ public class AgentGraphBuilder {
                     Map.of("step", step, "agentId", agent.getAgentId(), "done", done));
 
             if (done) {
-                // No tool calls — specialist is finished
+                // Check if LLM described tool calls in prose instead of using XML tags
+                if (nudgeCount < MAX_TOOL_NUDGES && looksLikeProseToolDescription(response, agent)) {
+                    nudgeCount++;
+                    log.warn("[{}] Step {} — LLM described tools in prose (nudge {}/{}), requesting XML format",
+                            agent.getAgentId(), step, nudgeCount, MAX_TOOL_NUDGES);
+                    state = state.withMessage("user", TOOL_CALL_NUDGE);
+                    continue; // Retry — don't break
+                }
+                // No tool calls and not a prose description — specialist is finished
                 if (textPart.isBlank()) {
                     state = state.withMessage("assistant", response);
                 }
@@ -314,6 +390,36 @@ public class AgentGraphBuilder {
             checkpointSaver.save(state.getThreadId(), step, state);
         }
         return state;
+    }
+
+    /**
+     * Check if the LLM's response describes tool usage in prose without actually
+     * emitting <tool_call> XML blocks. This indicates the LLM understood the task
+     * but used the wrong output format.
+     */
+    private boolean looksLikeProseToolDescription(String response, AgentDocument agent) {
+        if (response == null || response.length() < 30) return false;
+        String lower = response.toLowerCase();
+        List<String> tools = agent.getAllowedTools();
+        if (tools == null || tools.isEmpty()) return false;
+
+        // Check if the response mentions any of the agent's tool names
+        boolean mentionsTool = false;
+        for (String tool : tools) {
+            if ("*".equals(tool) || tool == null) continue;
+            if (lower.contains(tool) || lower.contains(tool.replace("_", " "))) {
+                mentionsTool = true;
+                break;
+            }
+        }
+        if (!mentionsTool) return false;
+
+        // Check for prose indicators that suggest describing rather than calling
+        return lower.contains("let me") || lower.contains("i'll ")
+                || lower.contains("i will") || lower.contains("let's")
+                || lower.contains("using the") || lower.contains("call the")
+                || lower.contains("invoke") || lower.contains("i need to")
+                || lower.contains("first, ") || lower.contains("next, ");
     }
 
     /**
@@ -358,11 +464,16 @@ public class AgentGraphBuilder {
     record ToolCallRequest(String name, String argsJson) {}
 
     /**
-     * Parse <tool_call>{"name":"...","args":{...}}</tool_call> blocks from an LLM response.
+     * Parse tool calls from an LLM response. Supports three formats:
+     * 1. JSON:    <tool_call>{"name":"x","args":{...}}</tool_call>
+     * 2. XML:     <tool_call><name>x</name><args>{...}</args></tool_call>
+     * 3. Element: <tool_call><excel>{...}</excel></tool_call>  (tool name as element)
      */
     List<ToolCallRequest> parseToolCalls(String response) {
         if (response == null) return List.of();
         List<ToolCallRequest> calls = new ArrayList<>();
+
+        // Try primary JSON format first
         Matcher matcher = TOOL_CALL_PATTERN.matcher(response);
         while (matcher.find()) {
             String json = matcher.group(1);
@@ -377,6 +488,43 @@ public class AgentGraphBuilder {
                 log.warn("Failed to parse tool call JSON: {}", json, e);
             }
         }
+
+        // If no JSON format found, try XML sub-element format
+        if (calls.isEmpty()) {
+            Matcher xmlMatcher = TOOL_CALL_XML_PATTERN.matcher(response);
+            while (xmlMatcher.find()) {
+                String name = xmlMatcher.group(1).trim();
+                String argsJson = xmlMatcher.group(2).trim();
+                if (!name.isBlank()) {
+                    try {
+                        objectMapper.readTree(argsJson); // validate JSON
+                        calls.add(new ToolCallRequest(name, argsJson));
+                        log.info("Parsed tool call via XML format: {} with args: {}", name, argsJson);
+                    } catch (Exception e) {
+                        log.warn("Failed to parse XML-format tool call args: {}", argsJson, e);
+                    }
+                }
+            }
+        }
+
+        // If still nothing, try element-name format: <tool_call><toolname>{...}</toolname></tool_call>
+        if (calls.isEmpty()) {
+            Matcher elemMatcher = TOOL_CALL_ELEMENT_PATTERN.matcher(response);
+            while (elemMatcher.find()) {
+                String name = elemMatcher.group(1).trim();
+                String argsJson = elemMatcher.group(2).trim();
+                if (!name.isBlank()) {
+                    try {
+                        objectMapper.readTree(argsJson); // validate JSON
+                        calls.add(new ToolCallRequest(name, argsJson));
+                        log.info("Parsed tool call via element-name format: <{}>{}</{}>", name, argsJson, name);
+                    } catch (Exception e) {
+                        log.warn("Failed to parse element-name tool call args: {}", argsJson, e);
+                    }
+                }
+            }
+        }
+
         return calls;
     }
 
@@ -385,7 +533,10 @@ public class AgentGraphBuilder {
      */
     String stripToolCallTags(String response) {
         if (response == null) return "";
-        return TOOL_CALL_PATTERN.matcher(response).replaceAll("").trim();
+        String stripped = TOOL_CALL_PATTERN.matcher(response).replaceAll("");
+        stripped = TOOL_CALL_XML_PATTERN.matcher(stripped).replaceAll("");
+        stripped = TOOL_CALL_ELEMENT_PATTERN.matcher(stripped).replaceAll("");
+        return stripped.trim();
     }
 
     // --- LLM call methods ---
@@ -501,7 +652,8 @@ public class AgentGraphBuilder {
         Tool tool = toolOpt.get();
         Set<ToolRiskProfile> risks = tool.riskProfiles();
 
-        boolean needsApproval = !testMode
+        boolean isPipeline = state.getForcedAgentId() != null;
+        boolean needsApproval = !testMode && !isPipeline
                 && (risks.contains(ToolRiskProfile.WRITE_FILES)
                     || risks.contains(ToolRiskProfile.EXEC_SHELL));
 

@@ -259,7 +259,14 @@ public class ScenarioRunner implements ApplicationRunner {
                 String stepLabel = step.name() != null ? step.name() : step.userQuery();
                 log.info("[ScenarioRunner] Step {}/{}: '{}'", i + 1, total, stepLabel);
 
-                ScenarioReport.StepReport stepReport = playV2Step(baseUrl, sessionId, step, defaults, i + 1, total);
+                ScenarioReport.StepReport stepReport;
+                if ("seed".equals(step.type())) {
+                    stepReport = playSeedStep(baseUrl, step, i + 1, total);
+                } else if ("pipeline".equals(step.type())) {
+                    stepReport = playPipelineStep(baseUrl, step, defaults, i + 1, total);
+                } else {
+                    stepReport = playV2Step(baseUrl, sessionId, step, defaults, i + 1, total);
+                }
                 stepReports.add(stepReport);
                 if (stepReport.allPassed()) {
                     passed++;
@@ -295,6 +302,12 @@ public class ScenarioRunner implements ApplicationRunner {
                                 int stepNum, int totalSteps) {
         String stepName = step.name() != null ? step.name() : step.userQuery();
         try {
+            // Reset scenario response counters and set project ID for template resolution
+            scenarioService.resetCounters();
+            if (scenarioProjectId != null) {
+                scenarioService.setProjectId(scenarioProjectId);
+            }
+
             // Record current max event seq for scoping assertions
             long stepStartEventSeq = getMaxEventSeq(baseUrl, sessionId);
 
@@ -380,7 +393,8 @@ public class ScenarioRunner implements ApplicationRunner {
                         sessionId,
                         scenarioProjectId != null ? scenarioProjectId : scenarioService.getProjectName(),
                         stepStartEventSeq,
-                        finalStatus
+                        finalStatus,
+                        baseUrl
                 );
 
                 List<AssertionResult> results = scenarioAsserts.evaluate(step.expects(), ctx);
@@ -440,6 +454,224 @@ public class ScenarioRunner implements ApplicationRunner {
         return 0;
     }
 
+    // ======================== Pipeline Step Playback ========================
+
+    /**
+     * Plays a pipeline step: creates a project, calls POST /api/intake/pipeline,
+     * polls for completion, then runs assertions against project data.
+     */
+    private ScenarioReport.StepReport playPipelineStep(String baseUrl, ScenarioConfigV2.Step step,
+                                                        ScenarioConfigV2.Defaults defaults,
+                                                        int stepNum, int totalSteps) {
+        String stepName = step.name() != null ? step.name() : "pipeline";
+        try {
+            // 1. Ensure project exists
+            String projectId = scenarioProjectId;
+            if (projectId == null) {
+                projectId = ensureProject(baseUrl, scenarioService.getProjectName());
+                scenarioProjectId = projectId;
+            }
+            if (projectId == null) {
+                return new ScenarioReport.StepReport(stepName, false,
+                        List.of(new AssertionResult("createProject", false, "projectId", "null")));
+            }
+
+            // 2. Reset scenario response counters and set project ID for template resolution
+            scenarioService.resetCounters();
+            scenarioService.setProjectId(projectId);
+
+            // 2b. Set up tool mocks if defined on this step
+            if (toolMockRegistry != null && step.toolMocks() != null) {
+                toolMockRegistry.setCurrentStepMocks(step.toolMocks());
+            }
+
+            // 3. Call POST /api/intake/pipeline
+            String content = step.pipelineContent() != null ? step.pipelineContent() : step.userQuery();
+            java.util.Map<String, Object> pipelineBody = new java.util.LinkedHashMap<>();
+            pipelineBody.put("projectId", projectId);
+            pipelineBody.put("content", content);
+            if (step.filePaths() != null && !step.filePaths().isEmpty()) {
+                pipelineBody.put("filePaths", step.filePaths());
+            }
+
+            String bodyJson = objectMapper.writeValueAsString(pipelineBody);
+            HttpRequest pipelineReq = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/intake/pipeline"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(bodyJson))
+                    .build();
+
+            HttpResponse<String> pipelineResp = httpClient.send(pipelineReq, HttpResponse.BodyHandlers.ofString());
+            if (pipelineResp.statusCode() != 200 && pipelineResp.statusCode() != 202) {
+                return new ScenarioReport.StepReport(stepName, false,
+                        List.of(new AssertionResult("startPipeline", false, "200|202",
+                                pipelineResp.statusCode() + ": " + pipelineResp.body())));
+            }
+
+            JsonNode pipelineResult = objectMapper.readTree(pipelineResp.body());
+            String sourceSessionId = pipelineResult.path("sessionId").asText(null);
+            String pipelineId = pipelineResult.path("pipelineId").asText(null);
+            log.info("[ScenarioRunner] Pipeline started: id={}, session={}", pipelineId, sourceSessionId);
+
+            // 4. Poll source session for completion
+            long timeoutMs = defaults != null && defaults.maxWaitMs() != null ? defaults.maxWaitMs() : 60_000;
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            String finalStatus = null;
+            while (System.currentTimeMillis() < deadline) {
+                Thread.sleep(POLL_INTERVAL_MS);
+                HttpRequest getReq = HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl + "/api/sessions/" + sourceSessionId))
+                        .GET().build();
+                HttpResponse<String> getResp = httpClient.send(getReq, HttpResponse.BodyHandlers.ofString());
+                if (getResp.statusCode() == 200) {
+                    JsonNode session = objectMapper.readTree(getResp.body());
+                    finalStatus = session.path("status").asText();
+                    if ("COMPLETED".equals(finalStatus)) break;
+                    if ("FAILED".equals(finalStatus)) {
+                        log.warn("[ScenarioRunner] Pipeline session FAILED");
+                        break;
+                    }
+                }
+            }
+            if (finalStatus == null) finalStatus = "TIMEOUT";
+
+            log.info("[ScenarioRunner] Pipeline finished: status={}", finalStatus);
+
+            // Clear tool mocks
+            if (toolMockRegistry != null) {
+                toolMockRegistry.clearMocks();
+            }
+
+            // 5. Run assertions if present
+            if (step.expects() != null && scenarioAsserts != null) {
+                ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
+                        sourceSessionId, projectId, 0, finalStatus, baseUrl);
+                List<AssertionResult> results = scenarioAsserts.evaluate(step.expects(), ctx);
+
+                boolean allPassed = true;
+                for (AssertionResult ar : results) {
+                    String tag = ar.passed() ? "PASS" : "FAIL";
+                    log.info("[ScenarioRunner]   [{}] {}: expected={}, actual={}",
+                            tag, ar.name(), ar.expected(), ar.actual());
+                    if (!ar.passed()) allPassed = false;
+                }
+                return new ScenarioReport.StepReport(stepName, allPassed, results);
+            }
+
+            // No expects: just check pipeline completed
+            boolean passed = "COMPLETED".equals(finalStatus);
+            return new ScenarioReport.StepReport(stepName, passed,
+                    List.of(new AssertionResult("pipelineStatus", passed, "COMPLETED", finalStatus)));
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ScenarioReport.StepReport(stepName, false,
+                    List.of(new AssertionResult("interrupted", false, "completed", "interrupted")));
+        } catch (Exception e) {
+            log.error("[ScenarioRunner] Pipeline step error: {}", e.getMessage(), e);
+            return new ScenarioReport.StepReport(stepName, false,
+                    List.of(new AssertionResult("exception", false, "no error", e.getMessage())));
+        }
+    }
+
+    // ======================== Seed Step Playback ========================
+
+    /**
+     * Plays a seed step: pre-populates project data via REST POST/PUT calls.
+     * Each seedAction is executed in order; all must succeed (2xx).
+     */
+    private ScenarioReport.StepReport playSeedStep(String baseUrl, ScenarioConfigV2.Step step,
+                                                    int stepNum, int totalSteps) {
+        String stepName = step.name() != null ? step.name() : "seed";
+        try {
+            // Ensure project exists
+            String projectId = scenarioProjectId;
+            if (projectId == null) {
+                projectId = ensureProject(baseUrl, scenarioService.getProjectName());
+                scenarioProjectId = projectId;
+            }
+            if (projectId == null) {
+                return new ScenarioReport.StepReport(stepName, false,
+                        List.of(new AssertionResult("createProject", false, "projectId", "null")));
+            }
+
+            if (step.seedActions() == null || step.seedActions().isEmpty()) {
+                log.warn("[ScenarioRunner] Seed step has no seedActions — skipping");
+                return new ScenarioReport.StepReport(stepName, true, List.of());
+            }
+
+            List<AssertionResult> results = new ArrayList<>();
+
+            for (int i = 0; i < step.seedActions().size(); i++) {
+                ScenarioConfigV2.SeedAction action = step.seedActions().get(i);
+                String method = action.method() != null ? action.method().toUpperCase() : "POST";
+                String url = action.url().replace("{{projectId}}", projectId);
+                String bodyJson = action.body() != null ? objectMapper.writeValueAsString(action.body()) : "{}";
+
+                // Resolve {{projectId}} in body
+                bodyJson = bodyJson.replace("{{projectId}}", projectId);
+
+                HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl + url))
+                        .header("Content-Type", "application/json");
+
+                if ("PUT".equals(method)) {
+                    reqBuilder.PUT(HttpRequest.BodyPublishers.ofString(bodyJson));
+                } else {
+                    reqBuilder.POST(HttpRequest.BodyPublishers.ofString(bodyJson));
+                }
+
+                HttpResponse<String> resp = httpClient.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofString());
+                boolean ok = resp.statusCode() >= 200 && resp.statusCode() < 300;
+
+                String label = method + " " + url;
+                if (!ok) {
+                    log.warn("[ScenarioRunner] Seed action failed: {} → {} {}", label, resp.statusCode(), resp.body());
+                } else {
+                    log.info("[ScenarioRunner]   Seed: {} → {}", label, resp.statusCode());
+                }
+
+                results.add(new AssertionResult(
+                        "seed[" + (i + 1) + "] " + label,
+                        ok,
+                        "2xx",
+                        String.valueOf(resp.statusCode())
+                ));
+
+                if (!ok) break;
+            }
+
+            // Run assertions if present
+            if (step.expects() != null && scenarioAsserts != null) {
+                ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
+                        null, projectId, 0, null, baseUrl);
+                results.addAll(scenarioAsserts.evaluate(step.expects(), ctx));
+            }
+
+            boolean allPassed = results.stream().allMatch(AssertionResult::passed);
+
+            for (AssertionResult ar : results) {
+                String tag = ar.passed() ? "PASS" : "FAIL";
+                log.info("[ScenarioRunner]   [{}] {}: expected={}, actual={}",
+                        tag, ar.name(), ar.expected(), ar.actual());
+            }
+
+            log.info("[ScenarioRunner]   STEP {}/{}: {} ({} seed actions)",
+                    stepNum, totalSteps, allPassed ? "PASS" : "FAIL", step.seedActions().size());
+
+            return new ScenarioReport.StepReport(stepName, allPassed, results);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ScenarioReport.StepReport(stepName, false,
+                    List.of(new AssertionResult("interrupted", false, "completed", "interrupted")));
+        } catch (Exception e) {
+            log.error("[ScenarioRunner] Seed step error: {}", e.getMessage(), e);
+            return new ScenarioReport.StepReport(stepName, false,
+                    List.of(new AssertionResult("exception", false, "no error", e.getMessage())));
+        }
+    }
+
     // ======================== Shared HTTP Helpers ========================
 
     private String ensureProject(String baseUrl, String projectName) {
@@ -455,12 +687,40 @@ public class ScenarioRunner implements ApplicationRunner {
             if (resp.statusCode() == 200) {
                 JsonNode project = objectMapper.readTree(resp.body());
                 String projectId = project.path("projectId").asText(null);
-                log.info("[ScenarioRunner] Ensured project '{}' (id={})", projectName, projectId);
+                log.info("[ScenarioRunner] Created project '{}' (id={})", projectName, projectId);
                 return projectId;
+            }
+            if (resp.statusCode() == 409) {
+                // Project already exists — look it up
+                return findProjectByName(baseUrl, projectName);
             }
             log.warn("[ScenarioRunner] Project creation returned {}: {}", resp.statusCode(), resp.body());
         } catch (Exception e) {
             log.warn("[ScenarioRunner] Failed to create project '{}': {}", projectName, e.getMessage());
+        }
+        return null;
+    }
+
+    private String findProjectByName(String baseUrl, String projectName) {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/projects"))
+                    .GET().build();
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 200) {
+                JsonNode projects = objectMapper.readTree(resp.body());
+                if (projects.isArray()) {
+                    for (JsonNode p : projects) {
+                        if (projectName.equalsIgnoreCase(p.path("name").asText())) {
+                            String projectId = p.path("projectId").asText(null);
+                            log.info("[ScenarioRunner] Found existing project '{}' (id={})", projectName, projectId);
+                            return projectId;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[ScenarioRunner] Failed to find project '{}': {}", projectName, e.getMessage());
         }
         return null;
     }

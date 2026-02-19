@@ -1,9 +1,13 @@
 package io.github.drompincen.javaclawv1.runtime.agent;
 
 import io.github.drompincen.javaclawv1.persistence.document.AgentDocument;
+import io.github.drompincen.javaclawv1.persistence.document.AgentScheduleDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.AgentRepository;
+import io.github.drompincen.javaclawv1.persistence.repository.AgentScheduleRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.SessionRepository;
 import io.github.drompincen.javaclawv1.protocol.api.AgentRole;
+import io.github.drompincen.javaclawv1.protocol.api.ProjectScope;
+import io.github.drompincen.javaclawv1.protocol.api.ScheduleType;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,19 +24,30 @@ public class AgentBootstrapService {
 
     private final AgentRepository agentRepository;
     private final SessionRepository sessionRepository;
+    private final AgentScheduleRepository scheduleRepository;
 
     /** Agent descriptions used by the LLM controller to decide routing */
-    public static final Map<String, String> AGENT_DESCRIPTIONS = Map.of(
-            "coder", "Handles coding tasks: writing code, running/executing code via jbang or python, debugging, code review, 'run it' requests, creating tools/scripts/programs",
-            "pm", "Handles project management: sprint planning, tickets, milestones, backlog, resource allocation, deadlines",
-            "generalist", "Handles general questions: life advice, brainstorming, knowledge questions, writing help, anything that doesn't fit other agents",
-            "reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization",
-            "thread-extractor", "Handles thread content extraction: reads thread messages and extracts reminders, TODOs, checklists, tickets, and ideas from conversations"
+    public static final Map<String, String> AGENT_DESCRIPTIONS = Map.ofEntries(
+            Map.entry("coder", "Handles coding tasks: writing code, running/executing code via jbang or python, debugging, code review, 'run it' requests, creating tools/scripts/programs"),
+            Map.entry("pm", "Handles project management: sprint planning, tickets, milestones, backlog, resource allocation, deadlines"),
+            Map.entry("generalist", "Handles general questions: life advice, brainstorming, knowledge questions, writing help, anything that doesn't fit other agents"),
+            Map.entry("reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization"),
+            Map.entry("thread-extractor", "Handles thread content extraction: reads thread messages and extracts reminders, TODOs, checklists, tickets, and ideas from conversations"),
+            Map.entry("thread-agent", "Handles thread organization: creating, renaming, merging threads based on topic and continuity; attaching evidence; promoting ideas"),
+            Map.entry("objective-agent", "Handles objective alignment: coverage analysis, ticket mapping, gap detection, sprint tracking for project objectives"),
+            Map.entry("checklist-agent", "Handles checklist lifecycle: generates ORR/release/onboarding checklists from templates, tracks item completion, reports progress, detects stale checklists"),
+            Map.entry("intake-triage", "Classifies raw content and decides routing: identifies content as threads/ideas (THREAD), ticket dumps (TICKETS), project plans (PLAN), or resource data (RESOURCES), then routes to the correct downstream agents"),
+            Map.entry("plan-agent", "Handles project planning: creates phases with entry/exit criteria, manages milestones, generates plan documents, detects phase transition readiness"),
+            Map.entry("reconcile-agent", "Handles reconciliation: compares tickets, objectives, phases, checklists across sources, detects gaps, drift, mismatches, produces delta packs and blindspots"),
+            Map.entry("resource-agent", "Handles resource management: capacity analysis, assignment optimization, workload balancing, skill matching, utilization tracking, overload/underutilization detection"),
+            Map.entry("ask-claw", "Handles project Q&A: answers questions about project data by searching threads, tickets, objectives, blindspots, resources, and memories")
     );
 
-    public AgentBootstrapService(AgentRepository agentRepository, SessionRepository sessionRepository) {
+    public AgentBootstrapService(AgentRepository agentRepository, SessionRepository sessionRepository,
+                                 AgentScheduleRepository scheduleRepository) {
         this.agentRepository = agentRepository;
         this.sessionRepository = sessionRepository;
+        this.scheduleRepository = scheduleRepository;
     }
 
     @PostConstruct
@@ -48,6 +63,7 @@ public class AgentBootstrapService {
         if (count > 0) {
             log.info("Agents already seeded ({} found), checking for missing agents", count);
             ensureMissingAgents();
+            bootstrapSchedules();
             return;
         }
 
@@ -60,7 +76,16 @@ public class AgentBootstrapService {
         seedReminderAgent();
         seedDistillerAgent();
         seedThreadExtractorAgent();
-        log.info("Seeded 8 default agents: controller, coder, reviewer, pm, generalist, reminder, distiller, thread-extractor");
+        seedThreadAgent();
+        seedObjectiveAgent();
+        seedChecklistAgent();
+        seedIntakeTriageAgent();
+        seedPlanAgent();
+        seedReconcileAgent();
+        seedResourceAgent();
+        seedAskClawAgent();
+        log.info("Seeded 16 default agents");
+        bootstrapSchedules();
     }
 
     private void ensureMissingAgents() {
@@ -69,6 +94,14 @@ public class AgentBootstrapService {
         if (agentRepository.findById("generalist").isEmpty()) { seedGeneralistAgent(); log.info("Seeded missing generalist agent"); }
         if (agentRepository.findById("reminder").isEmpty()) { seedReminderAgent(); log.info("Seeded missing reminder agent"); }
         if (agentRepository.findById("thread-extractor").isEmpty()) { seedThreadExtractorAgent(); log.info("Seeded missing thread-extractor agent"); }
+        if (agentRepository.findById("thread-agent").isEmpty()) { seedThreadAgent(); log.info("Seeded missing thread-agent"); }
+        if (agentRepository.findById("objective-agent").isEmpty()) { seedObjectiveAgent(); log.info("Seeded missing objective-agent"); }
+        if (agentRepository.findById("checklist-agent").isEmpty()) { seedChecklistAgent(); log.info("Seeded missing checklist-agent"); }
+        if (agentRepository.findById("intake-triage").isEmpty()) { seedIntakeTriageAgent(); log.info("Seeded missing intake-triage"); }
+        if (agentRepository.findById("plan-agent").isEmpty()) { seedPlanAgent(); log.info("Seeded missing plan-agent"); }
+        if (agentRepository.findById("reconcile-agent").isEmpty()) { seedReconcileAgent(); log.info("Seeded missing reconcile-agent"); }
+        if (agentRepository.findById("resource-agent").isEmpty()) { seedResourceAgent(); log.info("Seeded missing resource-agent"); }
+        if (agentRepository.findById("ask-claw").isEmpty()) { seedAskClawAgent(); log.info("Seeded missing ask-claw"); }
         // Fix agents from older bootstraps that may lack the enabled flag
         agentRepository.findAll().forEach(agent -> {
             if (!agent.isEnabled()) {
@@ -82,6 +115,16 @@ public class AgentBootstrapService {
         updateIfNeeded("controller", CONTROLLER_PROMPT);
         updateIfNeeded("coder", CODER_PROMPT);
         updateIfNeeded("reviewer", REVIEWER_PROMPT);
+        // Update all specialist agents with latest tool-calling instructions
+        updateIfNeeded("pm", PM_PROMPT);
+        updateIfNeeded("thread-agent", THREAD_AGENT_PROMPT);
+        updateIfNeeded("objective-agent", OBJECTIVE_AGENT_PROMPT);
+        updateIfNeeded("reconcile-agent", RECONCILE_AGENT_PROMPT);
+        updateIfNeeded("plan-agent", PLAN_AGENT_PROMPT);
+        updateIfNeeded("intake-triage", INTAKE_TRIAGE_PROMPT);
+        updateIfNeeded("thread-extractor", THREAD_EXTRACTOR_PROMPT);
+        updateIfNeeded("checklist-agent", CHECKLIST_AGENT_PROMPT);
+        updateIfNeeded("resource-agent", RESOURCE_AGENT_PROMPT);
     }
 
     private void updateIfNeeded(String agentId, String richPrompt) {
@@ -94,6 +137,74 @@ public class AgentBootstrapService {
             }
         });
     }
+
+    // --- Default schedule seeding ---
+
+    private void bootstrapSchedules() {
+        int seeded = 0;
+        // Spring CronExpression uses 6 fields: second minute hour day-of-month month day-of-week
+        seeded += seedScheduleIfMissing("default-reconcile-agent", "reconcile-agent",
+                "0 0 9 * * MON-FRI", 6, "Weekday morning drift detection");
+        seeded += seedScheduleIfMissing("default-resource-agent", "resource-agent",
+                "0 0 9 * * MON-FRI", 5, "Weekday morning capacity check");
+        seeded += seedScheduleIfMissing("default-objective-agent", "objective-agent",
+                "0 0 9 * * MON-FRI", 5, "Weekday morning coverage/gap check");
+        seeded += seedScheduleIfMissing("default-checklist-agent", "checklist-agent",
+                "0 0 9 * * MON-FRI", 5, "Weekday morning stale-checklist check");
+        seeded += seedScheduleIfMissing("default-plan-agent", "plan-agent",
+                "0 0 10 * * MON", 4, "Weekly Monday milestone/phase check");
+        seeded += seedScheduleIfMissing("default-thread-extractor", "thread-extractor",
+                "0 0 18 * * MON-FRI", 4, "End-of-day unextracted artifact sweep");
+        if (seeded > 0) {
+            log.info("Seeded {} default agent schedules", seeded);
+        }
+    }
+
+    private int seedScheduleIfMissing(String scheduleId, String agentId, String cronExpr,
+                                       int priority, String description) {
+        if (scheduleRepository.findById(scheduleId).isPresent()) {
+            return 0;
+        }
+        AgentScheduleDocument doc = new AgentScheduleDocument();
+        doc.setScheduleId(scheduleId);
+        doc.setAgentId(agentId);
+        doc.setEnabled(true);
+        doc.setTimezone("UTC");
+        doc.setScheduleType(ScheduleType.CRON);
+        doc.setCronExpr(cronExpr);
+        doc.setProjectScope(ProjectScope.GLOBAL);
+
+        AgentScheduleDocument.ExecutorPolicy policy = new AgentScheduleDocument.ExecutorPolicy();
+        policy.setMaxConcurrent(1);
+        policy.setPriority(priority);
+        policy.setMaxAttempts(2);
+        policy.setRetryBackoffMs(120000);
+        doc.setExecutorPolicy(policy);
+
+        doc.setCreatedAt(Instant.now());
+        doc.setUpdatedAt(Instant.now());
+        scheduleRepository.save(doc);
+        log.info("Seeded schedule '{}': {} — {}", scheduleId, cronExpr, description);
+        return 1;
+    }
+
+    // --- Tool calling format shared by all specialist agents ---
+    private static final String TOOL_CALL_INSTRUCTIONS = """
+
+            ## CRITICAL: How to Use Tools
+
+            To invoke a tool, you MUST output a <tool_call> XML block with JSON inside:
+
+            <tool_call>
+            {"name": "tool_name", "args": {"key": "value"}}
+            </tool_call>
+
+            RULES:
+            1. You MUST use the EXACT <tool_call> XML format above. This is the ONLY way to execute tools.
+            2. NEVER describe tool calls in prose (e.g. "I'll use create_ticket..."). Prose descriptions do NOTHING.
+            3. You can call multiple tools — each in its own <tool_call> block in the same response.
+            4. After each tool call, you will receive the result. Then continue your work.
+            5. If you want to call a tool, OUTPUT THE XML BLOCK IMMEDIATELY — do not explain first.""";
 
     // --- Rich system prompts matching javaclaw.java AGENT_SYSTEM_PROMPTS ---
 
@@ -152,7 +263,8 @@ public class AgentBootstrapService {
             - Roadmap planning and stakeholder communication
             - Retrospective facilitation and team workflow optimization
             You have access to the session and thread history for context.
-            Be practical, clear, and focused on outcomes. Use markdown formatting.""";
+            Be practical, clear, and focused on outcomes. Use markdown formatting."""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String GENERALIST_PROMPT = """
             You are a helpful, knowledgeable AI assistant. Your skills include:
@@ -200,7 +312,197 @@ public class AgentBootstrapService {
             - Prefer checklists over individual tickets for related small tasks
             - Set appropriate priority levels based on conversation urgency
             - Include relevant context in descriptions so items are actionable standalone
-            - Summarize what you extracted at the end of processing""";
+            - Summarize what you extracted at the end of processing"""
+            + TOOL_CALL_INSTRUCTIONS;
+
+    private static final String OBJECTIVE_AGENT_PROMPT = """
+            You are an objective alignment agent. Your job is to maintain sprint objectives, \
+            map them to tickets, compute coverage, and detect gaps.
+
+            ## Workflow
+            1. Use `compute_coverage` to analyze objective coverage for a project
+            2. Identify under-covered objectives and recommend new tickets
+            3. Detect unmapped tickets and suggest which objective they belong to
+            4. Flag objectives missing measurableSignal as blindspots
+            5. Track stalled objectives past their end dates
+            6. Use `update_objective` to fix coverage, add tickets, or update status
+
+            ## Guidelines
+            - Every objective should have a concrete measurableSignal
+            - Coverage = (DONE + IN_PROGRESS tickets) / total tickets * 100
+            - Unmapped tickets indicate organizational gaps
+            - Objectives past endDate and still IN_PROGRESS are stalled"""
+            + TOOL_CALL_INSTRUCTIONS;
+
+    private static final String THREAD_AGENT_PROMPT = """
+            You are a thread organization agent. Your job is to manage conversation threads \
+            within projects — creating, renaming, merging, and organizing them.
+
+            ## Workflow
+            1. When a new topic is identified, create a thread using the naming policy: [PROJECT]-[TOPIC]-[DATE]
+            2. When threads discuss overlapping topics, merge them to consolidate context
+            3. Rename threads that have unclear or auto-generated titles
+            4. Attach evidence (files, URLs, designs) to threads for reference
+            5. Promote promising discussion points to Idea entities
+
+            ## Intake Pipeline Mode
+            When called from the intake pipeline with triage output, create one thread per \
+            identified topic using `create_thread` with these parameters:
+            - `projectId`: the project ID provided in the prompt
+            - `title`: clean descriptive title (no session IDs or "Session xxxxxxxx" placeholders)
+            - `summary`: brief one-line summary of the topic
+            - `content`: organized markdown with the full topic content
+            - `decisions`: array of decision strings identified for this topic
+            - `actions`: array of objects with `text` and `assignee` fields
+            If topics overlap significantly, merge them into a single thread rather than creating duplicates.
+
+            ## Guidelines
+            - Use deterministic naming: uppercase project prefix, lowercase-hyphenated topic, date suffix
+            - When merging, the first thread in the list becomes the target; others are marked MERGED
+            - All messages are re-sequenced by timestamp after merge
+            - Always provide a reason when renaming or merging
+            - Use memory (THREAD scope) to track thread context across sessions"""
+            + TOOL_CALL_INSTRUCTIONS;
+
+    private static final String RECONCILE_AGENT_PROMPT = """
+            You are a reconciliation agent. Your job is to compare all project data sources \
+            and identify gaps, mismatches, and risks.
+
+            ## Workflow
+            1. Use `read_tickets`, `read_objectives`, `read_phases`, `read_checklists` to load all project data
+            2. Cross-reference sources to find:
+               - COVERAGE_GAP: objectives with no linked tickets
+               - ORPHANED_WORK: tickets with no objective
+               - OWNER_MISMATCH: different owners across sources
+               - DATE_DRIFT: misaligned dates between objectives and milestones
+               - STALE_ARTIFACT: items not updated in 14+ days
+            3. Use `create_delta_pack` to record all findings
+            4. Use `create_blindspot` for critical findings that need attention
+
+            ## Guidelines
+            - Every objective should have at least one ticket
+            - Every ticket should link to an objective
+            - Unassigned critical tickets are blindspots
+            - Flag objectives past endDate still IN_PROGRESS as stalled
+            - Produce a clear summary with findings grouped by severity"""
+            + TOOL_CALL_INSTRUCTIONS;
+
+    private static final String PLAN_AGENT_PROMPT = """
+            You are a project planning agent. Your job is to manage project phases, milestones, \
+            and plan artifacts.
+
+            ## Workflow
+            1. Use `create_phase` to define project lifecycle stages with entry/exit criteria
+            2. Use `create_milestone` to set key dates and deliverables
+            3. Use `generate_plan_artifact` to produce a structured plan document
+            4. Use `update_phase` to transition phases when criteria are met
+            5. Use `update_milestone` to track progress and flag risks
+
+            ## Guidelines
+            - Phases must have clear entry and exit criteria
+            - Phases respect sortOrder — a phase can't start until the prior phase exits
+            - Milestones should be linked to phases and objectives
+            - Flag milestones as AT_RISK if linked tickets are not progressing
+            - Generate plan artifacts in markdown format with timeline tables
+            - When exit criteria are met, recommend phase transition
+            - When exit criteria are blocked, identify the blockers"""
+            + TOOL_CALL_INSTRUCTIONS;
+
+    private static final String INTAKE_TRIAGE_PROMPT = """
+            You are the Intake Triage agent. Your job is to receive raw, unstructured input \
+            and normalize it into structured intake packets that downstream agents can act on.
+
+            ## Workflow
+            1. Determine the input form: pasted text, file path, URL, or mixed
+            2. If file path, use `read_file` or `excel` to load content
+            3. If URL, use `http_get` to fetch content
+            4. Use `classify_content` to determine content type and extract metadata
+            5. Organize content into topics and output a routing block
+
+            ## Content Types
+            - JIRA_DUMP: CSV/JSON with ticket keys, statuses, assignees → TICKETS route
+            - CONFLUENCE_EXPORT: HTML/markdown with headings, action items → THREAD route
+            - MEETING_NOTES: Attendees, agenda, action items, decisions → THREAD route (+ TICKETS if tasks)
+            - SMARTSHEET_EXPORT: Timeline, milestones, owners → PLAN route
+            - DESIGN_DOC: Background, proposal, alternatives → THREAD route
+            - LINK_LIST: Collection of URLs → THREAD route
+            - FREE_TEXT: Unstructured content → THREAD route
+
+            ## Pipeline Output Format
+            When running in pipeline mode, organize your output into distinct topics. \
+            For each topic identified in the raw content, output:
+
+            ### Topic: [Topic Name]
+            **Type:** [architecture_decision / open_question / action_item / discussion]
+            **Decisions:** [list of decisions made, one per line]
+            **Open Questions:** [list of unresolved questions, one per line]
+            **Action Items:** [list with assignees if known, one per line]
+            **Key Content:** [organized notes for this topic]
+
+            Separate topics clearly. Group related content under the same topic.
+
+            ## Classification Output (REQUIRED)
+
+            After organizing content into topics, you MUST output a routing block:
+
+            ### Routes
+            THREAD: yes/no — topics, ideas, architecture discussions, meeting notes, designs
+            TICKETS: yes/no — Jira exports, task lists, bug reports, ticket dumps
+            PLAN: yes/no — Smartsheet plans, milestone schedules, phase definitions, timelines
+            RESOURCES: yes/no — team assignments, capacity data, allocation spreadsheets
+
+            Set each to "yes" ONLY if you identified that specific content type in the input.
+            This routing block drives which downstream agents will process the content.
+
+            ## Guidelines
+            - Always classify before routing
+            - Extract dates, people, ticket refs, action items, decisions
+            - Report classification confidence — below 0.7, ask user to clarify
+            - Use existing project memories for context when available
+            - Provide a clean summary: source type, extracted metadata, routing decisions"""
+            + TOOL_CALL_INSTRUCTIONS;
+
+    private static final String CHECKLIST_AGENT_PROMPT = """
+            You are a checklist management agent. Your job is to generate, maintain, and track \
+            checklists for operational readiness, release readiness, onboarding, and other processes.
+
+            ## Workflow
+            1. Use `create_checklist_template` to define reusable templates (ORR, release, etc.)
+            2. Use `create_checklist` with a templateId to instantiate checklists from templates
+            3. Use `update_checklist` to check/uncheck items, assign owners, add/remove items
+            4. Use `checklist_progress` to report completion status and identify blockers
+            5. Use `read_thread_messages` to extract action items from conversations
+
+            ## Guidelines
+            - Every checklist item should have an assignee — flag unassigned items as blockers
+            - Auto-transition: all items checked → COMPLETED, any unchecked → IN_PROGRESS
+            - Link checklists to phases for entry/exit gate tracking
+            - When generating from threads, extract "need to", "make sure", "don't forget" patterns
+            - Report progress as X/Y items (Z%) with blockers highlighted
+            - Flag stale checklists that haven't been updated while IN_PROGRESS"""
+            + TOOL_CALL_INSTRUCTIONS;
+
+    private static final String RESOURCE_AGENT_PROMPT = """
+            You are a resource management agent. Your job is to analyze team capacity, \
+            optimize assignments, and detect workload imbalances.
+
+            ## Workflow
+            1. Use `read_resources` to load all project resources with skills and capacity
+            2. Use `capacity_report` to generate a full capacity breakdown per resource
+            3. Use `suggest_assignments` to recommend optimal assignments for unassigned tickets
+            4. Use `assign_resource` to create assignments and `unassign_resource` to remove them
+            5. Use `read_tickets` to understand ticket priorities and requirements
+
+            ## Guidelines
+            - OVERLOADED: total allocation > 100% — recommend redistribution
+            - BALANCED: 70-100% allocation — healthy workload
+            - UNDERUTILIZED: < 50% allocation with matching skills available
+            - IDLE: 0% allocation — should be assigned work
+            - Prioritize CRITICAL tickets over MEDIUM/LOW for assignment
+            - Flag bus factor risks: single person on all critical tickets
+            - Consider skills match when suggesting assignments
+            - Report capacity as: allocated% / total capacity per resource"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private void seedController() {
         AgentDocument agent = new AgentDocument();
@@ -314,6 +616,106 @@ public class AgentBootstrapService {
         agentRepository.save(agent);
     }
 
+    private void seedObjectiveAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("objective-agent");
+        agent.setName("Objective Agent");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("objective-agent"));
+        agent.setSystemPrompt(OBJECTIVE_AGENT_PROMPT);
+        agent.setSkills(List.of("objective_alignment", "coverage_analysis", "ticket_mapping", "sprint_tracking", "gap_detection"));
+        agent.setAllowedTools(List.of("compute_coverage", "update_objective", "create_ticket", "memory", "excel"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedThreadAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("thread-agent");
+        agent.setName("Thread Agent");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("thread-agent"));
+        agent.setSystemPrompt(THREAD_AGENT_PROMPT);
+        agent.setSkills(List.of("thread_creation", "thread_naming", "thread_merging", "evidence_attachment", "idea_promotion"));
+        agent.setAllowedTools(List.of("create_thread", "rename_thread", "merge_threads", "attach_evidence",
+                "create_idea", "memory", "read_file", "excel", "read_thread_messages"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedReconcileAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("reconcile-agent");
+        agent.setName("Reconciliation Agent");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("reconcile-agent"));
+        agent.setSystemPrompt(RECONCILE_AGENT_PROMPT);
+        agent.setSkills(List.of("source_comparison", "delta_detection", "gap_analysis",
+                "drift_detection", "dependency_audit"));
+        agent.setAllowedTools(List.of("read_tickets", "read_objectives", "read_phases",
+                "read_checklists", "create_delta_pack", "create_blindspot",
+                "excel", "read_file", "search_files", "memory"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedPlanAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("plan-agent");
+        agent.setName("Plan Agent");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("plan-agent"));
+        agent.setSystemPrompt(PLAN_AGENT_PROMPT);
+        agent.setSkills(List.of("phase_management", "milestone_tracking", "plan_generation",
+                "criteria_enforcement", "artifact_maintenance"));
+        agent.setAllowedTools(List.of("create_phase", "update_phase", "create_milestone",
+                "update_milestone", "generate_plan_artifact", "memory", "excel"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedIntakeTriageAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("intake-triage");
+        agent.setName("Intake Triage");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("intake-triage"));
+        agent.setSystemPrompt(INTAKE_TRIAGE_PROMPT);
+        agent.setSkills(List.of("content_classification", "routing_decision",
+                "metadata_extraction", "intake_normalization"));
+        agent.setAllowedTools(List.of("classify_content", "read_file",
+                "list_directory", "excel", "search_files", "memory", "http_get"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedChecklistAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("checklist-agent");
+        agent.setName("Checklist Agent");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("checklist-agent"));
+        agent.setSystemPrompt(CHECKLIST_AGENT_PROMPT);
+        agent.setSkills(List.of("checklist_generation", "orr_management", "release_readiness",
+                "status_tracking", "template_management"));
+        agent.setAllowedTools(List.of("create_checklist", "update_checklist", "checklist_progress",
+                "create_checklist_template", "read_thread_messages", "memory"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
     private void seedThreadExtractorAgent() {
         AgentDocument agent = new AgentDocument();
         agent.setAgentId("thread-extractor");
@@ -323,6 +725,51 @@ public class AgentBootstrapService {
         agent.setSkills(List.of("extraction", "analysis", "content_processing", "artifact_creation"));
         agent.setAllowedTools(List.of("read_thread_messages", "create_reminder", "create_checklist",
                 "create_ticket", "create_idea", "memory"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private void seedResourceAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("resource-agent");
+        agent.setName("Resource Agent");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("resource-agent"));
+        agent.setSystemPrompt(RESOURCE_AGENT_PROMPT);
+        agent.setSkills(List.of("capacity_analysis", "assignment_optimization", "workload_balancing",
+                "skill_matching", "utilization_tracking"));
+        agent.setAllowedTools(List.of("read_resources", "read_tickets", "read_objectives",
+                "assign_resource", "unassign_resource", "capacity_report",
+                "suggest_assignments", "memory", "excel"));
+        agent.setRole(AgentRole.SPECIALIST);
+        agent.setEnabled(true);
+        agent.setCreatedAt(Instant.now());
+        agent.setUpdatedAt(Instant.now());
+        agentRepository.save(agent);
+    }
+
+    private static final String ASK_CLAW_PROMPT = """
+            You are a project analyst agent. Your job is to answer questions about a project \
+            by analyzing the provided project data context (threads, tickets, objectives, \
+            blindspots, resources, and memories).
+
+            ## Guidelines
+            - Use ONLY the project data provided in the context to answer
+            - Be specific: cite data points, names, percentages, and statuses
+            - Highlight risks, blockers, and areas needing attention
+            - Organize your answer with clear sections when the question is broad
+            - If the data doesn't contain enough information, say so explicitly""";
+
+    private void seedAskClawAgent() {
+        AgentDocument agent = new AgentDocument();
+        agent.setAgentId("ask-claw");
+        agent.setName("Ask Claw");
+        agent.setDescription(AGENT_DESCRIPTIONS.get("ask-claw"));
+        agent.setSystemPrompt(ASK_CLAW_PROMPT);
+        agent.setSkills(List.of("project_qa", "data_analysis", "context_search"));
+        agent.setAllowedTools(List.of("memory"));
         agent.setRole(AgentRole.SPECIALIST);
         agent.setEnabled(true);
         agent.setCreatedAt(Instant.now());

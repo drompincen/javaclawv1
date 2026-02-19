@@ -1,0 +1,8 @@
+Key         Epic                  Summary                              Assignee    Status       Priority  SP
+KYC-101     Evidence Service      Refactor passport handler            Joe         TODO         HIGH      5
+KYC-102     Evidence Service      Refactor utility bill handler        Joe         TODO         HIGH      3
+KYC-103     Evidence Service      Refactor bank statement handler      Joe         IN_PROGRESS  HIGH      3
+KYC-104     KYC Screening         Spike: RabbitMQ queue integration    Bob         IN_PROGRESS  MEDIUM    5
+KYC-105     KYC Screening         Implement leaky-bucket consumer      Joe         TODO         HIGH      8
+KYC-106     Client Onboarding     Single-page wizard wireframes        Joe         TODO         MEDIUM    3
+KYC-107     Client Onboarding     Presigned S3 upload endpoint         Alice       IN_PROGRESS  HIGH      5

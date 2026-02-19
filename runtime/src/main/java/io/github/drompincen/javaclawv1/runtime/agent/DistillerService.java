@@ -5,6 +5,7 @@ import io.github.drompincen.javaclawv1.persistence.repository.*;
 import io.github.drompincen.javaclawv1.protocol.event.EventType;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -76,6 +77,7 @@ public class DistillerService {
         if (threadId != null) {
             mem.setScope(MemoryDocument.MemoryScope.THREAD);
             mem.setThreadId(threadId);
+            mem.setExpiresAt(Instant.now().plus(Duration.ofDays(7)));
             ThreadDocument thread = threadRepository.findById(threadId).orElse(null);
             if (thread != null) {
                 var pids = thread.getEffectiveProjectIds();
@@ -84,11 +86,90 @@ public class DistillerService {
         } else {
             mem.setScope(MemoryDocument.MemoryScope.SESSION);
             mem.setSessionId(sessionId);
+            mem.setExpiresAt(Instant.now().plus(Duration.ofHours(24)));
         }
 
         memoryRepository.save(mem);
         System.out.println("[distiller] Saved memory " + mem.getKey() + " (scope=" + mem.getScope() + ")");
         eventService.emit(sessionId, EventType.MEMORY_DISTILLED,
+                java.util.Map.of("memoryId", mem.getMemoryId(), "key", mem.getKey(), "scope", mem.getScope().name()));
+    }
+
+    public void distillThread(String threadId) {
+        exec.submit(() -> {
+            try { doDistillThread(threadId); }
+            catch (Exception e) { System.err.println("[distiller] Error distilling thread " + threadId + ": " + e.getMessage()); }
+        });
+    }
+
+    private void doDistillThread(String threadId) {
+        ThreadDocument thread = threadRepository.findById(threadId).orElse(null);
+        if (thread == null) return;
+
+        StringBuilder content = new StringBuilder();
+        content.append("# ").append(thread.getTitle() != null ? thread.getTitle() : "Untitled Thread").append("\n\n");
+
+        if (thread.getSummary() != null && !thread.getSummary().isBlank()) {
+            content.append("**Summary:** ").append(thread.getSummary()).append("\n\n");
+        }
+
+        if (thread.getDecisions() != null && !thread.getDecisions().isEmpty()) {
+            content.append("## Decisions\n");
+            for (ThreadDocument.Decision d : thread.getDecisions()) {
+                content.append("- ").append(d.getText());
+                if (d.getDecidedBy() != null) content.append(" (decided by ").append(d.getDecidedBy()).append(")");
+                content.append("\n");
+            }
+            content.append("\n");
+        }
+
+        if (thread.getActions() != null && !thread.getActions().isEmpty()) {
+            content.append("## Action Items\n");
+            for (ThreadDocument.ActionItem a : thread.getActions()) {
+                content.append("- ").append(a.getText());
+                if (a.getAssignee() != null) content.append(" → ").append(a.getAssignee());
+                content.append("\n");
+            }
+            content.append("\n");
+        }
+
+        // Include message content if available
+        var messages = messageRepository.findBySessionIdOrderBySeqAsc(threadId);
+        if (!messages.isEmpty()) {
+            content.append("## Thread Content\n");
+            for (MessageDocument msg : messages) {
+                if (msg.getContent() != null && !msg.getContent().isBlank()) {
+                    content.append(truncate(msg.getContent(), 500)).append("\n\n");
+                }
+            }
+        }
+
+        // Write distilled content back to the thread document
+        thread.setContent(content.toString());
+        if (thread.getSummary() == null || thread.getSummary().isBlank()) {
+            thread.setSummary(truncate(content.toString(), 300));
+        }
+        thread.setUpdatedAt(Instant.now());
+        threadRepository.save(thread);
+
+        List<String> pids = thread.getEffectiveProjectIds();
+
+        MemoryDocument mem = new MemoryDocument();
+        mem.setMemoryId(UUID.randomUUID().toString());
+        mem.setKey("thread-distill-" + threadId.substring(0, Math.min(8, threadId.length())));
+        mem.setContent(content.toString());
+        mem.setScope(MemoryDocument.MemoryScope.THREAD);
+        mem.setThreadId(threadId);
+        if (!pids.isEmpty()) mem.setProjectId(pids.get(0));
+        mem.setTags(List.of("auto-distilled", "thread-decisions", "intake-pipeline"));
+        mem.setCreatedBy("distiller");
+        mem.setCreatedAt(Instant.now());
+        mem.setUpdatedAt(Instant.now());
+        mem.setExpiresAt(Instant.now().plus(Duration.ofDays(7)));
+
+        memoryRepository.save(mem);
+        System.out.println("[distiller] Saved thread memory " + mem.getKey() + " for thread " + threadId);
+        eventService.emit(threadId, EventType.MEMORY_DISTILLED,
                 java.util.Map.of("memoryId", mem.getMemoryId(), "key", mem.getKey(), "scope", mem.getScope().name()));
     }
 

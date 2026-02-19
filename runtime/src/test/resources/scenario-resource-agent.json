@@ -1,0 +1,40 @@
+{
+  "projectName": "Project Zeta",
+  "description": "Resource agent: capacity analysis and assignment suggestions",
+  "steps": [
+    {
+      "userQuery": "use project Project Zeta",
+      "description": "Context command — sets project context"
+    },
+    {
+      "userQuery": "Generate a capacity report for Project Zeta. Identify who is overloaded, balanced, or idle.",
+      "description": "Resource agent generates capacity report",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"resource-agent\", \"subTask\": \"generate capacity report\"}"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "I'll read the resources and generate a capacity report.\n\n<tool_call>\n{\"name\": \"read_resources\", \"args\": {\"projectId\": \"project-zeta\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "Now generating the capacity report.\n\n<tool_call>\n{\"name\": \"capacity_report\", \"args\": {\"projectId\": \"project-zeta\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "Capacity report generated. Now suggesting assignments for unassigned tickets.\n\n<tool_call>\n{\"name\": \"suggest_assignments\", \"args\": {\"projectId\": \"project-zeta\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "## Capacity Report — Project Zeta\n\n### Resource Breakdown:\n- 4 resources analyzed\n- Capacity utilization varies across team\n\n### Suggestions:\n- Unassigned critical tickets should be prioritized for available team members."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Resource agent read resources, generated capacity report, and suggested assignments\"}"
+        }
+      ]
+    }
+  ]
+}

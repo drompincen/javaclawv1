@@ -1,0 +1,424 @@
+================================================================================
+ TODO: reconcile_agent Agent
+ Purpose: Compare sources (Smartsheet vs Jira vs Objectives vs Milestones),
+          produce delta packs: missing epics, date drift, owner mismatches,
+          scope mismatch, dependency mismatch. Systems auditor discipline.
+================================================================================
+
+1. AGENT DEFINITION
+- agentId: reconcile_agent
+- name: Reconciliation Agent
+- role: SPECIALIST
+- skills: ["source_comparison", "delta_detection", "gap_analysis", "drift_detection", "dependency_audit"]
+- allowedTools: ["excel", "read_file", "search_files", "create_ticket", "create_blindspot", "write_file", "memory", "read_tickets", "read_objectives", "read_phases", "read_checklists", "read_resources"]
+- Detailed system prompt that instructs the agent to:
+  * Load all available sources for a project: tickets, objectives, phases, checklists, resources, plus any uploaded Smartsheet/Jira exports
+  * Cross-reference every source against every other source
+  * Detect specific delta types: MISSING_EPIC (in Smartsheet but not Jira), DATE_DRIFT (dates differ between sources), OWNER_MISMATCH (different owners in different sources), SCOPE_MISMATCH (description/scope differs), DEPENDENCY_MISMATCH (blocked-by chains inconsistent), COVERAGE_GAP (objective with no tickets), ORPHANED_WORK (ticket with no objective), CAPACITY_OVERLOAD (resource over-allocated), STALE_ARTIFACT (not updated in 14+ days)
+  * Produce a DeltaPack document with all findings grouped by severity
+  * Create blindspots for critical findings
+  * Write a human-readable delta report artifact (markdown file)
+  * Store reconciliation memory for incremental runs
+
+2. NEW DOCUMENT: DeltaPackDocument (persistence module)
+- Collection: delta_packs
+- Fields:
+  * deltaPackId (String, @Id)
+  * projectId (String, required)
+  * projectName (String, denormalized)
+  * reconcileSessionId (String, back-ref to agent session)
+  * sourcesCompared (List<SourceDescriptor> - embedded: sourceType, sourceRef, recordCount, asOfDate)
+  * deltas (List<Delta> - embedded, see below)
+  * summary (DeltaSummary - embedded: totalDeltas, bySeverity map, byType map)
+  * reportArtifactPath (String, nullable - path to generated markdown report)
+  * status (DRAFT/FINAL/SUPERSEDED)
+  * createdAt, updatedAt
+
+  Delta (embedded):
+  * deltaType (DeltaType enum)
+  * severity (LOW/MEDIUM/HIGH/CRITICAL)
+  * title (String - short description)
+  * description (String - detailed explanation)
+  * sourceA (SourceRef: sourceType, recordId, recordTitle)
+  * sourceB (SourceRef: sourceType, recordId, recordTitle, nullable if missing)
+  * fieldName (String, nullable - which field differs)
+  * valueA (String - value in source A)
+  * valueB (String - value in source B, or "MISSING")
+  * suggestedAction (String)
+  * autoResolvable (boolean)
+
+- Repository: DeltaPackRepository
+  * findByProjectIdOrderByCreatedAtDesc
+  * findByProjectIdAndStatus
+  * findByReconcileSessionId
+
+3. NEW DOCUMENT: BlindspotDocument (persistence module)
+- Collection: blindspots
+- Fields:
+  * blindspotId (String, @Id)
+  * projectId (String, required)
+  * projectName (String, denormalized)
+  * title (String, required)
+  * description (String, required)
+  * category (BlindspotCategory enum: ORPHANED_TICKET, UNCOVERED_OBJECTIVE, EMPTY_PHASE, UNASSIGNED_WORK, MISSING_OWNER, DEPENDENCY_RISK, CAPACITY_GAP, SCOPE_OVERLAP, MISSING_TEST_SIGNAL, STALE_ARTIFACT)
+  * severity (LOW/MEDIUM/HIGH/CRITICAL)
+  * status (OPEN/ACKNOWLEDGED/RESOLVED/DISMISSED)
+  * owner (String, nullable)
+  * sourceRefs (List<SourceRef>: type, id, title)
+  * deltaPackId (String, nullable - link to originating delta pack)
+  * reconcileRunId (String)
+  * createdAt, updatedAt, resolvedAt
+
+- Repository: BlindspotRepository
+  * findByProjectId
+  * findByProjectIdAndStatus
+  * findByDeltaPackId
+  * findByProjectIdAndCategory
+  * countByProjectIdAndStatus
+
+4. NEW ENUMS (protocol module)
+  - DeltaType: MISSING_EPIC, DATE_DRIFT, OWNER_MISMATCH, SCOPE_MISMATCH, DEPENDENCY_MISMATCH, COVERAGE_GAP, ORPHANED_WORK, CAPACITY_OVERLOAD, STALE_ARTIFACT, PRIORITY_MISMATCH, STATUS_MISMATCH
+  - BlindspotCategory: ORPHANED_TICKET, UNCOVERED_OBJECTIVE, EMPTY_PHASE, UNASSIGNED_WORK, MISSING_OWNER, DEPENDENCY_RISK, CAPACITY_GAP, SCOPE_OVERLAP, MISSING_TEST_SIGNAL, STALE_ARTIFACT
+  - BlindspotSeverity: LOW, MEDIUM, HIGH, CRITICAL
+  - BlindspotStatus: OPEN, ACKNOWLEDGED, RESOLVED, DISMISSED
+
+5. NEW TOOLS
+  a) create_delta_pack
+  - Risk: WRITE_FILES
+  - Params: projectId, projectName, sourcesCompared (list), deltas (list)
+  - Returns: deltaPackId, deltaSummary
+
+  b) create_blindspot (if not already from previous plan)
+  - Risk: WRITE_FILES
+  - Params: projectId, projectName, title, description, category, severity, owner (optional), sourceRefs (optional), deltaPackId (optional)
+  - Returns: blindspotId
+
+  c) read_tickets (READ_ONLY) - read all tickets for a project
+  d) read_objectives (READ_ONLY) - read all objectives for a project
+  e) read_phases (READ_ONLY) - read all phases for a project
+  f) read_checklists (READ_ONLY) - read all checklists for a project
+  g) read_resources (READ_ONLY) - read all resources and assignments for a project
+  (These read tools may already exist from previous plans - register only if new)
+
+6. ENDPOINTS
+  - POST /api/projects/{projectId}/reconcile - Start reconciliation run
+  - GET /api/projects/{projectId}/delta-packs - List delta packs
+  - GET /api/projects/{projectId}/delta-packs/{deltaPackId} - Get delta pack detail
+  - GET /api/projects/{projectId}/blindspots - List blindspots (filterable by status, category, severity)
+  - GET /api/projects/{projectId}/blindspots/{blindspotId} - Get blindspot detail
+  - PUT /api/projects/{projectId}/blindspots/{blindspotId} - Update blindspot (triage: set status, owner)
+
+7. NEW EVENT TYPES
+  - RECONCILE_STARTED, RECONCILE_SOURCE_LOADED, RECONCILE_DELTA_FOUND, RECONCILE_COMPLETED, RECONCILE_FAILED
+  - BLINDSPOT_CREATED, BLINDSPOT_ACKNOWLEDGED, BLINDSPOT_RESOLVED, BLINDSPOT_DISMISSED
+  - DELTA_PACK_CREATED, DELTA_PACK_FINALIZED
+
+8. MODIFIED FILES
+  - runtime/agent/AgentBootstrapService.java - Add reconcile_agent
+  - protocol/event/EventType.java - Add 11 new event types
+  - tools/META-INF/services - Register new tools
+  - persistence/mongo-init.js - delta_packs and blindspots indexes
+
+9. SCENARIO-BASED TESTING
+
+  Test Scenario 1: Smartsheet vs Jira Mismatch
+  - Setup: Upload Smartsheet export with 10 milestones; 8 matching Jira tickets, 2 missing
+  - Expected: Delta pack with 2 MISSING_EPIC deltas, 2 blindspots created
+
+  Test Scenario 2: Date Drift Detection
+  - Setup: Objective says "complete by March 1"; linked tickets have due dates of March 15
+  - Expected: DATE_DRIFT delta, HIGH severity
+
+  Test Scenario 3: Owner Mismatch
+  - Setup: Smartsheet says owner="Alice"; Jira ticket says assignee="Bob"
+  - Expected: OWNER_MISMATCH delta for each mismatch
+
+  Test Scenario 4: Coverage Gap
+  - Setup: 3 objectives, one with no linked tickets
+  - Expected: COVERAGE_GAP delta, blindspot created as UNCOVERED_OBJECTIVE
+
+  Test Scenario 5: Full Reconciliation
+  - Setup: Complete project with tickets, objectives, phases, checklists, resources, plus Smartsheet export
+  - Expected: Complete delta pack with multiple delta types, report artifact generated
+
+10. MOCK DATA (staged in test/scenarios/reconcile_agent/)
+
+  File: test/scenarios/reconcile_agent/mongo-seed-projects.json
+  ```json
+  [
+    {
+      "projectId": "proj-beta",
+      "name": "Project Beta",
+      "description": "E-commerce platform migration",
+      "status": "ACTIVE",
+      "tags": ["migration", "ecommerce"],
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-02-18T00:00:00Z"
+    }
+  ]
+  ```
+
+  File: test/scenarios/reconcile_agent/mongo-seed-tickets.json
+  ```json
+  [
+    {
+      "ticketId": "ticket-201",
+      "projectId": "proj-beta",
+      "title": "Migrate product catalog",
+      "status": "IN_PROGRESS",
+      "priority": "HIGH",
+      "type": "FEATURE",
+      "assignee": "alice",
+      "objectiveIds": ["obj-101"],
+      "blockedBy": [],
+      "linkedThreadIds": ["thread-010"],
+      "createdAt": "2026-01-15T00:00:00Z",
+      "updatedAt": "2026-02-15T00:00:00Z"
+    },
+    {
+      "ticketId": "ticket-202",
+      "projectId": "proj-beta",
+      "title": "Setup payment gateway",
+      "status": "OPEN",
+      "priority": "CRITICAL",
+      "type": "FEATURE",
+      "assignee": null,
+      "objectiveIds": [],
+      "blockedBy": ["ticket-201"],
+      "linkedThreadIds": [],
+      "createdAt": "2026-01-20T00:00:00Z",
+      "updatedAt": "2026-01-20T00:00:00Z"
+    },
+    {
+      "ticketId": "ticket-203",
+      "projectId": "proj-beta",
+      "title": "Write migration rollback scripts",
+      "status": "OPEN",
+      "priority": "HIGH",
+      "type": "TASK",
+      "assignee": "bob",
+      "objectiveIds": ["obj-101"],
+      "blockedBy": [],
+      "linkedThreadIds": [],
+      "createdAt": "2026-02-01T00:00:00Z",
+      "updatedAt": "2026-02-01T00:00:00Z"
+    },
+    {
+      "ticketId": "ticket-204",
+      "projectId": "proj-beta",
+      "title": "Performance testing for checkout flow",
+      "status": "OPEN",
+      "priority": "MEDIUM",
+      "type": "TASK",
+      "assignee": "charlie",
+      "objectiveIds": ["obj-102"],
+      "blockedBy": ["ticket-201", "ticket-202"],
+      "linkedThreadIds": [],
+      "createdAt": "2026-02-05T00:00:00Z",
+      "updatedAt": "2026-02-05T00:00:00Z"
+    },
+    {
+      "ticketId": "ticket-205",
+      "projectId": "proj-beta",
+      "title": "Update API documentation",
+      "status": "OPEN",
+      "priority": "LOW",
+      "type": "TASK",
+      "assignee": "dave",
+      "objectiveIds": [],
+      "blockedBy": [],
+      "linkedThreadIds": [],
+      "createdAt": "2026-02-10T00:00:00Z",
+      "updatedAt": "2026-02-10T00:00:00Z"
+    }
+  ]
+  ```
+
+  File: test/scenarios/reconcile_agent/mongo-seed-objectives.json
+  ```json
+  [
+    {
+      "objectiveId": "obj-101",
+      "projectId": "proj-beta",
+      "sprintName": "Sprint 5",
+      "outcome": "Complete product catalog migration with zero data loss",
+      "measurableSignal": "All 50,000 products migrated and verified",
+      "risks": ["Data format differences", "Downtime window too small"],
+      "ticketIds": ["ticket-201", "ticket-203"],
+      "threadIds": ["thread-010"],
+      "coveragePercent": 40,
+      "status": "IN_PROGRESS",
+      "startDate": "2026-02-01",
+      "endDate": "2026-03-01"
+    },
+    {
+      "objectiveId": "obj-102",
+      "projectId": "proj-beta",
+      "sprintName": "Sprint 5",
+      "outcome": "Launch new checkout flow with payment gateway",
+      "measurableSignal": null,
+      "risks": ["Payment provider API changes"],
+      "ticketIds": ["ticket-204"],
+      "threadIds": [],
+      "coveragePercent": 10,
+      "status": "NOT_STARTED",
+      "startDate": "2026-02-15",
+      "endDate": "2026-03-15"
+    },
+    {
+      "objectiveId": "obj-103",
+      "projectId": "proj-beta",
+      "sprintName": "Sprint 6",
+      "outcome": "Achieve 99.9% uptime SLA for new platform",
+      "measurableSignal": "Monitoring dashboard shows 99.9% over 7 days",
+      "risks": [],
+      "ticketIds": [],
+      "threadIds": [],
+      "coveragePercent": 0,
+      "status": "NOT_STARTED",
+      "startDate": "2026-03-15",
+      "endDate": "2026-04-01"
+    }
+  ]
+  ```
+
+  File: test/scenarios/reconcile_agent/mongo-seed-resources.json
+  ```json
+  [
+    {
+      "resourceId": "res-001",
+      "projectId": "proj-beta",
+      "name": "Alice",
+      "role": "Senior Engineer",
+      "capacity": 100,
+      "skills": ["java", "spring", "mongodb"],
+      "availability": "FULL_TIME"
+    },
+    {
+      "resourceId": "res-002",
+      "projectId": "proj-beta",
+      "name": "Bob",
+      "role": "Engineer",
+      "capacity": 100,
+      "skills": ["java", "sql", "testing"],
+      "availability": "FULL_TIME"
+    },
+    {
+      "resourceId": "res-003",
+      "projectId": "proj-beta",
+      "name": "Charlie",
+      "role": "QA Engineer",
+      "capacity": 50,
+      "skills": ["testing", "automation"],
+      "availability": "PART_TIME"
+    },
+    {
+      "resourceId": "res-004",
+      "projectId": "proj-beta",
+      "name": "Dave",
+      "role": "Tech Writer",
+      "capacity": 25,
+      "skills": ["documentation", "api-specs"],
+      "availability": "PART_TIME"
+    }
+  ]
+  ```
+
+  File: test/scenarios/reconcile_agent/smartsheet-export.xlsx
+  (description - actual file generated by test setup)
+  Sheet "Milestones":
+  | Milestone                  | Owner   | Target Date | Status      | Epic          |
+  | Catalog Migration Complete | Alice   | 2026-02-28  | On Track    | BETA-CATALOG  |
+  | Payment Gateway Live       | Bob     | 2026-03-10  | At Risk     | BETA-PAYMENTS |
+  | Checkout Flow Launch       | Charlie | 2026-03-15  | Not Started | BETA-CHECKOUT |
+  | Platform SLA Achieved      | -       | 2026-04-01  | Not Started | BETA-OPS      |
+  | API Docs Published         | Dave    | 2026-02-25  | On Track    | BETA-DOCS     |
+
+  (Note: "Payment Gateway Live" owner=Bob but ticket-202 has assignee=null -> OWNER_MISMATCH + UNASSIGNED_WORK)
+  (Note: "Platform SLA Achieved" has no owner -> MISSING_OWNER)
+  (Note: BETA-PAYMENTS epic doesn't map to any ticket with objectiveId -> MISSING_EPIC for obj-102 coverage)
+
+  File: test/scenarios/reconcile_agent/scenario-full-reconcile.json
+  ```json
+  {
+    "name": "reconcile-agent-full",
+    "description": "Full reconciliation across all sources for Project Beta",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "tickets": "mongo-seed-tickets.json",
+      "objectives": "mongo-seed-objectives.json",
+      "resources": "mongo-seed-resources.json"
+    },
+    "uploadFiles": ["smartsheet-export.xlsx"],
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Reconcile all sources for Project Beta. Compare tickets, objectives, resources, and the uploaded Smartsheet export. Identify all gaps, mismatches, and risks."
+      }
+    ],
+    "expectedOutcomes": [
+      {"type": "DELTA_PACK_CREATED"},
+      {"type": "RECONCILE_DELTA_FOUND", "deltaType": "COVERAGE_GAP", "description": "obj-103 has no tickets"},
+      {"type": "RECONCILE_DELTA_FOUND", "deltaType": "ORPHANED_WORK", "description": "ticket-205 has no objective"},
+      {"type": "RECONCILE_DELTA_FOUND", "deltaType": "OWNER_MISMATCH"},
+      {"type": "RECONCILE_DELTA_FOUND", "deltaType": "MISSING_EPIC"},
+      {"type": "BLINDSPOT_CREATED", "category": "UNCOVERED_OBJECTIVE"},
+      {"type": "BLINDSPOT_CREATED", "category": "UNASSIGNED_WORK"},
+      {"type": "RECONCILE_COMPLETED"}
+    ]
+  }
+  ```
+
+  File: test/scenarios/reconcile_agent/scenario-date-drift.json
+  ```json
+  {
+    "name": "reconcile-agent-date-drift",
+    "description": "Detect date drift between objectives and tickets",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "tickets": "mongo-seed-tickets.json",
+      "objectives": "mongo-seed-objectives.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Check for date alignment between objectives and their linked tickets in Project Beta"
+      }
+    ],
+    "expectedOutcomes": [
+      {"type": "RECONCILE_DELTA_FOUND", "deltaType": "DATE_DRIFT"},
+      {"type": "DELTA_PACK_CREATED"}
+    ]
+  }
+  ```
+
+10. FILE MANIFEST
+  NEW FILES:
+  - protocol/ DeltaType.java
+  - protocol/ BlindspotCategory.java
+  - protocol/ BlindspotSeverity.java
+  - protocol/ BlindspotStatus.java
+  - persistence/ DeltaPackDocument.java
+  - persistence/ DeltaPackRepository.java
+  - persistence/ BlindspotDocument.java
+  - persistence/ BlindspotRepository.java
+  - tools/ CreateDeltaPackTool.java
+  - tools/ CreateBlindspotTool.java
+  - tools/ ReadTicketsTool.java (if not from prior plan)
+  - tools/ ReadObjectivesTool.java (if not from prior plan)
+  - tools/ ReadPhasesTool.java (if not from prior plan)
+  - tools/ ReadChecklistsTool.java (if not from prior plan)
+  - tools/ ReadResourcesTool.java (if not from prior plan)
+  - gateway/ ReconcileController.java
+  - gateway/ BlindspotController.java
+  - test/scenarios/reconcile_agent/ (all mock data and scenario files)
+
+  MODIFIED FILES:
+  - runtime/agent/AgentBootstrapService.java
+  - protocol/event/EventType.java
+  - tools/META-INF/services
+  - persistence/mongo-init.js
+
+================================================================================
+ END OF PLAN
+================================================================================

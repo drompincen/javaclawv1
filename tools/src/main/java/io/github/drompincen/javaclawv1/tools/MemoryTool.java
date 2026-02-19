@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
@@ -97,8 +98,10 @@ public class MemoryTool implements Tool {
             input.get("tags").forEach(t -> tags.add(t.asText()));
         }
 
+        String projectId = input.path("projectId").asText(null);
+
         // Upsert: find existing by scope+key, update or create
-        Optional<MemoryDocument> existing = findByKey(scope, ctx.sessionId(), key);
+        Optional<MemoryDocument> existing = findByKey(scope, ctx.sessionId(), projectId, key);
 
         MemoryDocument doc;
         if (existing.isPresent()) {
@@ -106,6 +109,8 @@ public class MemoryTool implements Tool {
             doc.setContent(content);
             doc.setTags(tags.isEmpty() ? doc.getTags() : tags);
             doc.setUpdatedAt(Instant.now());
+            doc.setExpiresAt(computeExpiresAt(scope));
+            if (projectId != null) doc.setProjectId(projectId);
         } else {
             doc = new MemoryDocument();
             doc.setMemoryId(UUID.randomUUID().toString());
@@ -114,9 +119,11 @@ public class MemoryTool implements Tool {
             doc.setContent(content);
             doc.setTags(tags);
             doc.setSessionId(ctx.sessionId());
+            doc.setProjectId(projectId);
             doc.setCreatedBy("agent");
             doc.setCreatedAt(Instant.now());
             doc.setUpdatedAt(Instant.now());
+            doc.setExpiresAt(computeExpiresAt(scope));
         }
 
         memoryRepository.save(doc);
@@ -134,12 +141,13 @@ public class MemoryTool implements Tool {
     private ToolResult handleRecall(ToolContext ctx, JsonNode input, MemoryDocument.MemoryScope scope, ToolStream stream) {
         String key = input.path("key").asText(null);
         String query = input.path("query").asText(null);
+        String projectId = input.path("projectId").asText(null);
 
         List<MemoryDocument> results;
 
         if (key != null && !key.isBlank()) {
             // Exact key lookup
-            Optional<MemoryDocument> found = findByKey(scope, ctx.sessionId(), key);
+            Optional<MemoryDocument> found = findByKey(scope, ctx.sessionId(), projectId, key);
             results = found.map(List::of).orElse(List.of());
         } else if (query != null && !query.isBlank()) {
             // Content search
@@ -182,8 +190,9 @@ public class MemoryTool implements Tool {
     private ToolResult handleDelete(ToolContext ctx, JsonNode input, MemoryDocument.MemoryScope scope) {
         String key = input.path("key").asText(null);
         if (key == null || key.isBlank()) return ToolResult.failure("'key' is required for delete operation");
+        String projectId = input.path("projectId").asText(null);
 
-        Optional<MemoryDocument> found = findByKey(scope, ctx.sessionId(), key);
+        Optional<MemoryDocument> found = findByKey(scope, ctx.sessionId(), projectId, key);
         if (found.isEmpty()) {
             return ToolResult.failure("No memory found with key '" + key + "' in scope " + scope.name());
         }
@@ -195,10 +204,20 @@ public class MemoryTool implements Tool {
         return ToolResult.success(result);
     }
 
-    private Optional<MemoryDocument> findByKey(MemoryDocument.MemoryScope scope, String sessionId, String key) {
+    private Instant computeExpiresAt(MemoryDocument.MemoryScope scope) {
+        Instant now = Instant.now();
+        return switch (scope) {
+            case SESSION -> now.plus(Duration.ofHours(24));
+            case THREAD -> now.plus(Duration.ofDays(7));
+            case PROJECT -> now.plus(Duration.ofDays(30));
+            case GLOBAL -> null;
+        };
+    }
+
+    private Optional<MemoryDocument> findByKey(MemoryDocument.MemoryScope scope, String sessionId, String projectId, String key) {
         return switch (scope) {
             case GLOBAL -> memoryRepository.findByScopeAndKey(scope, key);
-            case PROJECT -> memoryRepository.findByScopeAndProjectIdAndKey(scope, null, key);
+            case PROJECT -> memoryRepository.findByScopeAndProjectIdAndKey(scope, projectId, key);
             case SESSION -> memoryRepository.findByScopeAndSessionIdAndKey(scope, sessionId, key);
             case THREAD -> memoryRepository.findByScopeAndThreadIdAndKey(scope, null, key);
         };

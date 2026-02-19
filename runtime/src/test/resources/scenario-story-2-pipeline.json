@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 2 Pipeline Scenario Test",
+  "description": "V2 pipeline scenario: tests full 7-phase intake pipeline with mock LLM responses — no API tokens needed",
+  "defaults": {
+    "maxWaitMs": 60000
+  },
+  "steps": [
+    {
+      "name": "Full Pipeline — Multi-source intake",
+      "type": "pipeline",
+      "pipelineContent": "Confluence pages:\n- KYC Evidence Design: Define evidence service API, storage model, and validation rules. Owner: Alice. Date: 2026-02-10. Decisions: use S3 for storage, REST API with versioning. Open questions: retention policy.\n- Onboarding Flow: Client onboarding steps including identity verification and document upload. Owner: Alice. Date: 2026-02-11. Decisions: 3-step wizard. Action items: build upload component (Bob), integrate KYC check (Alice).\n\nJira Export:\n- J-101: Build Evidence API | Epic: Evidence Service | Status: In Progress | Owner: Alice | Priority: High\n- J-102: UI for onboarding | Epic: Onboarding | Status: Todo | Owner: Bob | Priority: Medium\n- J-103: Validation rules | Epic: Evidence Service | Status: Todo | Owner: Alice | Priority: High\n- J-104: Refactor intake | Epic: (none) | Status: Todo | Owner: Charlie | Priority: Low\n\nSmartsheet Plan:\n- Phase 1: Evidence Service | Milestone: Evidence Service Ready | Owner: Bob | Target: 2026-03-15\n- Phase 2: Onboarding | Milestone: Onboarding Complete | Owner: Alice | Target: 2026-03-20",
+      "agentResponses": [
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Classifying content.\n\n<tool_call>\n{\"name\": \"classify_content\", \"args\": {\"content\": \"Multi-source intake: Confluence pages, Jira export, Smartsheet plan\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** Use S3 for storage, REST API with versioning\n**Open Questions:** Retention policy\n**Key Content:** KYC evidence service API, storage model, validation rules. Owner: Alice. Date: 2026-02-10.\n\n### Topic: Onboarding Flow\n**Type:** action_item\n**Decisions:** 3-step wizard\n**Action Items:** Build upload component (Bob), Integrate KYC check (Alice)\n**Key Content:** Client onboarding steps including identity verification and document upload.\n\n### Routes\nTHREAD: yes\nTICKETS: yes\nPLAN: yes\nRESOURCES: no"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Creating threads from classified topics.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Evidence Service Design\", \"content\": \"## Evidence Service Design\\n\\nDefine evidence service API, storage model, and validation rules.\\n\\n**Decisions:**\\n- Use S3 for storage\\n- REST API with versioning\\n\\n**Open Questions:**\\n- Retention policy\\n\\n**Owner:** Alice\\n**Date:** 2026-02-10\", \"decisions\": [\"Use S3 for storage\", \"REST API with versioning\"], \"actions\": []}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Onboarding Flow\", \"content\": \"## Onboarding Flow\\n\\nClient onboarding steps including identity verification and document upload.\\n\\n**Decisions:**\\n- 3-step wizard\\n\\n**Action Items:**\\n- Build upload component (Bob)\\n- Integrate KYC check (Alice)\", \"decisions\": [\"3-step wizard\"], \"actions\": [{\"text\": \"Build upload component\", \"assignee\": \"Bob\"}, {\"text\": \"Integrate KYC check\", \"assignee\": \"Alice\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "thread-agent",
+          "responseFallback": "Created 2 threads: 'Evidence Service Design' and 'Onboarding Flow'."
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Processing Jira ticket data.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-101: Build Evidence API\", \"description\": \"Epic: Evidence Service | Status: In Progress | Owner: Alice\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-102: UI for onboarding\", \"description\": \"Epic: Onboarding | Status: Todo | Owner: Bob\", \"priority\": \"MEDIUM\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-103: Validation rules\", \"description\": \"Epic: Evidence Service | Status: Todo | Owner: Alice\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-104: Refactor intake\", \"description\": \"Epic: (none) — ORPHANED WORK | Status: Todo | Owner: Charlie\", \"priority\": \"LOW\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Created 4 tickets grouped by epic:\n- Evidence Service: J-101, J-103\n- Onboarding: J-102\n- No Epic (orphaned): J-104"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Processing plan data.\n\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Phase 1: Evidence Service\", \"sortOrder\": 1, \"description\": \"Evidence service development\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_milestone\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Evidence Service Ready\", \"targetDate\": \"2026-03-15\", \"owner\": \"Bob\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Phase 2: Onboarding\", \"sortOrder\": 2, \"description\": \"Onboarding flow development\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_milestone\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Onboarding Complete\", \"targetDate\": \"2026-03-20\", \"owner\": \"Alice\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Created 2 phases and 2 milestones:\n- Phase 1: Evidence Service -> Milestone: Evidence Service Ready (Bob, 2026-03-15)\n- Phase 2: Onboarding -> Milestone: Onboarding Complete (Alice, 2026-03-20)"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Computing coverage.\n\n<tool_call>\n{\"name\": \"compute_coverage\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Objectives derived:\n- Deliver Evidence Service: linked to J-101, J-103\n- Complete Onboarding Flow: linked to J-102\n\nCoverage: Evidence Service 50%, Onboarding 0%."
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Cross-referencing all project data.\n\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_objectives\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_phases\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_delta_pack\", \"args\": {\"projectId\": \"{{projectId}}\", \"projectName\": \"Story 2 Pipeline Scenario Test\", \"deltas\": [{\"deltaType\": \"MISSING_EPIC\", \"severity\": \"HIGH\", \"title\": \"Evidence Service epic not consistently mapped\", \"description\": \"J-104 has no epic assignment\", \"sourceA\": \"Jira\", \"sourceB\": \"Jira\", \"suggestedAction\": \"Assign J-104 to an epic\"}, {\"deltaType\": \"DATE_DRIFT\", \"severity\": \"MEDIUM\", \"title\": \"Evidence Service milestone date drift\", \"description\": \"Design date 2026-02-10 vs milestone 2026-03-15\", \"sourceA\": \"Confluence\", \"sourceB\": \"Smartsheet\", \"fieldName\": \"targetDate\", \"valueA\": \"2026-02-10\", \"valueB\": \"2026-03-15\", \"suggestedAction\": \"Confirm March 15 target\"}, {\"deltaType\": \"OWNER_MISMATCH\", \"severity\": \"HIGH\", \"title\": \"Evidence Service owner mismatch\", \"description\": \"Alice owns tickets, Bob owns milestone\", \"sourceA\": \"Jira\", \"sourceB\": \"Smartsheet\", \"fieldName\": \"owner\", \"valueA\": \"Alice\", \"valueB\": \"Bob\", \"suggestedAction\": \"Clarify owner\"}, {\"deltaType\": \"ORPHANED_WORK\", \"severity\": \"MEDIUM\", \"title\": \"J-104 has no epic\", \"description\": \"Ticket J-104 not mapped to any epic or objective\", \"sourceA\": \"Jira\", \"sourceB\": \"(none)\", \"suggestedAction\": \"Assign to epic\"}]}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_blindspot\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Owner mismatch on Evidence Service\", \"description\": \"Alice owns Jira tickets but Bob owns milestone\", \"category\": \"MISSING_OWNER\", \"severity\": \"HIGH\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Delta pack created with 4 deltas:\n- MISSING_EPIC (HIGH): Evidence Service epic not consistently mapped\n- DATE_DRIFT (MEDIUM): Evidence Service milestone date drift\n- OWNER_MISMATCH (HIGH): Alice vs Bob on Evidence Service\n- ORPHANED_WORK (MEDIUM): J-104 has no epic\n\n1 blindspot flagged for owner mismatch."
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "Analyzing resource allocation.\n\n<tool_call>\n{\"name\": \"read_resources\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"capacity_report\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "resource-agent",
+          "responseFallback": "No resources found for this project. Resource analysis skipped — seed team members via POST /api/resources to enable capacity tracking."
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "Evidence Service"}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "Onboarding"}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"anyMatchField": "content", "anyMatchPattern": "Evidence"}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countEq": 4}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "J-101"}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "J-104"}
+          },
+          {
+            "collection": "phases",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countEq": 2}
+          },
+          {
+            "collection": "milestones",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countEq": 2}
+          },
+          {
+            "collection": "delta_packs",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "blindspots",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          }
+        ]
+      }
+    }
+  ]
+}

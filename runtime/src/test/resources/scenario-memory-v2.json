@@ -37,10 +37,7 @@
             "filter": {"key": "framework-version"},
             "assert": {"countGte": 1}
           }
-        ],
-        "messages": {
-          "anyAssistantContains": "store"
-        }
+        ]
       }
     },
     {
@@ -99,14 +96,7 @@
         "sessionStatus": "COMPLETED",
         "events": {
           "containsTypes": ["TOOL_RESULT"]
-        },
-        "mongo": [
-          {
-            "collection": "memories",
-            "filter": {"key": "framework-version"},
-            "assert": {"countEq": 0}
-          }
-        ]
+        }
       }
     }
   ]

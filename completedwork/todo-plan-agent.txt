@@ -1,0 +1,483 @@
+================================================================================
+ TODO: plan_agent Agent
+ Purpose: Define phases + entry/exit criteria, maintain milestone calendar,
+          tie milestones to epics/initiatives, generate coherent plan artifacts,
+          keep them refreshed from thread and ticket changes
+================================================================================
+
+Context:
+  - JavaClaw v1: Spring Boot 3.3.1, MongoDB, Spring AI, LangGraph4j, Java 21
+  - Multi-module Maven: protocol, persistence, runtime, tools, gateway, ui
+  - PM agent exists but is generic
+  - PhaseDocument already exists with: phaseId, projectId, name, description,
+    entryCriteria, exitCriteria, checklistIds, objectiveIds,
+    status (PENDING/ACTIVE/COMPLETED), sortOrder, startDate, endDate
+  - ObjectiveDocument and TicketDocument also exist
+
+--------------------------------------------------------------------------------
+1. AGENT DEFINITION
+--------------------------------------------------------------------------------
+
+  agentId       : plan_agent
+  name          : Plan Agent
+  role          : SPECIALIST
+  skills        : ["phase_management", "milestone_tracking", "plan_generation",
+                   "criteria_enforcement", "artifact_maintenance"]
+  allowedTools  : ["read_phases", "create_phase", "update_phase",
+                   "read_objectives", "read_tickets", "read_checklists",
+                   "write_file", "memory", "excel"]
+
+  Detailed system prompt covering:
+    - Manage project phases with clear entry/exit criteria
+    - Maintain a milestone calendar linking milestones to phases and objectives
+    - Generate plan artifacts (markdown documents) summarizing the full project
+      plan
+    - Detect when entry criteria are met and recommend phase transitions
+    - Detect when exit criteria are blocked and raise risks
+    - Keep plan artifacts refreshed when tickets/objectives change
+    - Enforce sequencing: phases must respect sortOrder, a phase can't start
+      until prior phase exits
+    - Track phase health: are all checklist items progressing? Are objectives
+      on track?
+
+--------------------------------------------------------------------------------
+2. NEW DOCUMENT: MilestoneDocument (persistence module)
+--------------------------------------------------------------------------------
+
+  Collection: milestones
+
+  Fields:
+    milestoneId   (String, @Id)
+    projectId     (String, required)
+    name          (String, required)
+    description   (String)
+    targetDate    (Instant)
+    actualDate    (Instant, nullable)
+    status        (UPCOMING / ON_TRACK / AT_RISK / MISSED / COMPLETED)
+    phaseId       (String, nullable)
+    objectiveIds  (List<String>)
+    ticketIds     (List<String>)
+    owner         (String, nullable)
+    dependencies  (List<String> -- other milestoneIds)
+    createdAt     (Instant)
+    updatedAt     (Instant)
+
+  Repository: MilestoneRepository
+    findByProjectIdOrderByTargetDateAsc(String projectId)
+    findByProjectIdAndStatus(String projectId, String status)
+    findByPhaseId(String phaseId)
+
+--------------------------------------------------------------------------------
+3. NEW TOOLS
+--------------------------------------------------------------------------------
+
+  a) create_phase
+     Risk   : WRITE_FILES
+     Params : projectId, name, description, entryCriteria, exitCriteria,
+              sortOrder, startDate (opt), endDate (opt)
+     Returns: phaseId
+
+  b) update_phase
+     Risk   : WRITE_FILES
+     Params : phaseId, status (opt), entryCriteria (opt), exitCriteria (opt),
+              startDate (opt), endDate (opt)
+     Returns: phaseId, updatedFields
+
+  c) create_milestone
+     Risk   : WRITE_FILES
+     Params : projectId, name, description, targetDate, phaseId (opt),
+              objectiveIds (opt), owner (opt)
+     Returns: milestoneId
+
+  d) update_milestone
+     Risk   : WRITE_FILES
+     Params : milestoneId, status (opt), targetDate (opt), actualDate (opt),
+              owner (opt), ticketIds (opt)
+     Returns: milestoneId, updatedFields
+
+  e) generate_plan_artifact
+     Risk   : WRITE_FILES
+     Params : projectId, format (markdown/json), includeTimeline (bool)
+     Returns: artifactPath, sections generated
+     Impl   : Reads all phases, milestones, objectives; generates structured
+               plan doc
+
+--------------------------------------------------------------------------------
+4. NEW EVENT TYPES
+--------------------------------------------------------------------------------
+
+  PHASE_CREATED
+  PHASE_UPDATED
+  PHASE_TRANSITION_RECOMMENDED
+
+  MILESTONE_CREATED
+  MILESTONE_UPDATED
+  MILESTONE_AT_RISK
+  MILESTONE_MISSED
+
+  PLAN_ARTIFACT_GENERATED
+  PLAN_ARTIFACT_REFRESHED
+
+--------------------------------------------------------------------------------
+5. ENDPOINTS
+--------------------------------------------------------------------------------
+
+  POST  /api/projects/{projectId}/plan/generate
+        Trigger plan generation/refresh
+
+  GET   /api/projects/{projectId}/milestones
+        List milestones
+
+  POST  /api/projects/{projectId}/milestones
+        Create milestone
+
+  PUT   /api/projects/{projectId}/milestones/{milestoneId}
+        Update milestone
+
+  GET   /api/projects/{projectId}/plan/health
+        Get phase health summary
+
+--------------------------------------------------------------------------------
+6. MODIFIED FILES
+--------------------------------------------------------------------------------
+
+  - runtime/agent/AgentBootstrapService.java
+  - protocol/event/EventType.java
+  - tools/META-INF/services
+  - persistence/mongo-init.js
+
+--------------------------------------------------------------------------------
+7. SCENARIO-BASED TESTING
+--------------------------------------------------------------------------------
+
+  Test Scenario 1: Phase Creation
+    Setup    : Empty project
+    Expected : Agent creates Design -> Implementation -> Testing -> Launch
+               phases with criteria
+
+  Test Scenario 2: Phase Transition Detection
+    Setup    : Phase "Design" with exit criteria "architecture doc approved",
+               and a ticket marked DONE for arch doc
+    Expected : Agent recommends transition to next phase
+
+  Test Scenario 3: Milestone At Risk
+    Setup    : Milestone with targetDate in 5 days, linked tickets all still
+               OPEN
+    Expected : Milestone status set to AT_RISK, event emitted
+
+  Test Scenario 4: Plan Artifact Generation
+    Setup    : Project with 3 phases, 4 milestones, 2 objectives
+    Expected : Markdown plan doc generated with timeline, phase details,
+               milestone table
+
+--------------------------------------------------------------------------------
+8. MOCK DATA (staged in test/scenarios/plan_agent/)
+--------------------------------------------------------------------------------
+
+  File: test/scenarios/plan_agent/mongo-seed-projects.json
+  ........................................................................
+  [
+    {
+      "projectId": "proj-delta",
+      "name": "Project Delta",
+      "description": "Mobile app launch",
+      "status": "ACTIVE",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-02-18T00:00:00Z"
+    }
+  ]
+
+  File: test/scenarios/plan_agent/mongo-seed-phases.json
+  ........................................................................
+  [
+    {
+      "phaseId": "phase-001",
+      "projectId": "proj-delta",
+      "name": "Design",
+      "description": "UI/UX design and architecture",
+      "entryCriteria": "Requirements doc approved",
+      "exitCriteria": "Architecture doc approved, wireframes signed off",
+      "checklistIds": ["cl-001"],
+      "objectiveIds": ["obj-301"],
+      "status": "ACTIVE",
+      "sortOrder": 1,
+      "startDate": "2026-01-15",
+      "endDate": "2026-02-15"
+    },
+    {
+      "phaseId": "phase-002",
+      "projectId": "proj-delta",
+      "name": "Implementation",
+      "description": "Core feature development",
+      "entryCriteria": "Architecture doc approved, wireframes signed off",
+      "exitCriteria": "All P0 features implemented, code review complete",
+      "checklistIds": [],
+      "objectiveIds": ["obj-302"],
+      "status": "PENDING",
+      "sortOrder": 2,
+      "startDate": "2026-02-16",
+      "endDate": "2026-03-31"
+    },
+    {
+      "phaseId": "phase-003",
+      "projectId": "proj-delta",
+      "name": "Testing & Launch",
+      "description": "QA, UAT, and production deployment",
+      "entryCriteria": "All P0 features implemented, code review complete",
+      "exitCriteria": "QA sign-off, UAT passed, production deploy successful",
+      "checklistIds": [],
+      "objectiveIds": [],
+      "status": "PENDING",
+      "sortOrder": 3,
+      "startDate": "2026-04-01",
+      "endDate": "2026-04-30"
+    }
+  ]
+
+  File: test/scenarios/plan_agent/mongo-seed-milestones.json
+  ........................................................................
+  [
+    {
+      "milestoneId": "ms-001",
+      "projectId": "proj-delta",
+      "name": "Architecture Approved",
+      "description": "Final architecture doc signed off by tech lead",
+      "targetDate": "2026-02-10T00:00:00Z",
+      "actualDate": null,
+      "status": "ON_TRACK",
+      "phaseId": "phase-001",
+      "objectiveIds": ["obj-301"],
+      "ticketIds": ["ticket-401"],
+      "owner": "alice",
+      "dependencies": []
+    },
+    {
+      "milestoneId": "ms-002",
+      "projectId": "proj-delta",
+      "name": "MVP Feature Complete",
+      "description": "All P0 features pass code review",
+      "targetDate": "2026-03-20T00:00:00Z",
+      "actualDate": null,
+      "status": "UPCOMING",
+      "phaseId": "phase-002",
+      "objectiveIds": ["obj-302"],
+      "ticketIds": ["ticket-402", "ticket-403"],
+      "owner": "bob",
+      "dependencies": ["ms-001"]
+    },
+    {
+      "milestoneId": "ms-003",
+      "projectId": "proj-delta",
+      "name": "QA Sign-off",
+      "description": "All test suites pass, no P0/P1 bugs open",
+      "targetDate": "2026-04-15T00:00:00Z",
+      "actualDate": null,
+      "status": "UPCOMING",
+      "phaseId": "phase-003",
+      "objectiveIds": [],
+      "ticketIds": [],
+      "owner": "charlie",
+      "dependencies": ["ms-002"]
+    },
+    {
+      "milestoneId": "ms-004",
+      "projectId": "proj-delta",
+      "name": "Production Launch",
+      "description": "App live in production",
+      "targetDate": "2026-04-30T00:00:00Z",
+      "actualDate": null,
+      "status": "UPCOMING",
+      "phaseId": "phase-003",
+      "objectiveIds": [],
+      "ticketIds": [],
+      "owner": "alice",
+      "dependencies": ["ms-003"]
+    }
+  ]
+
+  File: test/scenarios/plan_agent/mongo-seed-objectives.json
+  ........................................................................
+  [
+    {
+      "objectiveId": "obj-301",
+      "projectId": "proj-delta",
+      "sprintName": "Sprint 1",
+      "outcome": "Finalize architecture and design",
+      "measurableSignal": "Architecture doc approved by tech lead",
+      "risks": ["Requirements may change"],
+      "ticketIds": ["ticket-401"],
+      "status": "IN_PROGRESS"
+    },
+    {
+      "objectiveId": "obj-302",
+      "projectId": "proj-delta",
+      "sprintName": "Sprint 2-3",
+      "outcome": "Implement all P0 features",
+      "measurableSignal": "All P0 tickets in DONE status",
+      "risks": ["Scope creep", "API instability"],
+      "ticketIds": ["ticket-402", "ticket-403"],
+      "status": "NOT_STARTED"
+    }
+  ]
+
+  File: test/scenarios/plan_agent/mongo-seed-tickets.json
+  ........................................................................
+  [
+    {
+      "ticketId": "ticket-401",
+      "projectId": "proj-delta",
+      "title": "Write architecture decision record",
+      "status": "DONE",
+      "priority": "CRITICAL",
+      "type": "TASK",
+      "assignee": "alice",
+      "objectiveIds": ["obj-301"]
+    },
+    {
+      "ticketId": "ticket-402",
+      "projectId": "proj-delta",
+      "title": "Implement user authentication",
+      "status": "OPEN",
+      "priority": "HIGH",
+      "type": "FEATURE",
+      "assignee": "bob",
+      "objectiveIds": ["obj-302"]
+    },
+    {
+      "ticketId": "ticket-403",
+      "projectId": "proj-delta",
+      "title": "Build push notification service",
+      "status": "OPEN",
+      "priority": "HIGH",
+      "type": "FEATURE",
+      "assignee": "charlie",
+      "objectiveIds": ["obj-302"]
+    }
+  ]
+
+  File: test/scenarios/plan_agent/mongo-seed-checklists.json
+  ........................................................................
+  [
+    {
+      "checklistId": "cl-001",
+      "projectId": "proj-delta",
+      "phaseId": "phase-001",
+      "title": "Design Phase Exit Checklist",
+      "items": [
+        {
+          "text": "Architecture doc written",
+          "assignee": "alice",
+          "checked": true,
+          "notes": "Completed Feb 8"
+        },
+        {
+          "text": "Architecture doc reviewed",
+          "assignee": "bob",
+          "checked": true,
+          "notes": "Approved Feb 10"
+        },
+        {
+          "text": "Wireframes created",
+          "assignee": "charlie",
+          "checked": true,
+          "notes": ""
+        },
+        {
+          "text": "Wireframes approved by stakeholders",
+          "assignee": "alice",
+          "checked": false,
+          "notes": "Meeting scheduled Feb 19"
+        }
+      ],
+      "status": "IN_PROGRESS"
+    }
+  ]
+
+  File: test/scenarios/plan_agent/scenario-phase-transition.json
+  ........................................................................
+  {
+    "name": "plan-agent-phase-transition",
+    "description": "Detect that Design phase exit criteria are nearly met",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "phases": "mongo-seed-phases.json",
+      "milestones": "mongo-seed-milestones.json",
+      "objectives": "mongo-seed-objectives.json",
+      "tickets": "mongo-seed-tickets.json",
+      "checklists": "mongo-seed-checklists.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Check if Project Delta is ready to transition from Design to Implementation phase"
+      }
+    ],
+    "expectedOutcomes": [
+      {
+        "type": "PHASE_TRANSITION_RECOMMENDED",
+        "phase": "Design",
+        "blocker": "wireframes not yet approved"
+      },
+      {
+        "type": "MILESTONE_UPDATED",
+        "milestoneId": "ms-001"
+      }
+    ]
+  }
+
+  File: test/scenarios/plan_agent/scenario-generate-plan.json
+  ........................................................................
+  {
+    "name": "plan-agent-generate",
+    "description": "Generate full plan artifact for Project Delta",
+    "seedCollections": {
+      "projects": "mongo-seed-projects.json",
+      "phases": "mongo-seed-phases.json",
+      "milestones": "mongo-seed-milestones.json",
+      "objectives": "mongo-seed-objectives.json",
+      "tickets": "mongo-seed-tickets.json",
+      "checklists": "mongo-seed-checklists.json"
+    },
+    "steps": [
+      {
+        "type": "USER_MESSAGE",
+        "content": "Generate a complete project plan document for Project Delta"
+      }
+    ],
+    "expectedOutcomes": [
+      {
+        "type": "PLAN_ARTIFACT_GENERATED",
+        "format": "markdown"
+      },
+      {
+        "type": "MILESTONE_AT_RISK",
+        "count": 0
+      }
+    ]
+  }
+
+--------------------------------------------------------------------------------
+9. FILE MANIFEST
+--------------------------------------------------------------------------------
+
+  NEW FILES:
+    persistence/  MilestoneDocument.java
+    persistence/  MilestoneRepository.java
+    tools/        CreatePhaseTool.java
+    tools/        UpdatePhaseTool.java
+    tools/        CreateMilestoneTool.java
+    tools/        UpdateMilestoneTool.java
+    tools/        GeneratePlanArtifactTool.java
+    gateway/      PlanController.java
+    gateway/      MilestoneController.java
+    test/scenarios/plan_agent/  (all mock + scenario files listed above)
+
+  MODIFIED FILES:
+    runtime/agent/AgentBootstrapService.java
+    protocol/event/EventType.java
+    tools/META-INF/services
+    persistence/mongo-init.js
+
+================================================================================
+ END OF PLAN
+================================================================================
