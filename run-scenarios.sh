@@ -26,6 +26,7 @@ SCENARIOS=(
   scenario-plan-agent
   scenario-reconcile-agent
   scenario-resource-agent
+  scenario-intake-pipeline
 )
 
 PORT=${1:-18080}
@@ -42,7 +43,7 @@ echo " Port: $PORT"
 echo "============================================================"
 echo ""
 
-cmd.exe /c "jbang.cmd javaclaw.java --headless --port $PORT $SCENARIO_ARGS"
+cmd.exe /c "jbang.cmd javaclaw.java --testmode --port $PORT $SCENARIO_ARGS"
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then

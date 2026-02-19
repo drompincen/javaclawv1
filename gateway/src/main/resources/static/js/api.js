@@ -41,7 +41,6 @@ export const projects = {
 export const threads = {
   list:   (pid)        => get(`${projectPath(pid)}/threads`),
   get:    (pid, id)    => get(`${projectPath(pid)}/threads/${id}`),
-  create: (pid, data)  => post(`${projectPath(pid)}/threads`, data),
   update: (pid, id, d) => put(`${projectPath(pid)}/threads/${id}`, d),
 };
 
@@ -111,6 +110,10 @@ export const reconciliations = {
 
 export const resources = {
   list:   (pid)        => get(`${projectPath(pid)}/resources`),
+};
+
+export const intake = {
+  startPipeline: (data) => post('/api/intake/pipeline', data),
 };
 
 export const sessions = {

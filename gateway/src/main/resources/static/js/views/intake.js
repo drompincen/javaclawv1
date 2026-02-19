@@ -49,18 +49,36 @@ export async function render() {
       </div>
     </div>`;
 
-  // Intent buttons
+  // Intent buttons — "threads" triggers the pipeline directly
   body.querySelectorAll('[data-intent]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const ta = document.getElementById('intakeText');
       const intent = btn.dataset.intent;
+
+      if (intent === 'threads') {
+        const raw = (ta?.value || '').trim();
+        if (!raw) { toast('paste content first'); return; }
+        if (!pid) { toast('select a project first'); return; }
+        try {
+          const result = await api.intake.startPipeline({ projectId: pid, content: raw });
+          ta.value = '';
+          incrementStep();
+          toast('pipeline started');
+          addLog('INTAKE_PIPELINE_STARTED: ' + (result.pipelineId || ''), 'info');
+        } catch (e) {
+          toast('pipeline failed: ' + e.message);
+          addLog('INTAKE_ERROR: ' + e.message, 'bad');
+        }
+        return;
+      }
+
       if (ta && !ta.value.startsWith('Intent:')) ta.value = `Intent: ${intent}\n` + ta.value;
       toast('intent set: ' + intent);
       addLog('INTAKE_INTENT: ' + intent, 'info');
     });
   });
 
-  // Send button
+  // Send button — uses intake pipeline
   const sendBtn = document.getElementById('intakeSend');
   if (sendBtn) {
     sendBtn.addEventListener('click', async () => {
@@ -70,41 +88,41 @@ export async function render() {
       if (!pid) { toast('select a project first'); return; }
 
       try {
-        // Create a session for this intake and send the message
-        const session = await api.sessions.create({ projectId: pid });
-        await api.sessions.sendMessage(session.sessionId, { content: raw, role: 'user' });
-        await api.sessions.run(session.sessionId);
+        const result = await api.intake.startPipeline({ projectId: pid, content: raw });
         ta.value = '';
         incrementStep();
-        toast('intake sent');
-        addLog('USER_MESSAGE_RECEIVED', 'info');
-        addLog('CONTROLLER: routing to agents', 'warn');
+        toast('pipeline started');
+        addLog('INTAKE_PIPELINE_STARTED: ' + (result.pipelineId || ''), 'info');
+        addLog('Triage → Thread creation → Distillation', 'warn');
       } catch (e) {
-        toast('send failed: ' + e.message);
+        toast('pipeline failed: ' + e.message);
         addLog('INTAKE_ERROR: ' + e.message, 'bad');
       }
     });
   }
 
-  // Load recent threads as intake timeline proxy
+  // Load recent sessions as intake timeline
   if (pid) {
     try {
-      const threadList = await api.threads.list(pid);
+      const allSessions = await api.sessions.list();
+      const sessionList = allSessions.filter(s => s.projectId === pid);
       const tl = document.getElementById('intakeTimeline');
-      if (threadList.length === 0) {
+      if (sessionList.length === 0) {
         tl.innerHTML = '<div class="tiny">No intake yet for this project.</div>';
       } else {
         tl.innerHTML = '';
-        threadList.slice(0, 10).forEach(t => {
+        sessionList.slice(0, 10).forEach(s => {
           const ev = document.createElement('div');
           ev.className = 'event';
           ev.style.cursor = 'pointer';
-          ev.innerHTML = `<div class="eventTop"><div style="min-width:0"><div class="eventTitle">${esc(t.title || 'Untitled')}</div><div class="tiny">${t.updatedAt || ''}</div></div><span class="pill">${t.lifecycle || 'DRAFT'}</span></div>`;
-          ev.addEventListener('click', () => setSelected({ type: 'thread', id: t.threadId, data: t }));
+          const preview = esc((s.lastMessage || s.sessionId || '').substring(0, 80));
+          const time = s.updatedAt ? new Date(s.updatedAt).toLocaleTimeString() : '';
+          ev.innerHTML = `<div class="eventTop"><div style="min-width:0"><div class="eventTitle">${preview || 'Session'}</div><div class="tiny">${time}</div></div><span class="pill">${s.status || 'IDLE'}</span></div>`;
+          ev.addEventListener('click', () => setSelected({ type: 'session', id: s.sessionId, data: s }));
           tl.appendChild(ev);
         });
       }
-    } catch { /* no threads endpoint yet */ }
+    } catch { /* sessions endpoint not available */ }
   }
 }
 

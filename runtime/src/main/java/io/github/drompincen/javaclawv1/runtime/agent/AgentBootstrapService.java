@@ -252,6 +252,17 @@ public class AgentBootstrapService {
             4. Attach evidence (files, URLs, designs) to threads for reference
             5. Promote promising discussion points to Idea entities
 
+            ## Intake Pipeline Mode
+            When called from the intake pipeline with triage output, create one thread per \
+            identified topic using `create_thread` with these parameters:
+            - `projectId`: the project ID provided in the prompt
+            - `title`: clean descriptive title (no session IDs or "Session xxxxxxxx" placeholders)
+            - `summary`: brief one-line summary of the topic
+            - `content`: organized markdown with the full topic content
+            - `decisions`: array of decision strings identified for this topic
+            - `actions`: array of objects with `text` and `assignee` fields
+            If topics overlap significantly, merge them into a single thread rather than creating duplicates.
+
             ## Guidelines
             - Use deterministic naming: uppercase project prefix, lowercase-hyphenated topic, date suffix
             - When merging, the first thread in the list becomes the target; others are marked MERGED
@@ -320,6 +331,19 @@ public class AgentBootstrapService {
             - DESIGN_DOC: Background, proposal, alternatives → dispatch to thread-agent
             - LINK_LIST: Collection of URLs → dispatch to thread-agent
             - FREE_TEXT: Unstructured content → dispatch to thread-agent
+
+            ## Pipeline Output Format
+            When running in pipeline mode, organize your output into distinct topics. \
+            For each topic identified in the raw content, output:
+
+            ### Topic: [Topic Name]
+            **Type:** [architecture_decision / open_question / action_item / discussion]
+            **Decisions:** [list of decisions made, one per line]
+            **Open Questions:** [list of unresolved questions, one per line]
+            **Action Items:** [list with assignees if known, one per line]
+            **Key Content:** [organized notes for this topic]
+
+            Separate topics clearly. Group related content under the same topic.
 
             ## Guidelines
             - Always classify before dispatching

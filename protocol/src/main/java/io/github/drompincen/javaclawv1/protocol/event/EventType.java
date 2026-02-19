@@ -77,6 +77,10 @@ public enum EventType {
     INTAKE_CLASSIFIED,
     INTAKE_DISPATCHED,
 
+    // Intake pipeline events
+    INTAKE_PIPELINE_STARTED,
+    INTAKE_PIPELINE_COMPLETED,
+
     // Checklist agent events
     CHECKLIST_CREATED,
     CHECKLIST_UPDATED,

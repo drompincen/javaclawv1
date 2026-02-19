@@ -1,6 +1,8 @@
 package io.github.drompincen.javaclawv1.tools;
 
+import io.github.drompincen.javaclawv1.persistence.document.MessageDocument;
 import io.github.drompincen.javaclawv1.persistence.document.ThreadDocument;
+import io.github.drompincen.javaclawv1.persistence.repository.MessageRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.ThreadRepository;
 import io.github.drompincen.javaclawv1.protocol.api.ThreadLifecycle;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
@@ -19,6 +21,7 @@ public class CreateThreadTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private ThreadRepository threadRepository;
+    private MessageRepository messageRepository;
 
     @Override public String name() { return "create_thread"; }
 
@@ -37,6 +40,20 @@ public class CreateThreadTool implements Tool {
                 .put("description", "Optional thread summary");
         props.putObject("lifecycle").put("type", "string")
                 .put("description", "DRAFT, ACTIVE, or CLOSED (default ACTIVE)");
+        props.putObject("content").put("type", "string")
+                .put("description", "Organized markdown to seed as the first message in the thread");
+        ObjectNode decisionsSchema = props.putObject("decisions");
+        decisionsSchema.put("type", "array");
+        decisionsSchema.put("description", "List of key decisions for this thread");
+        decisionsSchema.putObject("items").put("type", "string");
+        ObjectNode actionsSchema = props.putObject("actions");
+        actionsSchema.put("type", "array");
+        actionsSchema.put("description", "List of action items for this thread");
+        ObjectNode actionItem = actionsSchema.putObject("items");
+        actionItem.put("type", "object");
+        ObjectNode actionProps = actionItem.putObject("properties");
+        actionProps.putObject("text").put("type", "string");
+        actionProps.putObject("assignee").put("type", "string");
         schema.putArray("required").add("projectId").add("title");
         return schema;
     }
@@ -46,6 +63,10 @@ public class CreateThreadTool implements Tool {
 
     public void setThreadRepository(ThreadRepository threadRepository) {
         this.threadRepository = threadRepository;
+    }
+
+    public void setMessageRepository(MessageRepository messageRepository) {
+        this.messageRepository = messageRepository;
     }
 
     @Override
@@ -81,16 +102,60 @@ public class CreateThreadTool implements Tool {
             doc.setSummary(summary);
         }
 
+        // Populate decisions from input
+        JsonNode decisionsNode = input.path("decisions");
+        if (decisionsNode.isArray()) {
+            List<ThreadDocument.Decision> decisions = new ArrayList<>();
+            for (JsonNode d : decisionsNode) {
+                ThreadDocument.Decision decision = new ThreadDocument.Decision();
+                decision.setText(d.asText());
+                decision.setDate(Instant.now());
+                decisions.add(decision);
+            }
+            doc.setDecisions(decisions);
+        }
+
+        // Populate actions from input
+        JsonNode actionsNode = input.path("actions");
+        if (actionsNode.isArray()) {
+            List<ThreadDocument.ActionItem> actionItems = new ArrayList<>();
+            for (JsonNode a : actionsNode) {
+                ThreadDocument.ActionItem action = new ThreadDocument.ActionItem();
+                action.setText(a.path("text").asText(""));
+                String assignee = a.path("assignee").asText(null);
+                if (assignee != null && !assignee.isBlank()) action.setAssignee(assignee);
+                action.setStatus("OPEN");
+                actionItems.add(action);
+            }
+            doc.setActions(actionItems);
+        }
+
         doc.setCreatedAt(Instant.now());
         doc.setUpdatedAt(Instant.now());
 
         threadRepository.save(doc);
+
+        // Seed content as the first message in the thread
+        String content = input.path("content").asText(null);
+        if (content != null && !content.isBlank() && messageRepository != null) {
+            MessageDocument msg = new MessageDocument();
+            msg.setMessageId(UUID.randomUUID().toString());
+            msg.setSessionId(doc.getThreadId());
+            msg.setSeq(1);
+            msg.setRole("assistant");
+            msg.setAgentId("thread-agent");
+            msg.setContent(content);
+            msg.setTimestamp(Instant.now());
+            messageRepository.save(msg);
+        }
+
         stream.progress(100, "Thread created: " + title);
 
         ObjectNode result = MAPPER.createObjectNode();
         result.put("threadId", doc.getThreadId());
         result.put("title", title);
         result.put("projectId", projectId);
+        result.put("seeded", content != null && !content.isBlank());
         return ToolResult.success(result);
     }
 }
