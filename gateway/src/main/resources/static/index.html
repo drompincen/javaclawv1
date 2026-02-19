@@ -70,7 +70,6 @@
         </div>
         <div class="row">
           <button class="btn" id="runController">Run (F3)</button>
-          <button class="btn ghost" id="clearLog">Clear log</button>
         </div>
       </div>
       <div class="panelBody" id="centerBody"></div>
@@ -123,16 +122,15 @@
             </div>
           </div>
 
-          <!-- Activity stream -->
+          <!-- Agent Status -->
           <div class="card">
             <div class="cardH">
               <div>
-                <b>Activity stream</b>
-                <div class="tiny">events + tool stream</div>
+                <b>Agent Status</b>
+                <div class="tiny">live agent activity</div>
               </div>
-              <span class="pill" id="reviewPill">review: n/a</span>
             </div>
-            <div class="cardB"><div class="timeline" id="log"></div></div>
+            <div class="cardB"><div class="agentStatusGrid" id="log"></div></div>
           </div>
 
           <!-- Inspector -->
@@ -150,7 +148,7 @@
   <!-- ── Footer ── -->
   <div class="footer">
     <div>F1 Help &bull; F3 Run controller &bull; F7 Focus intake &bull; "use project &lt;name&gt;"</div>
-    <div>keyboard-first &bull; green-on-black</div>
+    <div><span id="tokenCount">&#x1FA99; 0 tokens | 0 calls | avg 0ms</span> &bull; keyboard-first &bull; green-on-black</div>
   </div>
 
 </div>

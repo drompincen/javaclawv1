@@ -12,7 +12,6 @@ package javaclaw;
 // ============================================================================
 // Usage:
 //   jbang javaclaw.java                          # Default: starts on port 8080
-//   jbang javaclaw.java --headless               # No UI, agent + REST gateway only
 //   jbang javaclaw.java --port 9090              # Custom HTTP port (default: 8080)
 //   jbang javaclaw.java --testmode               # Test mode with deterministic LLM
 //   jbang javaclaw.java --scenario file.json      # Scenario-based E2E test (implies --testmode)
@@ -49,7 +48,6 @@ import java.util.List;
 public class javaclaw {
 
     static String mongoUri;
-    static boolean headless = false;
     static int port = 8080;
 
     public static void main(String... args) {
@@ -84,10 +82,6 @@ public class javaclaw {
         }
         System.out.println("  API:    http://localhost:" + port + "/api");
         System.out.println("  ========================================\n");
-
-        if (!headless) {
-            launchUI();
-        }
     }
 
     static void parseArgs(String[] args) {
@@ -104,7 +98,6 @@ public class javaclaw {
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--headless" -> headless = true;
                 case "--testmode" -> System.setProperty("javaclaw.llm.provider", "test");
                 case "--scenario" -> {
                     if (i + 1 < args.length) {
@@ -140,30 +133,6 @@ public class javaclaw {
                 case "--mongo" -> { if (i + 1 < args.length) mongoUri = args[++i]; }
                 case "--port" -> { if (i + 1 < args.length) port = Integer.parseInt(args[++i]); }
             }
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // UI launcher
-    // -----------------------------------------------------------------------
-
-    static void launchUI() {
-        try {
-            String userDir = System.getProperty("user.dir");
-            java.io.File uiFile = new java.io.File(userDir, "javaclawui.java");
-            if (!uiFile.exists()) {
-                System.out.println("  javaclawui.java not found in " + userDir);
-                System.out.println("  For desktop UI, run: jbang javaclawui.java --url http://localhost:" + port);
-                return;
-            }
-            System.out.println("  Launching UI ...");
-            String jbangCmd = System.getProperty("os.name").toLowerCase().contains("win") ? "jbang.cmd" : "jbang";
-            new ProcessBuilder(jbangCmd, uiFile.getAbsolutePath(), "--url", "http://localhost:" + port)
-                    .inheritIO()
-                    .start();
-        } catch (Exception e) {
-            System.out.println("  Failed to launch UI: " + e.getMessage());
-            System.out.println("  Run manually: jbang javaclawui.java --url http://localhost:" + port);
         }
     }
 

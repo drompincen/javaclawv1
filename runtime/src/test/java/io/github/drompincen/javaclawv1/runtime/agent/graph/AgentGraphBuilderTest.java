@@ -490,15 +490,6 @@ class AgentGraphBuilderTest {
         when(agentRepository.findByEnabledTrue())
                 .thenReturn(List.of(controller, generalist, checker, threadExtractor));
 
-        // Controller blockingResponse should NOT be called
-        when(llmService.blockingResponse(any())).thenAnswer(inv -> {
-            AgentState s = inv.getArgument(0);
-            if ("reviewer".equals(s.getCurrentAgentId())) {
-                return "{\"pass\": true, \"summary\": \"Extraction ok\"}";
-            }
-            return null;
-        });
-
         when(llmService.streamResponse(any()))
                 .thenReturn(Flux.just("Extracted 3 items from thread."));
 
@@ -506,17 +497,11 @@ class AgentGraphBuilderTest {
         initial.setForcedAgentId("thread-extractor");
         AgentState result = builder.runGraph(initial);
 
-        // Specialist should have been called
+        // Specialist should have been called via streamResponse (pipeline mode)
         assertThat(allAssistantMessages(result)).anyMatch(m -> m.equals("Extracted 3 items from thread."));
 
-        // Controller blockingResponse should have been called only for checker, not for controller routing
-        ArgumentCaptor<AgentState> stateCaptor = ArgumentCaptor.forClass(AgentState.class);
-        verify(llmService, atLeastOnce()).blockingResponse(stateCaptor.capture());
-        List<String> silentAgentIds = stateCaptor.getAllValues().stream()
-                .map(AgentState::getCurrentAgentId)
-                .toList();
-        assertThat(silentAgentIds).doesNotContain("controller");
-        assertThat(silentAgentIds).contains("reviewer");
+        // Forced agent routing skips controller AND checker — no blockingResponse calls
+        verify(llmService, never()).blockingResponse(any());
 
         // AGENT_DELEGATED should have been emitted (from forced routing)
         verify(eventService).emit(eq("thread-13"), eq(EventType.AGENT_DELEGATED),

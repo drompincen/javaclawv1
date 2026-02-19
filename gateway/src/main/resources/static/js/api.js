@@ -42,6 +42,7 @@ export const threads = {
   list:   (pid)        => get(`${projectPath(pid)}/threads`),
   get:    (pid, id)    => get(`${projectPath(pid)}/threads/${id}`),
   update: (pid, id, d) => put(`${projectPath(pid)}/threads/${id}`, d),
+  delete: (pid, id)    => del(`${projectPath(pid)}/threads/${id}`),
 };
 
 export const tickets = {
@@ -108,12 +109,58 @@ export const reconciliations = {
   get:    (pid, id)    => get(`${projectPath(pid)}/reconciliations/${id}`),
 };
 
+export const deltaPacks = {
+  list:   (pid)        => get(`${projectPath(pid)}/delta-packs`),
+  get:    (pid, id)    => get(`${projectPath(pid)}/delta-packs/${id}`),
+};
+
+export const blindspots = {
+  list:   (pid)        => get(`${projectPath(pid)}/blindspots`),
+  get:    (pid, id)    => get(`${projectPath(pid)}/blindspots/${id}`),
+  update: (pid, id, d) => put(`${projectPath(pid)}/blindspots/${id}`, d),
+};
+
 export const resources = {
-  list:   (pid)        => get(`${projectPath(pid)}/resources`),
+  list:   ()          => get('/api/resources'),
+  create: (data)      => post('/api/resources', data),
+  update: (id, data)  => put(`/api/resources/${id}`, data),
+  delete: (id)        => del(`/api/resources/${id}`),
 };
 
 export const intake = {
   startPipeline: (data) => post('/api/intake/pipeline', data),
+};
+
+export const uploads = {
+  send: async (projectId, files) => {
+    const fd = new FormData();
+    fd.append('projectId', projectId);
+    files.forEach(f => fd.append('files', f));
+    const res = await fetch(BASE + '/api/intake/upload', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    return res.json();
+  }
+};
+
+function qs(params) {
+  if (!params) return '';
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => { if (v != null) q.set(k, String(v)); });
+  const s = q.toString();
+  return s ? '?' + s : '';
+}
+
+export const schedules = {
+  list:   (params) => get('/api/schedules' + qs(params)),
+  get:    (id)     => get(`/api/schedules/${id}`),
+  update: (id, d)  => put(`/api/schedules/${id}`, d),
+};
+
+export const executions = {
+  future: (params) => get('/api/executions/future' + qs(params)),
+  past:   (params) => get('/api/executions/past' + qs(params)),
+  trigger:(data)   => post('/api/executions/trigger', data),
+  cancel: (id)     => post(`/api/executions/future/${id}/cancel`),
 };
 
 export const sessions = {
@@ -129,6 +176,10 @@ export const sessions = {
 
 export const agents = {
   list: () => get('/api/agents'),
+};
+
+export const logs = {
+  metrics: () => get('/api/logs/llm-interactions/metrics'),
 };
 
 export const memories = {

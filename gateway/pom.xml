@@ -12,7 +12,7 @@
 
     <artifactId>javaclaw-gateway</artifactId>
     <name>JavaClaw Gateway</name>
-    <description>Spring Boot gateway with REST and WebSocket (headless mode)</description>
+    <description>Spring Boot gateway with REST, WebSocket, and web UI</description>
 
     <dependencies>
         <dependency>

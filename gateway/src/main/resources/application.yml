@@ -24,6 +24,10 @@ spring:
       chat:
         options:
           model: gpt-4o
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
   data:
     mongodb:
       uri: ${JAVACLAW_MONGO_URI:mongodb://localhost:27017/javaclaw?replicaSet=rs0}

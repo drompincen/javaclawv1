@@ -1,9 +1,13 @@
 package io.github.drompincen.javaclawv1.runtime.agent;
 
 import io.github.drompincen.javaclawv1.persistence.document.AgentDocument;
+import io.github.drompincen.javaclawv1.persistence.document.AgentScheduleDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.AgentRepository;
+import io.github.drompincen.javaclawv1.persistence.repository.AgentScheduleRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.SessionRepository;
 import io.github.drompincen.javaclawv1.protocol.api.AgentRole;
+import io.github.drompincen.javaclawv1.protocol.api.ProjectScope;
+import io.github.drompincen.javaclawv1.protocol.api.ScheduleType;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +24,7 @@ public class AgentBootstrapService {
 
     private final AgentRepository agentRepository;
     private final SessionRepository sessionRepository;
+    private final AgentScheduleRepository scheduleRepository;
 
     /** Agent descriptions used by the LLM controller to decide routing */
     public static final Map<String, String> AGENT_DESCRIPTIONS = Map.ofEntries(
@@ -37,9 +42,11 @@ public class AgentBootstrapService {
             Map.entry("resource-agent", "Handles resource management: capacity analysis, assignment optimization, workload balancing, skill matching, utilization tracking, overload/underutilization detection")
     );
 
-    public AgentBootstrapService(AgentRepository agentRepository, SessionRepository sessionRepository) {
+    public AgentBootstrapService(AgentRepository agentRepository, SessionRepository sessionRepository,
+                                 AgentScheduleRepository scheduleRepository) {
         this.agentRepository = agentRepository;
         this.sessionRepository = sessionRepository;
+        this.scheduleRepository = scheduleRepository;
     }
 
     @PostConstruct
@@ -55,6 +62,7 @@ public class AgentBootstrapService {
         if (count > 0) {
             log.info("Agents already seeded ({} found), checking for missing agents", count);
             ensureMissingAgents();
+            bootstrapSchedules();
             return;
         }
 
@@ -75,6 +83,7 @@ public class AgentBootstrapService {
         seedReconcileAgent();
         seedResourceAgent();
         log.info("Seeded 15 default agents");
+        bootstrapSchedules();
     }
 
     private void ensureMissingAgents() {
@@ -103,6 +112,16 @@ public class AgentBootstrapService {
         updateIfNeeded("controller", CONTROLLER_PROMPT);
         updateIfNeeded("coder", CODER_PROMPT);
         updateIfNeeded("reviewer", REVIEWER_PROMPT);
+        // Update all specialist agents with latest tool-calling instructions
+        updateIfNeeded("pm", PM_PROMPT);
+        updateIfNeeded("thread-agent", THREAD_AGENT_PROMPT);
+        updateIfNeeded("objective-agent", OBJECTIVE_AGENT_PROMPT);
+        updateIfNeeded("reconcile-agent", RECONCILE_AGENT_PROMPT);
+        updateIfNeeded("plan-agent", PLAN_AGENT_PROMPT);
+        updateIfNeeded("intake-triage", INTAKE_TRIAGE_PROMPT);
+        updateIfNeeded("thread-extractor", THREAD_EXTRACTOR_PROMPT);
+        updateIfNeeded("checklist-agent", CHECKLIST_AGENT_PROMPT);
+        updateIfNeeded("resource-agent", RESOURCE_AGENT_PROMPT);
     }
 
     private void updateIfNeeded(String agentId, String richPrompt) {
@@ -115,6 +134,74 @@ public class AgentBootstrapService {
             }
         });
     }
+
+    // --- Default schedule seeding ---
+
+    private void bootstrapSchedules() {
+        int seeded = 0;
+        // Spring CronExpression uses 6 fields: second minute hour day-of-month month day-of-week
+        seeded += seedScheduleIfMissing("default-reconcile-agent", "reconcile-agent",
+                "0 0 9 * * MON-FRI", 6, "Weekday morning drift detection");
+        seeded += seedScheduleIfMissing("default-resource-agent", "resource-agent",
+                "0 0 9 * * MON-FRI", 5, "Weekday morning capacity check");
+        seeded += seedScheduleIfMissing("default-objective-agent", "objective-agent",
+                "0 0 9 * * MON-FRI", 5, "Weekday morning coverage/gap check");
+        seeded += seedScheduleIfMissing("default-checklist-agent", "checklist-agent",
+                "0 0 9 * * MON-FRI", 5, "Weekday morning stale-checklist check");
+        seeded += seedScheduleIfMissing("default-plan-agent", "plan-agent",
+                "0 0 10 * * MON", 4, "Weekly Monday milestone/phase check");
+        seeded += seedScheduleIfMissing("default-thread-extractor", "thread-extractor",
+                "0 0 18 * * MON-FRI", 4, "End-of-day unextracted artifact sweep");
+        if (seeded > 0) {
+            log.info("Seeded {} default agent schedules", seeded);
+        }
+    }
+
+    private int seedScheduleIfMissing(String scheduleId, String agentId, String cronExpr,
+                                       int priority, String description) {
+        if (scheduleRepository.findById(scheduleId).isPresent()) {
+            return 0;
+        }
+        AgentScheduleDocument doc = new AgentScheduleDocument();
+        doc.setScheduleId(scheduleId);
+        doc.setAgentId(agentId);
+        doc.setEnabled(true);
+        doc.setTimezone("UTC");
+        doc.setScheduleType(ScheduleType.CRON);
+        doc.setCronExpr(cronExpr);
+        doc.setProjectScope(ProjectScope.GLOBAL);
+
+        AgentScheduleDocument.ExecutorPolicy policy = new AgentScheduleDocument.ExecutorPolicy();
+        policy.setMaxConcurrent(1);
+        policy.setPriority(priority);
+        policy.setMaxAttempts(2);
+        policy.setRetryBackoffMs(120000);
+        doc.setExecutorPolicy(policy);
+
+        doc.setCreatedAt(Instant.now());
+        doc.setUpdatedAt(Instant.now());
+        scheduleRepository.save(doc);
+        log.info("Seeded schedule '{}': {} — {}", scheduleId, cronExpr, description);
+        return 1;
+    }
+
+    // --- Tool calling format shared by all specialist agents ---
+    private static final String TOOL_CALL_INSTRUCTIONS = """
+
+            ## CRITICAL: How to Use Tools
+
+            To invoke a tool, you MUST output a <tool_call> XML block with JSON inside:
+
+            <tool_call>
+            {"name": "tool_name", "args": {"key": "value"}}
+            </tool_call>
+
+            RULES:
+            1. You MUST use the EXACT <tool_call> XML format above. This is the ONLY way to execute tools.
+            2. NEVER describe tool calls in prose (e.g. "I'll use create_ticket..."). Prose descriptions do NOTHING.
+            3. You can call multiple tools — each in its own <tool_call> block in the same response.
+            4. After each tool call, you will receive the result. Then continue your work.
+            5. If you want to call a tool, OUTPUT THE XML BLOCK IMMEDIATELY — do not explain first.""";
 
     // --- Rich system prompts matching javaclaw.java AGENT_SYSTEM_PROMPTS ---
 
@@ -173,7 +260,8 @@ public class AgentBootstrapService {
             - Roadmap planning and stakeholder communication
             - Retrospective facilitation and team workflow optimization
             You have access to the session and thread history for context.
-            Be practical, clear, and focused on outcomes. Use markdown formatting.""";
+            Be practical, clear, and focused on outcomes. Use markdown formatting."""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String GENERALIST_PROMPT = """
             You are a helpful, knowledgeable AI assistant. Your skills include:
@@ -221,7 +309,8 @@ public class AgentBootstrapService {
             - Prefer checklists over individual tickets for related small tasks
             - Set appropriate priority levels based on conversation urgency
             - Include relevant context in descriptions so items are actionable standalone
-            - Summarize what you extracted at the end of processing""";
+            - Summarize what you extracted at the end of processing"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String OBJECTIVE_AGENT_PROMPT = """
             You are an objective alignment agent. Your job is to maintain sprint objectives, \
@@ -239,7 +328,8 @@ public class AgentBootstrapService {
             - Every objective should have a concrete measurableSignal
             - Coverage = (DONE + IN_PROGRESS tickets) / total tickets * 100
             - Unmapped tickets indicate organizational gaps
-            - Objectives past endDate and still IN_PROGRESS are stalled""";
+            - Objectives past endDate and still IN_PROGRESS are stalled"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String THREAD_AGENT_PROMPT = """
             You are a thread organization agent. Your job is to manage conversation threads \
@@ -268,7 +358,8 @@ public class AgentBootstrapService {
             - When merging, the first thread in the list becomes the target; others are marked MERGED
             - All messages are re-sequenced by timestamp after merge
             - Always provide a reason when renaming or merging
-            - Use memory (THREAD scope) to track thread context across sessions""";
+            - Use memory (THREAD scope) to track thread context across sessions"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String RECONCILE_AGENT_PROMPT = """
             You are a reconciliation agent. Your job is to compare all project data sources \
@@ -290,7 +381,8 @@ public class AgentBootstrapService {
             - Every ticket should link to an objective
             - Unassigned critical tickets are blindspots
             - Flag objectives past endDate still IN_PROGRESS as stalled
-            - Produce a clear summary with findings grouped by severity""";
+            - Produce a clear summary with findings grouped by severity"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String PLAN_AGENT_PROMPT = """
             You are a project planning agent. Your job is to manage project phases, milestones, \
@@ -310,7 +402,8 @@ public class AgentBootstrapService {
             - Flag milestones as AT_RISK if linked tickets are not progressing
             - Generate plan artifacts in markdown format with timeline tables
             - When exit criteria are met, recommend phase transition
-            - When exit criteria are blocked, identify the blockers""";
+            - When exit criteria are blocked, identify the blockers"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String INTAKE_TRIAGE_PROMPT = """
             You are the Intake Triage agent. Your job is to receive raw, unstructured input \
@@ -350,7 +443,8 @@ public class AgentBootstrapService {
             - Extract dates, people, ticket refs, action items, decisions
             - Report classification confidence — below 0.7, ask user to clarify
             - Store every intake in memory for deduplication
-            - Provide a clean summary: source type, extracted metadata, dispatch targets""";
+            - Provide a clean summary: source type, extracted metadata, dispatch targets"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String CHECKLIST_AGENT_PROMPT = """
             You are a checklist management agent. Your job is to generate, maintain, and track \
@@ -369,7 +463,8 @@ public class AgentBootstrapService {
             - Link checklists to phases for entry/exit gate tracking
             - When generating from threads, extract "need to", "make sure", "don't forget" patterns
             - Report progress as X/Y items (Z%) with blockers highlighted
-            - Flag stale checklists that haven't been updated while IN_PROGRESS""";
+            - Flag stale checklists that haven't been updated while IN_PROGRESS"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String RESOURCE_AGENT_PROMPT = """
             You are a resource management agent. Your job is to analyze team capacity, \
@@ -390,7 +485,8 @@ public class AgentBootstrapService {
             - Prioritize CRITICAL tickets over MEDIUM/LOW for assignment
             - Flag bus factor risks: single person on all critical tickets
             - Consider skills match when suggesting assignments
-            - Report capacity as: allocated% / total capacity per resource""";
+            - Report capacity as: allocated% / total capacity per resource"""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private void seedController() {
         AgentDocument agent = new AgentDocument();

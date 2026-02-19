@@ -2,7 +2,7 @@
 # Run all JavaClaw scenario tests in a single JVM via multi-scenario mode
 # This is ~10x faster than spawning separate JVMs per scenario
 
-SCENARIO_DIR="runtime\\src\\test\\resources"
+SCENARIO_DIR="runtime/src/test/resources"
 
 SCENARIOS=(
   scenario-general
@@ -19,6 +19,10 @@ SCENARIOS=(
   scenario-python-exec
   scenario-excel-weather
   scenario-extraction-v2
+  scenario-pm-tools-v2
+  scenario-memory-v2
+  scenario-fs-tools-v2
+  scenario-thread-intake-v2
   scenario-thread-agent
   scenario-objective-agent
   scenario-checklist-agent
@@ -27,6 +31,16 @@ SCENARIOS=(
   scenario-reconcile-agent
   scenario-resource-agent
   scenario-intake-pipeline
+  scenario-story-2-alignment
+  scenario-story-2-pipeline
+  scenario-story-3-sprint-objectives
+  scenario-story-4-resource-load
+  scenario-story-5-plan-creation
+  scenario-story-6-checklist
+  scenario-story-7-scheduled-reconcile
+  scenario-story-8-ondemand-agents
+  scenario-story-9-memory
+  scenario-story-10-daily-reset
 )
 
 PORT=${1:-18080}
@@ -34,7 +48,7 @@ PORT=${1:-18080}
 # Build --scenario flags for each scenario file
 SCENARIO_ARGS=""
 for S in "${SCENARIOS[@]}"; do
-  SCENARIO_ARGS="$SCENARIO_ARGS --scenario ${SCENARIO_DIR}\\${S}.json"
+  SCENARIO_ARGS="$SCENARIO_ARGS --scenario ${SCENARIO_DIR}/${S}.json"
 done
 
 echo "============================================================"
@@ -43,7 +57,18 @@ echo " Port: $PORT"
 echo "============================================================"
 echo ""
 
-cmd.exe /c "jbang.cmd javaclaw.java --testmode --port $PORT $SCENARIO_ARGS"
+# Detect if running in WSL or native Windows
+if command -v cmd.exe &>/dev/null && [ -z "$USE_JBANG" ]; then
+  # Windows (via cmd.exe)
+  SCENARIO_ARGS_WIN=""
+  for S in "${SCENARIOS[@]}"; do
+    SCENARIO_ARGS_WIN="$SCENARIO_ARGS_WIN --scenario runtime\\src\\test\\resources\\${S}.json"
+  done
+  cmd.exe /c "jbang.cmd javaclaw.java --testmode --port $PORT $SCENARIO_ARGS_WIN"
+else
+  # WSL / Linux native
+  jbang javaclaw.java --testmode --port $PORT $SCENARIO_ARGS
+fi
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then

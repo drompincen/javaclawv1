@@ -80,6 +80,17 @@ public class CreateThreadTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (title == null || title.isBlank()) return ToolResult.failure("'title' is required");
 
+        // Dedup: skip if thread with same title already exists for this project
+        var existing = threadRepository.findByTitleIgnoreCaseAndProjectIdsContaining(title, projectId);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("threadId", existing.get().getThreadId());
+            result.put("title", title);
+            result.put("projectId", projectId);
+            result.put("status", "already_exists");
+            return ToolResult.success(result);
+        }
+
         String lifecycleStr = input.path("lifecycle").asText("ACTIVE");
         ThreadLifecycle lifecycle;
         try {

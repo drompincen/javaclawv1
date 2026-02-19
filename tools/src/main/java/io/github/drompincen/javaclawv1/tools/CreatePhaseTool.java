@@ -57,6 +57,16 @@ public class CreatePhaseTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (name == null || name.isBlank()) return ToolResult.failure("'name' is required");
 
+        // Dedup: skip if phase with same name already exists for this project
+        var existing = phaseRepository.findFirstByProjectIdAndNameIgnoreCase(projectId, name);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("phaseId", existing.get().getPhaseId());
+            result.put("name", name);
+            result.put("status", "already_exists");
+            return ToolResult.success(result);
+        }
+
         PhaseDocument doc = new PhaseDocument();
         doc.setPhaseId(UUID.randomUUID().toString());
         doc.setProjectId(projectId);

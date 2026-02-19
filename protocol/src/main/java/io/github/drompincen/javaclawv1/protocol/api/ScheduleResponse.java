@@ -7,6 +7,7 @@ public record ScheduleResponse(
         String agentId,
         boolean enabled,
         ScheduleType scheduleType,
+        String cronExpr,
         ProjectScope projectScope,
         String projectId,
         Instant nextExecutionAt,

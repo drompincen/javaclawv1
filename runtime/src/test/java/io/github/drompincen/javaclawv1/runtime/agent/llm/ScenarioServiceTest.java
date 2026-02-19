@@ -85,7 +85,7 @@ class ScenarioServiceTest {
                                 java.util.List.of(
                                         new ScenarioConfig.AgentResponse("pm", "ticket created")
                                 ),
-                                null, null
+                                null, null, null, null, null
                         )
                 )
         );
@@ -105,7 +105,7 @@ class ScenarioServiceTest {
                                 java.util.List.of(
                                         new ScenarioConfig.AgentResponse("pm", "ticket created")
                                 ),
-                                null, null
+                                null, null, null, null, null
                         )
                 )
         );
@@ -140,5 +140,132 @@ class ScenarioServiceTest {
     @Test
     void isLoaded_neitherConfigSet_false() {
         assertThat(service.isLoaded()).isFalse();
+    }
+
+    @Test
+    void deserialize_seedStep(@TempDir Path tempDir) throws Exception {
+        String json = """
+                {
+                  "schemaVersion": 2,
+                  "projectName": "Seed Test",
+                  "description": "test seed step",
+                  "defaults": {"maxWaitMs": 5000},
+                  "steps": [
+                    {
+                      "name": "Seed data",
+                      "type": "seed",
+                      "seedActions": [
+                        {"method": "POST", "url": "/api/projects/{{projectId}}/threads", "body": {"title": "Thread 1", "content": "Content 1"}},
+                        {"method": "POST", "url": "/api/projects/{{projectId}}/tickets", "body": {"title": "Ticket 1"}}
+                      ]
+                    }
+                  ]
+                }
+                """;
+        File file = tempDir.resolve("seed.json").toFile();
+        objectMapper.writeValue(file, objectMapper.readTree(json));
+
+        service.loadScenario(file.getAbsolutePath());
+
+        assertThat(service.isV2()).isTrue();
+        ScenarioConfigV2.Step step = service.getV2Steps().get(0);
+        assertThat(step.type()).isEqualTo("seed");
+        assertThat(step.seedActions()).hasSize(2);
+        assertThat(step.seedActions().get(0).method()).isEqualTo("POST");
+        assertThat(step.seedActions().get(0).url()).isEqualTo("/api/projects/{{projectId}}/threads");
+        assertThat(step.seedActions().get(1).url()).isEqualTo("/api/projects/{{projectId}}/tickets");
+    }
+
+    @Test
+    void deserialize_httpAssertion(@TempDir Path tempDir) throws Exception {
+        String json = """
+                {
+                  "schemaVersion": 2,
+                  "projectName": "HTTP Assert Test",
+                  "description": "test http assertions",
+                  "defaults": {"maxWaitMs": 5000},
+                  "steps": [
+                    {
+                      "name": "step1",
+                      "userQuery": "test",
+                      "agentResponses": [
+                        {"agentName": "controller", "responseFallback": "ok"}
+                      ],
+                      "expects": {
+                        "sessionStatus": "COMPLETED",
+                        "http": [
+                          {
+                            "url": "/api/projects/{{projectId}}/objectives",
+                            "expectedStatus": 200,
+                            "jsonArrayMinSize": 2,
+                            "bodyContains": "Evidence"
+                          },
+                          {
+                            "method": "GET",
+                            "url": "/api/projects/{{projectId}}/phases",
+                            "jsonPath": "$[0].name",
+                            "jsonPathContains": "Phase"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+                """;
+        File file = tempDir.resolve("http.json").toFile();
+        objectMapper.writeValue(file, objectMapper.readTree(json));
+
+        service.loadScenario(file.getAbsolutePath());
+
+        assertThat(service.isV2()).isTrue();
+        ScenarioConfigV2.StepExpectations expects = service.getV2Steps().get(0).expects();
+        assertThat(expects.http()).hasSize(2);
+
+        ScenarioConfigV2.HttpAssertion ha1 = expects.http().get(0);
+        assertThat(ha1.url()).isEqualTo("/api/projects/{{projectId}}/objectives");
+        assertThat(ha1.expectedStatus()).isEqualTo(200);
+        assertThat(ha1.jsonArrayMinSize()).isEqualTo(2);
+        assertThat(ha1.bodyContains()).isEqualTo("Evidence");
+
+        ScenarioConfigV2.HttpAssertion ha2 = expects.http().get(1);
+        assertThat(ha2.method()).isEqualTo("GET");
+        assertThat(ha2.jsonPath()).isEqualTo("$[0].name");
+        assertThat(ha2.jsonPathContains()).isEqualTo("Phase");
+    }
+
+    @Test
+    void deserialize_seedStepWithExpects(@TempDir Path tempDir) throws Exception {
+        String json = """
+                {
+                  "schemaVersion": 2,
+                  "projectName": "Seed + HTTP Test",
+                  "description": "seed step with http expects",
+                  "steps": [
+                    {
+                      "name": "Seed and verify",
+                      "type": "seed",
+                      "seedActions": [
+                        {"method": "POST", "url": "/api/projects/{{projectId}}/threads", "body": {"title": "T1"}}
+                      ],
+                      "expects": {
+                        "http": [
+                          {"url": "/api/projects/{{projectId}}/threads", "expectedStatus": 200, "jsonArrayMinSize": 1}
+                        ]
+                      }
+                    }
+                  ]
+                }
+                """;
+        File file = tempDir.resolve("seed-http.json").toFile();
+        objectMapper.writeValue(file, objectMapper.readTree(json));
+
+        service.loadScenario(file.getAbsolutePath());
+
+        ScenarioConfigV2.Step step = service.getV2Steps().get(0);
+        assertThat(step.type()).isEqualTo("seed");
+        assertThat(step.seedActions()).hasSize(1);
+        assertThat(step.expects()).isNotNull();
+        assertThat(step.expects().http()).hasSize(1);
+        assertThat(step.expects().http().get(0).jsonArrayMinSize()).isEqualTo(1);
     }
 }

@@ -21,7 +21,7 @@ class ScenarioConfigV2Test {
             assertThat(config.defaults()).isNotNull();
             assertThat(config.defaults().maxWaitMs()).isEqualTo(30000L);
             assertThat(config.defaults().requireCheckerPass()).isFalse();
-            assertThat(config.steps()).hasSize(4);
+            assertThat(config.steps()).hasSize(3);
 
             // First step is context — expects sessionStatus only
             ScenarioConfigV2.Step contextStep = config.steps().get(0);
@@ -61,9 +61,17 @@ class ScenarioConfigV2Test {
             assertThat(storeStep.expects().mongo().get(0).filter()).containsEntry("key", "framework-version");
             assertThat(storeStep.expects().mongo().get(0).assertCondition().countGte()).isEqualTo(1);
 
-            // Delete step expects count == 0
+            // Recall step has mongo exists assertion
+            ScenarioConfigV2.Step recallStep = config.steps().get(1);
+            assertThat(recallStep.expects()).isNotNull();
+            assertThat(recallStep.expects().mongo()).hasSize(1);
+            assertThat(recallStep.expects().mongo().get(0).assertCondition().exists()).isTrue();
+
+            // Delete step has events but no mongo assertions
             ScenarioConfigV2.Step deleteStep = config.steps().get(2);
-            assertThat(deleteStep.expects().mongo().get(0).assertCondition().countEq()).isEqualTo(0);
+            assertThat(deleteStep.expects()).isNotNull();
+            assertThat(deleteStep.expects().events()).isNotNull();
+            assertThat(deleteStep.expects().mongo()).isNull();
         }
     }
 

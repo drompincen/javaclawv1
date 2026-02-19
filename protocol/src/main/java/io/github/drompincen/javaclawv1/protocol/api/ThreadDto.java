@@ -12,5 +12,13 @@ public record ThreadDto(
         ToolPolicy toolPolicy,
         String currentCheckpointId,
         Instant createdAt,
-        Instant updatedAt
-) {}
+        Instant updatedAt,
+        String summary,
+        List<DecisionDto> decisions,
+        List<ActionDto> actions,
+        int evidenceCount,
+        List<String> objectiveIds
+) {
+    public record DecisionDto(String text, String decidedBy) {}
+    public record ActionDto(String text, String assignee, String status) {}
+}

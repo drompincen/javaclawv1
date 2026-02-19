@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 9 Memory Test",
+  "description": "E2E: Distiller agent stores a project decision as memory and then retrieves it on subsequent query",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed thread for context",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Evidence Service Design",
+            "content": "Define evidence service API, storage model, and validation rules. Key decisions pending: storage backend (S3 vs Azure Blob), API versioning strategy, retention policy."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Store decision as memory",
+      "userQuery": "Remember that we decided to use S3 for evidence storage — it's scalable, cost-effective, and integrates with our existing AWS infrastructure.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "Routing to distiller to store this decision as project memory."
+        },
+        {
+          "agentName": "distiller",
+          "responseFallback": "I'll store this architectural decision as a project memory.\n\n<tool_call>\n{\"name\": \"memory\", \"args\": {\"operation\": \"store\", \"scope\": \"PROJECT\", \"projectId\": \"{{projectId}}\", \"key\": \"evidence-storage-decision\", \"content\": \"Decided to use S3 for evidence storage. Rationale: scalable, cost-effective, integrates with existing AWS infrastructure.\", \"tags\": [\"architecture\", \"evidence-service\", \"storage\", \"s3\"]}}\n</tool_call>"
+        },
+        {
+          "agentName": "distiller",
+          "responseFallback": "Decision stored. I've recorded the following as project memory:\n\n**Key:** evidence-storage-decision\n**Content:** Decided to use S3 for evidence storage. Rationale: scalable, cost-effective, integrates with existing AWS infrastructure.\n**Tags:** architecture, evidence-service, storage, s3\n\nThis memory is scoped to the project and will be available in future sessions."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Distiller stored evidence storage decision as PROJECT-scoped memory with key 'evidence-storage-decision'.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "memories",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "stored"
+        }
+      }
+    },
+    {
+      "name": "Recall stored decision",
+      "userQuery": "What did we decide about evidence storage?",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "Routing to distiller to recall the evidence storage decision."
+        },
+        {
+          "agentName": "distiller",
+          "responseFallback": "Let me check our project memory for evidence storage decisions.\n\n<tool_call>\n{\"name\": \"memory\", \"args\": {\"operation\": \"recall\", \"scope\": \"PROJECT\", \"projectId\": \"{{projectId}}\", \"query\": \"evidence storage\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "distiller",
+          "responseFallback": "Found the decision. Here's what we recorded:\n\n**Evidence Storage Decision:**\nWe decided to use **S3** for evidence storage.\n\n**Rationale:**\n- Scalable — handles growing evidence volumes without provisioning\n- Cost-effective — pay-per-use model with lifecycle policies\n- Integrates with existing AWS infrastructure — no new vendor dependencies\n\nThis decision was recorded in the context of the Evidence Service Design thread."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Distiller recalled evidence-storage-decision memory and presented S3 rationale to user.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "messages": {
+          "lastAssistantContains": "S3"
+        }
+      }
+    }
+  ]
+}

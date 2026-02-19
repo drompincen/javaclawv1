@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 7 Scheduled Reconcile Test",
+  "description": "E2E: Scheduler creates CRON schedule for reconcile-agent, triggers immediate execution, then user asks for drift report and reconcile-agent produces delta pack",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed project state and schedule",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Payment Gateway Redesign",
+            "content": "Redesign payment gateway to support multi-currency. Stripe integration, webhook handling, retry logic. Owner: Alice. Target: 2026-03-01."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Notification Service",
+            "content": "Build notification service for email, SMS, and push. Owner: Bob. Target: 2026-03-10. Decisions: use SES for email, SNS for push."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-201: Stripe integration",
+            "description": "Epic: Payment Gateway | Status: In Progress | Owner: Alice | Priority: High",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-202: Webhook handler",
+            "description": "Epic: Payment Gateway | Status: Todo | Owner: Alice | Priority: High",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "NOT-301: Email notifications",
+            "description": "Epic: Notifications | Status: Todo | Owner: Bob | Priority: Medium",
+            "priority": "MEDIUM"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "NOT-302: Push notifications",
+            "description": "Epic: Notifications | Status: Todo | Owner: Bob | Priority: Low",
+            "priority": "LOW"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/phases",
+          "body": {
+            "name": "Phase 1: Payment Gateway",
+            "sortOrder": 1,
+            "description": "Payment gateway redesign with Stripe multi-currency support"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/phases",
+          "body": {
+            "name": "Phase 2: Notifications",
+            "sortOrder": 2,
+            "description": "Notification service build-out across email, SMS, and push"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/milestones",
+          "body": {
+            "name": "Payment Gateway Live",
+            "targetDate": "2026-03-01",
+            "owner": "Alice",
+            "description": "Phase 1 milestone — payment gateway operational with multi-currency"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/milestones",
+          "body": {
+            "name": "Notification Service Live",
+            "targetDate": "2026-03-10",
+            "owner": "Charlie",
+            "description": "Phase 2 milestone — notification service delivery"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 4",
+            "outcome": "Deliver Payment Gateway MVP",
+            "measurableSignal": "Stripe integration passing E2E tests",
+            "threadIds": [],
+            "ticketIds": [],
+            "coveragePercent": 25
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 4",
+            "outcome": "Notification Service Design Complete",
+            "measurableSignal": "Email and push notification APIs defined",
+            "threadIds": [],
+            "ticketIds": [],
+            "coveragePercent": 0
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/schedules",
+          "body": {
+            "agentId": "reconcile-agent",
+            "enabled": true,
+            "scheduleType": "CRON",
+            "cronExpr": "0 0 6 * * *",
+            "projectScope": "PER_PROJECT",
+            "projectId": "{{projectId}}",
+            "timezone": "UTC"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Trigger immediate reconcile execution",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/executions/trigger",
+          "body": {
+            "agentId": "reconcile-agent",
+            "projectId": "{{projectId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "User asks for drift report",
+      "userQuery": "Show me what changed — any drift or misalignment in the project?",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "Routing to reconcile-agent for project drift analysis and delta detection."
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Reading current project state to detect drift.\n\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_objectives\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_phases\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Project state loaded. Detected drift between milestones and ticket progress. Creating delta pack.\n\n<tool_call>\n{\"name\": \"create_delta_pack\", \"args\": {\"projectId\": \"{{projectId}}\", \"projectName\": \"Story 7 Scheduled Reconcile Test\", \"deltas\": [{\"deltaType\": \"MILESTONE_SLIP\", \"severity\": \"HIGH\", \"title\": \"Payment Gateway milestone at risk\", \"description\": \"Payment Gateway Live milestone targets 2026-03-01 but only 1 of 2 tickets is in progress (PAY-201). PAY-202 (Webhook handler) has not started. At current velocity, milestone will slip by 1-2 weeks.\", \"sourceA\": \"Milestones\", \"sourceB\": \"Tickets\", \"fieldName\": \"targetDate\", \"valueA\": \"2026-03-01\", \"valueB\": \"50% incomplete\", \"suggestedAction\": \"Prioritize PAY-202 or adjust milestone date to 2026-03-15\"}, {\"deltaType\": \"ORPHANED_WORK\", \"severity\": \"MEDIUM\", \"title\": \"Notification Service owner mismatch\", \"description\": \"Bob owns notification tickets (NOT-301, NOT-302) but Charlie owns the Notification Service Live milestone — no clear single point of accountability\", \"sourceA\": \"Tickets\", \"sourceB\": \"Milestones\", \"fieldName\": \"owner\", \"valueA\": \"Bob\", \"valueB\": \"Charlie\", \"suggestedAction\": \"Align milestone owner to Bob or designate Charlie as tech lead for notifications\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Delta pack created with 2 deltas:\n\n**MILESTONE_SLIP (HIGH):** Payment Gateway milestone at risk — only 1 of 2 tickets in progress, target date 2026-03-01 likely to slip.\n\n**ORPHANED_WORK (MEDIUM):** Notification Service owner mismatch — Bob owns tickets but Charlie owns milestone.\n\nRecommendation: Review Payment Gateway timeline and clarify notification service ownership."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Reconcile agent read project state, detected 2 deltas (milestone slip + owner mismatch), and created delta pack. Schedule verified as active.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "delta_packs",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 4}
+          }
+        ],
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/schedules",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 1
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "delta"
+        }
+      }
+    }
+  ]
+}

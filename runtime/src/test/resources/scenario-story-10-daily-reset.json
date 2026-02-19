@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 10 Daily Reset Test",
+  "description": "E2E: Schedule planner creates daily CRON schedules for reconcile-agent and plan-agent, then user queries scheduled activities and PM summarizes",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed CRON schedules for reconcile and plan agents",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/schedules",
+          "body": {
+            "agentId": "reconcile-agent",
+            "enabled": true,
+            "scheduleType": "CRON",
+            "cronExpr": "0 0 0 * * *",
+            "projectScope": "GLOBAL",
+            "timezone": "UTC"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/schedules",
+          "body": {
+            "agentId": "plan-agent",
+            "enabled": true,
+            "scheduleType": "CRON",
+            "cronExpr": "0 0 6 * * *",
+            "projectScope": "GLOBAL",
+            "timezone": "UTC"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Verify schedules exist",
+      "type": "seed",
+      "seedActions": [],
+      "expects": {
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/schedules",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "User asks about today's schedule",
+      "userQuery": "What's scheduled for today? Give me a summary of all automated agent runs.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "Routing to pm for a summary of scheduled agent executions."
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Here is today's scheduled agent activity:\n\n**Daily Automated Runs:**\n\n| Time (UTC) | Agent | Scope | Schedule |\n|------------|-------|-------|----------|\n| 00:00 | reconcile-agent | GLOBAL | Daily midnight reconciliation — scans all projects for drift, misalignment, and orphaned work |\n| 06:00 | plan-agent | GLOBAL | Daily morning plan refresh — regenerates plan artifacts and flags timeline risks |\n\n**Summary:**\n- **2 scheduled agents** configured with CRON triggers\n- **reconcile-agent** runs at midnight UTC to detect overnight drift\n- **plan-agent** runs at 6 AM UTC to refresh project plans before the workday\n- Both agents are GLOBAL scope — they run across all active projects\n- No stale or failed executions detected\n\nAll schedules are enabled and active."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM provided clear summary of 2 scheduled agents: reconcile-agent at midnight and plan-agent at 6 AM, both GLOBAL scope CRON schedules.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/schedules",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "reconcile"
+        }
+      }
+    }
+  ]
+}

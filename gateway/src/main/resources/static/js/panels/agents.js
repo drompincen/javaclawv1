@@ -4,58 +4,77 @@ import { toast } from '../components/toast.js';
 import { addLog } from './activity.js';
 
 const AGENTS = [
-  { id: 'thread_agent',    label: 'Thread Agent' },
-  { id: 'pm_agent',        label: 'PM Agent' },
-  { id: 'plan_agent',      label: 'Plan Agent' },
-  { id: 'reminder_agent',  label: 'Reminder Agent' },
-  { id: 'checklist_agent', label: 'Checklist Agent' },
-  { id: 'reconcile_agent', label: 'Reconcile Agent' },
-  { id: 'distiller',       label: 'Distiller', primary: true },
+  { id: 'reconcile-agent',  label: 'Reconcile' },
+  { id: 'resource-agent',   label: 'Resource' },
+  { id: 'objective-agent',  label: 'Objective' },
+  { id: 'checklist-agent',  label: 'Checklist' },
+  { id: 'plan-agent',       label: 'Plan' },
+  { id: 'thread-extractor', label: 'Extractor' },
 ];
 
 export function initAgentPanel() {
   const container = document.getElementById('agentButtons');
   if (!container) return;
 
-  container.innerHTML = '';
-  AGENTS.forEach(a => {
-    const btn = document.createElement('button');
-    btn.className = 'btn' + (a.primary ? ' primary' : '');
-    btn.textContent = a.label;
-    btn.addEventListener('click', () => runAgent(a.id));
-    container.appendChild(btn);
-  });
+  container.innerHTML = '<div class="tiny">Pipeline handles agents automatically during intake. Use timers below for scheduled runs.</div>';
 }
 
-export function initTimerPanel() {
+// Schedule groups: checkbox → list of schedule IDs
+const TIMER_GROUPS = {
+  tArtifacts: ['default-checklist-agent', 'default-plan-agent'],
+  tReminders: ['default-thread-extractor'],
+  tReconcile: ['default-reconcile-agent', 'default-objective-agent'],
+};
+
+export async function initTimerPanel() {
   const applyBtn = document.getElementById('applyTimers');
   if (!applyBtn) return;
 
-  applyBtn.addEventListener('click', () => {
-    const artifacts = document.getElementById('tArtifacts')?.checked || false;
-    const reminders = document.getElementById('tReminders')?.checked || false;
-    const reconcile = document.getElementById('tReconcile')?.checked || false;
-    const any = artifacts || reminders || reconcile;
-
-    // Store in localStorage for now (scheduler agent will handle this later)
-    localStorage.setItem('jc_timers', JSON.stringify({ artifacts, reminders, reconcile }));
-
-    const statusEl = document.getElementById('timerStatus');
-    if (statusEl) {
-      statusEl.textContent = any ? 'timers: on' : 'timers: off';
-      statusEl.className = 'pill ' + (any ? 'warn' : '');
-    }
-    toast('timers updated');
-    addLog('TIMERS_UPDATED: ' + JSON.stringify({ artifacts, reminders, reconcile }), 'info');
-  });
-
-  // Restore timer state from localStorage
+  // Load real schedule state
+  let scheduleMap = {};
   try {
-    const saved = JSON.parse(localStorage.getItem('jc_timers') || '{}');
-    if (saved.artifacts) document.getElementById('tArtifacts').checked = true;
-    if (saved.reminders) document.getElementById('tReminders').checked = true;
-    if (saved.reconcile) document.getElementById('tReconcile').checked = true;
-  } catch { /* ignore */ }
+    const list = await api.schedules.list();
+    list.forEach(s => { scheduleMap[s.scheduleId] = s; });
+  } catch { /* backend may not be ready */ }
+
+  // Set checkbox state from real schedules
+  for (const [checkboxId, scheduleIds] of Object.entries(TIMER_GROUPS)) {
+    const el = document.getElementById(checkboxId);
+    if (el) {
+      el.checked = scheduleIds.every(id => scheduleMap[id]?.enabled);
+    }
+  }
+  updateTimerStatus();
+
+  applyBtn.addEventListener('click', async () => {
+    applyBtn.disabled = true;
+    const updates = [];
+    for (const [checkboxId, scheduleIds] of Object.entries(TIMER_GROUPS)) {
+      const checked = document.getElementById(checkboxId)?.checked || false;
+      scheduleIds.forEach(id => {
+        updates.push(api.schedules.update(id, { enabled: checked }));
+      });
+    }
+    try {
+      await Promise.all(updates);
+      toast('timers updated');
+      addLog('TIMERS_UPDATED', 'info');
+    } catch (e) {
+      toast('timer update failed: ' + e.message);
+    }
+    applyBtn.disabled = false;
+    updateTimerStatus();
+  });
+}
+
+function updateTimerStatus() {
+  const any = ['tArtifacts', 'tReminders', 'tReconcile']
+      .some(id => document.getElementById(id)?.checked);
+  const statusEl = document.getElementById('timerStatus');
+  if (statusEl) {
+    statusEl.textContent = any ? 'timers: on' : 'timers: off';
+    statusEl.className = 'pill ' + (any ? 'warn' : '');
+  }
 }
 
 export async function runAgent(agentId) {

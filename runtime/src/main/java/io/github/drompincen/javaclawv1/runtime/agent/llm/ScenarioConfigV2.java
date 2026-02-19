@@ -21,8 +21,13 @@ public record ScenarioConfigV2(
             String description,
             List<ScenarioConfig.AgentResponse> agentResponses,
             List<ToolMock> toolMocks,
-            StepExpectations expects
+            StepExpectations expects,
+            String pipelineContent,
+            List<String> filePaths,
+            List<SeedAction> seedActions
     ) {}
+
+    public record SeedAction(String method, String url, Object body) {}
 
     public record ToolMock(String tool, ToolMockMatch match, ToolMockResult result) {}
 
@@ -34,7 +39,20 @@ public record ScenarioConfigV2(
             String sessionStatus,
             EventExpectations events,
             List<MongoAssertion> mongo,
-            MessageExpectations messages
+            MessageExpectations messages,
+            List<HttpAssertion> http
+    ) {}
+
+    public record HttpAssertion(
+            String method,
+            String url,
+            Integer expectedStatus,
+            String bodyContains,
+            String bodyMatches,
+            String jsonPath,
+            String jsonPathEquals,
+            String jsonPathContains,
+            Integer jsonArrayMinSize
     ) {}
 
     public record EventExpectations(

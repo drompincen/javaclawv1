@@ -58,6 +58,16 @@ public class CreateMilestoneTool implements Tool {
         if (name == null || name.isBlank()) return ToolResult.failure("'name' is required");
         if (targetDateStr == null || targetDateStr.isBlank()) return ToolResult.failure("'targetDate' is required");
 
+        // Dedup: skip if milestone with same name already exists for this project
+        var existing = milestoneRepository.findFirstByProjectIdAndNameIgnoreCase(projectId, name);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("milestoneId", existing.get().getMilestoneId());
+            result.put("name", name);
+            result.put("status", "already_exists");
+            return ToolResult.success(result);
+        }
+
         MilestoneDocument doc = new MilestoneDocument();
         doc.setMilestoneId(UUID.randomUUID().toString());
         doc.setProjectId(projectId);

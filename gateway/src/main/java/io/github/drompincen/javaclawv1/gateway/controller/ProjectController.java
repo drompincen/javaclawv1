@@ -4,8 +4,10 @@ import io.github.drompincen.javaclawv1.persistence.document.ProjectDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.ProjectRepository;
 import io.github.drompincen.javaclawv1.protocol.api.CreateProjectRequest;
 import io.github.drompincen.javaclawv1.protocol.api.ProjectDto;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +27,13 @@ public class ProjectController {
 
     @PostMapping
     public ResponseEntity<ProjectDto> create(@RequestBody CreateProjectRequest req) {
+        if (req.name() != null) {
+            projectRepository.findByNameIgnoreCase(req.name().trim()).ifPresent(existing -> {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Project with name '" + existing.getName() + "' already exists (id: " + existing.getProjectId() + ")");
+            });
+        }
+
         ProjectDocument doc = new ProjectDocument();
         doc.setProjectId(UUID.randomUUID().toString());
         doc.setName(req.name());

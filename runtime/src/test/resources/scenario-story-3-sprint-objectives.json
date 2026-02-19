@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Story 3 Sprint Objectives Test",
+  "description": "E2E: Objective agent derives sprint objectives from seeded threads and tickets, computes coverage",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed threads and tickets",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Evidence Service Design",
+            "content": "Define evidence service API, storage model, and validation rules. Decisions: use S3, REST API with versioning."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Onboarding Flow",
+            "content": "Client onboarding steps including identity verification and document upload. 3-step wizard approach."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-101: Build Evidence API",
+            "description": "Epic: Evidence Service | Status: In Progress | Owner: Alice",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-102: UI for onboarding",
+            "description": "Epic: Onboarding | Status: Todo | Owner: Bob",
+            "priority": "MEDIUM"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-103: Validation rules",
+            "description": "Epic: Evidence Service | Status: Todo | Owner: Alice",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "J-104: Refactor intake",
+            "description": "Epic: (none) | Status: Todo | Owner: Charlie",
+            "priority": "LOW"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Derive sprint objectives",
+      "userQuery": "What are our objectives for this sprint?",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "Routing to objective-agent for sprint objective synthesis and coverage analysis."
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Reading project state to derive objectives.\n\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_objectives\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Tickets and threads loaded. Computing coverage across work items.\n\n<tool_call>\n{\"name\": \"compute_coverage\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Sprint objectives derived:\n\n**Objective 1: Deliver Evidence Service MVP**\n- Outcome: Evidence API operational with validation rules\n- Linked tickets: J-101 (Build Evidence API), J-103 (Validation rules)\n- Linked thread: Evidence Service Design\n- Coverage: 50% (1 of 2 tickets in progress)\n- Risks: Retention policy undecided\n\n**Objective 2: Complete Onboarding Flow**\n- Outcome: End-to-end client onboarding with identity verification\n- Linked tickets: J-102 (UI for onboarding)\n- Linked thread: Onboarding Flow\n- Coverage: 0% (ticket not started)\n- Risks: Upload component dependency on Evidence API\n\n**Note:** J-104 (Refactor intake) is orphaned — not mapped to any objective."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Objective agent derived 2 sprint objectives from 2 threads and 4 tickets. Coverage computed: Evidence Service at 50%, Onboarding at 0%. Orphaned ticket J-104 flagged.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 4}
+          }
+        ],
+        "http": [
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/objectives",
+            "expectedStatus": 200
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/tickets",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 4
+          },
+          {
+            "method": "GET",
+            "url": "/api/projects/{{projectId}}/threads",
+            "expectedStatus": 200,
+            "jsonArrayMinSize": 2,
+            "bodyContains": "Evidence Service"
+          }
+        ],
+        "messages": {
+          "anyAssistantContains": "coverage"
+        }
+      }
+    }
+  ]
+}

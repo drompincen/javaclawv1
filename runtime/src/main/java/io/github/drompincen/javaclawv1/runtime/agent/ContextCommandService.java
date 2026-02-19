@@ -202,7 +202,8 @@ public class ContextCommandService {
                     ThreadDocument newThread = new ThreadDocument();
                     newThread.setThreadId(UUID.randomUUID().toString());
                     newThread.setProjectIds(List.of(project.getProjectId()));
-                    newThread.setTitle("Session " + sessionId.substring(0, 8));
+                    newThread.setTitle(project.getName() + " — " +
+                            java.time.LocalDate.now().toString());
                     newThread.setStatus(SessionStatus.IDLE);
                     newThread.setCreatedAt(Instant.now());
                     newThread.setUpdatedAt(Instant.now());

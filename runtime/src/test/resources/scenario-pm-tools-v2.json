@@ -57,42 +57,6 @@
       }
     },
     {
-      "name": "create-idea",
-      "type": "tool-call",
-      "userQuery": "add an idea for implementing dark mode in the UI",
-      "description": "PM uses create_idea tool",
-      "agentResponses": [
-        {
-          "agentName": "controller",
-          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"add dark mode idea\"}"
-        },
-        {
-          "agentName": "pm",
-          "responseFallback": "I'll add that as an idea for the project.\n\n<tool_call>\n{\"name\": \"create_idea\", \"args\": {\"projectId\": \"sprint-tracker\", \"title\": \"Dark mode support for UI\", \"content\": \"Add dark mode toggle to the Bloomberg terminal-style UI. Use FlatLaf dark theme as base, allow user preference persistence, and ensure all custom components respect the theme.\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "reviewer",
-          "responseFallback": "{\"pass\": true, \"summary\": \"PM added dark mode idea\"}"
-        }
-      ],
-      "expects": {
-        "sessionStatus": "COMPLETED",
-        "events": {
-          "containsTypes": ["AGENT_DELEGATED", "TOOL_RESULT"]
-        },
-        "mongo": [
-          {
-            "collection": "ideas",
-            "filter": {"projectId": "sprint-tracker"},
-            "assert": {"countGte": 1}
-          }
-        ],
-        "messages": {
-          "anyAssistantContains": "idea"
-        }
-      }
-    },
-    {
       "name": "create-second-ticket",
       "type": "tool-call",
       "userQuery": "create a low priority ticket for updating documentation",

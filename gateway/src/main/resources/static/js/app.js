@@ -3,36 +3,48 @@ import * as ws from './ws.js';
 import { getState, setProject, setView, onChange, setWsConnected } from './state.js';
 import { initNav, highlightNav, updateNavBadge } from './nav.js';
 import { initAgentPanel, initTimerPanel } from './panels/agents.js';
-import { initActivityStream, addLog, clearLog } from './panels/activity.js';
+import { initActivityStream } from './panels/activity.js';
 import { initInspector } from './panels/inspector.js';
 import { toast } from './components/toast.js';
 
 // View modules (lazy-ish: all loaded upfront as ES modules)
 import * as intakeView from './views/intake.js';
 import * as threadsView from './views/threads.js';
+import * as ticketsView from './views/tickets.js';
+import * as resourcesView from './views/resources.js';
 import * as objectivesView from './views/objectives.js';
+import * as sprintHealthView from './views/sprinthealth.js';
 import * as plansView from './views/plans.js';
 import * as remindersView from './views/reminders.js';
 import * as checklistsView from './views/checklists.js';
 import * as reconcileView from './views/reconcile.js';
+import * as blindspotsView from './views/blindspots.js';
 import * as linksView from './views/links.js';
+import * as schedulerView from './views/scheduler.js';
 
 const VIEW_MAP = {
-  intake:     intakeView,
-  threads:    threadsView,
-  objectives: objectivesView,
-  plans:      plansView,
-  reminders:  remindersView,
-  checklists: checklistsView,
-  reconcile:  reconcileView,
-  links:      linksView,
+  intake:       intakeView,
+  threads:      threadsView,
+  tickets:      ticketsView,
+  resources:    resourcesView,
+  objectives:   objectivesView,
+  sprinthealth: sprintHealthView,
+  plans:        plansView,
+  reminders:    remindersView,
+  checklists:   checklistsView,
+  reconcile:    reconcileView,
+  blindspots:   blindspotsView,
+  links:        linksView,
+  scheduler:    schedulerView,
 };
+
+let eventCount = 0;
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
   initNav();
   initAgentPanel();
-  initTimerPanel();
+  initTimerPanel();  // async — runs in background, does not block init
   initActivityStream();
   initInspector();
 
@@ -46,6 +58,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         badge.textContent = msg.connected ? 'WS LIVE' : 'WS OFF';
         badge.className = 'badge ' + (msg.connected ? 'good' : 'bad');
       }
+    }
+    // Count EVENT messages as activity proxy
+    if (msg.type === 'EVENT') {
+      eventCount++;
     }
   });
 
@@ -74,10 +90,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Wire up topbar controls
   document.getElementById('runController')?.addEventListener('click', () => {
     toast('controller run');
-    addLog('AGENT_STEP_STARTED', 'info');
-    addLog('CONTROLLER: chose agents (auto)', 'warn');
   });
-  document.getElementById('clearLog')?.addEventListener('click', () => { clearLog(); toast('log cleared'); });
   document.getElementById('toggleHelp')?.addEventListener('click', () => {
     toast('F3 run controller \u2022 Intake: use project <name> \u2022 Right pane: run agents on-demand + timers');
   });
@@ -89,9 +102,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'F1') { e.preventDefault(); document.getElementById('toggleHelp')?.click(); }
   });
 
+  // Token counter
+  refreshTokenCounter();
+  setInterval(refreshTokenCounter, 30000);
+
   // Render initial view
   renderCurrentView();
-  addLog('SYSTEM_READY', 'good');
 });
 
 // ── Project selector ──
@@ -121,7 +137,6 @@ async function loadProjects() {
       setProject(pid);
       if (pid) {
         toast('project set: ' + (sel.options[sel.selectedIndex]?.textContent || pid));
-        addLog('CONTEXT: project=' + pid, 'info');
       }
     });
   } catch (e) {
@@ -144,6 +159,19 @@ async function renderCurrentView() {
   }
 }
 
+// ── Token counter ──
+async function refreshTokenCounter() {
+  const el = document.getElementById('tokenCount');
+  if (!el) return;
+  try {
+    const m = await api.logs.metrics();
+    const tokens = m.totalTokens ?? 0;
+    const calls = m.totalCalls ?? 0;
+    const avg = m.avgLatencyMs != null ? Math.round(m.avgLatencyMs) : 0;
+    el.textContent = `\u{1FA99} ${tokens} tokens | ${calls} calls | avg ${avg}ms`;
+  } catch { /* metrics endpoint not available yet */ }
+}
+
 // ── Nav badge refresh ──
 async function refreshNavBadges() {
   const pid = getState().currentProjectId;
@@ -151,22 +179,32 @@ async function refreshNavBadges() {
 
   const safe = async (fn) => { try { return await fn(); } catch { return []; } };
 
-  const [threadList, objList, phaseList, remList, chkList, linkList, recList] = await Promise.all([
+  const [threadList, ticketList, resourceList, objList, phaseList, remList, chkList, linkList, recList, blindList, schedList] = await Promise.all([
     safe(() => api.threads.list(pid)),
+    safe(() => api.tickets.list(pid)),
+    safe(() => api.resources.list()),
     safe(() => api.objectives.list(pid)),
     safe(() => api.phases.list(pid)),
     safe(() => api.reminders.list(pid)),
     safe(() => api.checklists.list(pid)),
     safe(() => api.links.list(pid)),
     safe(() => api.reconciliations.list(pid)),
+    safe(() => api.blindspots.list(pid)),
+    safe(() => api.schedules.list()),
   ]);
 
   updateNavBadge('intake', 'READY');
   updateNavBadge('threads', threadList.length);
+  updateNavBadge('tickets', ticketList.length);
+  updateNavBadge('resources', resourceList.length);
   updateNavBadge('objectives', objList.length);
+  updateNavBadge('sprinthealth', objList.length > 0 ? '\u2661' : '0');
   updateNavBadge('plans', phaseList.length);
   updateNavBadge('reminders', remList.length);
   updateNavBadge('checklists', chkList.length);
   updateNavBadge('links', linkList.length);
   updateNavBadge('reconcile', recList.length > 0 ? '\u0394' : '0');
+  updateNavBadge('blindspots', blindList.length);
+  const enabledCount = Array.isArray(schedList) ? schedList.filter(s => s.enabled).length : 0;
+  updateNavBadge('scheduler', enabledCount);
 }

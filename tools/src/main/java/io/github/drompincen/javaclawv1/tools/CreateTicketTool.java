@@ -54,6 +54,16 @@ public class CreateTicketTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (title == null || title.isBlank()) return ToolResult.failure("'title' is required");
 
+        // Dedup: skip if ticket with same title already exists for this project
+        var existing = ticketRepository.findFirstByProjectIdAndTitleIgnoreCase(projectId, title);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("ticketId", existing.get().getTicketId());
+            result.put("status", "already_exists");
+            result.put("projectId", projectId);
+            return ToolResult.success(result);
+        }
+
         String priorityStr = input.path("priority").asText("MEDIUM");
         TicketDto.TicketPriority priority;
         try {

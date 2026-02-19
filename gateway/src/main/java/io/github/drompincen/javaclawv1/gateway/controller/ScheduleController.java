@@ -14,8 +14,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
-import java.time.LocalDate;
+import org.springframework.scheduling.support.CronExpression;
+
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -198,14 +199,38 @@ public class ScheduleController {
     // --- DTO Mappers ---
 
     private ScheduleResponse toScheduleResponse(AgentScheduleDocument doc) {
+        Instant nextExec = null;
+        if (doc.isEnabled() && doc.getScheduleType() == ScheduleType.CRON && doc.getCronExpr() != null) {
+            try {
+                ZoneId tz = ZoneId.of(doc.getTimezone() != null ? doc.getTimezone() : "UTC");
+                CronExpression cron = CronExpression.parse(doc.getCronExpr());
+                LocalDateTime next = cron.next(LocalDateTime.now(tz));
+                if (next != null) {
+                    nextExec = next.atZone(tz).toInstant();
+                }
+            } catch (Exception ignored) { /* invalid cron or timezone — return null */ }
+        } else if (doc.isEnabled() && doc.getScheduleType() == ScheduleType.FIXED_TIMES && doc.getTimesOfDay() != null) {
+            ZoneId tz = ZoneId.of(doc.getTimezone() != null ? doc.getTimezone() : "UTC");
+            LocalDateTime now = LocalDateTime.now(tz);
+            nextExec = doc.getTimesOfDay().stream()
+                    .map(t -> LocalTime.parse(t))
+                    .map(lt -> {
+                        LocalDateTime candidate = now.toLocalDate().atTime(lt);
+                        return candidate.isAfter(now) ? candidate : candidate.plusDays(1);
+                    })
+                    .min(LocalDateTime::compareTo)
+                    .map(ldt -> ldt.atZone(tz).toInstant())
+                    .orElse(null);
+        }
         return new ScheduleResponse(
                 doc.getScheduleId(),
                 doc.getAgentId(),
                 doc.isEnabled(),
                 doc.getScheduleType(),
+                doc.getCronExpr(),
                 doc.getProjectScope(),
                 doc.getProjectId(),
-                null, // nextExecutionAt computed lazily if needed
+                nextExec,
                 doc.getVersion(),
                 doc.getCreatedAt(),
                 doc.getUpdatedAt()

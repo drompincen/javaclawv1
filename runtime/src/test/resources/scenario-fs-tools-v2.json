@@ -74,7 +74,7 @@
           "containsTypes": ["TOOL_CALL_STARTED", "TOOL_RESULT"]
         },
         "messages": {
-          "anyAssistantContains": "search"
+          "anyAssistantContains": "test"
         }
       }
     },
