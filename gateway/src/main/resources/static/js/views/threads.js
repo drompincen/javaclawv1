@@ -109,9 +109,10 @@ async function renderReadingPane(pid, t) {
   const decisions = t.decisions || [];
   const actions = t.actions || [];
 
-  let html = `<div class="reading-pane">`;
-  html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">`;
-  html += `<b>${esc(t.title || 'Untitled')}</b>`;
+  let html = `<div class="reading-pane-divider">Thread Detail</div>`;
+  html += `<div class="reading-pane">`;
+  html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">`;
+  html += `<b style="font-size:14px">${esc(t.title || 'Untitled')}</b>`;
   html += `<span class="pill">${esc(statusLabel)}</span>`;
   html += `</div>`;
 

@@ -1,0 +1,5 @@
+clean up the mongodb contents before running
+run the scenarios and check the results in both rest apis and mongodb
+remember that the server will be started by me using a real llm api behind the agents
+the server run on windws not wsl
+use ip address and port 9082

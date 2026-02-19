@@ -94,11 +94,6 @@ export async function render() {
     </div>
     <div style="height:10px"></div>
     <div class="card">
-      <div class="cardH"><div><b>Recent intake</b><div class="tiny">select to inspect</div></div></div>
-      <div class="cardB"><div class="timeline" id="intakeTimeline"><div class="tiny">Loading...</div></div></div>
-    </div>
-    <div style="height:10px"></div>
-    <div class="card">
       <div class="cardH"><div><b>\uD83E\uDD80 ASK CLAW</b><div class="tiny">Ask questions about your project data</div></div></div>
       <div class="cardB">
         <div class="ask-claw-input">
@@ -107,6 +102,11 @@ export async function render() {
         </div>
         <div id="askClawResponse" class="ask-results"></div>
       </div>
+    </div>
+    <div style="height:10px"></div>
+    <div class="card">
+      <div class="cardH"><div><b>Activity Log</b><div class="tiny">project data summary</div></div></div>
+      <div class="cardB"><div class="activity-log" id="activityLog"><div class="tiny">Loading...</div></div></div>
     </div>`;
 
   // Ctrl+Enter to send
@@ -180,33 +180,45 @@ export async function render() {
   const askInput = document.getElementById('askClawInput');
   const askBtn = document.getElementById('askClawBtn');
 
+  function askTs() {
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function askLogLine(tag, text, clickable) {
+    const div = document.createElement('div');
+    div.className = 'ask-log-line';
+    div.innerHTML = `<span class="ask-ts">${askTs()}</span><span class="ask-tag">[${esc(tag)}]</span>` +
+      `<span class="${clickable ? 'ask-link' : ''}">${esc(text)}</span>`;
+    return div;
+  }
+
   async function handleAsk() {
     const question = (askInput?.value || '').trim();
     if (!question) { toast('type a question first'); return; }
     if (!pid) { toast('select a project first'); return; }
 
     const responseDiv = document.getElementById('askClawResponse');
-    responseDiv.innerHTML = '<div class="tiny">Searching...</div>';
+    responseDiv.innerHTML = '';
+    responseDiv.appendChild(askLogLine('ask', question));
+    responseDiv.appendChild(askLogLine('sys', 'querying...'));
 
     // Try backend first
     const backendResult = await api.ask.query(pid, question);
     if (backendResult && backendResult.answer) {
       responseDiv.innerHTML = '';
+      responseDiv.appendChild(askLogLine('ask', question));
+      responseDiv.appendChild(askLogLine('sys', 'response from generalist agent'));
+
       const answerDiv = document.createElement('div');
-      answerDiv.className = 'tiny';
-      answerDiv.style.marginBottom = '8px';
-      answerDiv.style.whiteSpace = 'pre-wrap';
+      answerDiv.className = 'ask-answer';
       answerDiv.textContent = backendResult.answer;
       responseDiv.appendChild(answerDiv);
 
       if (backendResult.sources && backendResult.sources.length > 0) {
-        backendResult.sources.forEach(src => {
-          const item = document.createElement('div');
-          item.className = 'ask-result-item';
-          item.textContent = `${src.type}: ${src.title || src.id}`;
-          item.addEventListener('click', () => setSelected({ type: src.type, id: src.id, data: src }));
-          responseDiv.appendChild(item);
-        });
+        const srcCount = backendResult.sources.length;
+        const srcSummary = backendResult.sources.slice(0, 4).map(s => s.title || s.id).join(', ');
+        const line = askLogLine('src', `${srcCount} sources: ${srcSummary}${srcCount > 4 ? '...' : ''}`);
+        responseDiv.appendChild(line);
       }
       return;
     }
@@ -222,70 +234,42 @@ export async function render() {
 
       const keywords = extractKeywords(question);
       if (keywords.length === 0) {
-        responseDiv.innerHTML = '<div class="tiny">Try a more specific question.</div>';
+        responseDiv.innerHTML = '';
+        responseDiv.appendChild(askLogLine('ask', question));
+        responseDiv.appendChild(askLogLine('warn', 'no keywords extracted — try a more specific question'));
         return;
       }
-
-      const results = {
-        THREADS: threads.map(t => ({
-          item: t,
-          score: scoreItem(keywords, t.title || '', t.content || '', t.summary || ''),
-          label: t.title || 'Untitled',
-          type: 'thread',
-          id: t.threadId
-        })).filter(r => r.score > 0).sort((a, b) => b.score - a.score),
-
-        OBJECTIVES: objectives.map(o => ({
-          item: o,
-          score: scoreItem(keywords, o.outcome || '', o.sprintName || ''),
-          label: `${o.sprintName || ''} \u2014 ${o.outcome || ''}`,
-          type: 'objective',
-          id: o.objectiveId
-        })).filter(r => r.score > 0).sort((a, b) => b.score - a.score),
-
-        TICKETS: tickets.map(t => ({
-          item: t,
-          score: scoreItem(keywords, t.title || '', t.description || '', t.summary || ''),
-          label: t.title || t.key || 'Untitled',
-          type: 'ticket',
-          id: t.ticketId
-        })).filter(r => r.score > 0).sort((a, b) => b.score - a.score),
-
-        BLINDSPOTS: blindspots.map(b => ({
-          item: b,
-          score: scoreItem(keywords, b.title || '', b.description || ''),
-          label: b.title || 'Untitled',
-          type: 'blindspot',
-          id: b.blindspotId
-        })).filter(r => r.score > 0).sort((a, b) => b.score - a.score)
-      };
-
-      const totalResults = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
 
       responseDiv.innerHTML = '';
-      if (totalResults === 0) {
-        responseDiv.innerHTML = '<div class="tiny">No matching results found.</div>';
+      responseDiv.appendChild(askLogLine('ask', question));
+      responseDiv.appendChild(askLogLine('sys', `local search — keywords: ${keywords.join(', ')}`));
+
+      const scored = [
+        ...threads.map(t => ({ score: scoreItem(keywords, t.title||'', t.content||'', t.summary||''), label: t.title||'Untitled', type: 'thread', id: t.threadId, data: t })),
+        ...objectives.map(o => ({ score: scoreItem(keywords, o.outcome||'', o.sprintName||''), label: `${o.sprintName||''} — ${o.outcome||''}`, type: 'objective', id: o.objectiveId, data: o })),
+        ...tickets.map(t => ({ score: scoreItem(keywords, t.title||'', t.description||'', t.summary||''), label: t.title||t.key||'Untitled', type: 'ticket', id: t.ticketId, data: t })),
+        ...blindspots.map(b => ({ score: scoreItem(keywords, b.title||'', b.description||''), label: b.title||'Untitled', type: 'blindspot', id: b.blindspotId, data: b })),
+      ].filter(r => r.score > 0).sort((a, b) => b.score - a.score);
+
+      if (scored.length === 0) {
+        responseDiv.appendChild(askLogLine('sys', 'no matches found'));
         return;
       }
 
-      Object.entries(results).forEach(([collection, items]) => {
-        if (items.length === 0) return;
-        const group = document.createElement('div');
-        group.className = 'ask-collection-group';
-        group.innerHTML = `<div class="ask-collection-title">${collection} (${items.length}):</div>`;
+      responseDiv.appendChild(askLogLine('hit', `${scored.length} results across ${new Set(scored.map(s=>s.type)).size} collections`));
 
-        items.slice(0, 5).forEach(r => {
-          const item = document.createElement('div');
-          item.className = 'ask-result-item';
-          item.textContent = `\u2022 ${r.label}`;
-          item.addEventListener('click', () => setSelected({ type: r.type, id: r.id, data: r.item }));
-          group.appendChild(item);
-        });
-
-        responseDiv.appendChild(group);
+      scored.slice(0, 8).forEach(r => {
+        const line = askLogLine(r.type.substring(0, 4), r.label, true);
+        line.querySelector('.ask-link').addEventListener('click', () => setSelected({ type: r.type, id: r.id, data: r.data }));
+        responseDiv.appendChild(line);
       });
+
+      if (scored.length > 8) {
+        responseDiv.appendChild(askLogLine('sys', `+${scored.length - 8} more results`));
+      }
     } catch {
-      responseDiv.innerHTML = '<div class="tiny">Search failed.</div>';
+      responseDiv.innerHTML = '';
+      responseDiv.appendChild(askLogLine('err', 'search failed'));
     }
   }
 
@@ -296,59 +280,48 @@ export async function render() {
     });
   }
 
-  // Load recent pipeline sessions + project stats
+  // Populate activity log
   if (pid) {
     try {
-      const allSessions = await api.sessions.list();
-      const pipelineSessions = allSessions.filter(s => s.projectId === pid && s.metadata?.type === 'pipeline');
-      const tl = document.getElementById('intakeTimeline');
+      const logEl = document.getElementById('activityLog');
+      if (!logEl) return;
+      logEl.innerHTML = '';
 
-      // Also load thread count for context
-      let threadCount = 0;
-      try { const threads = await api.threads.list(pid); threadCount = threads.length; } catch {}
-      let ticketCount = 0;
-      try { const tickets = await api.tickets.list(pid); ticketCount = tickets.length; } catch {}
-
-      if (pipelineSessions.length === 0 && threadCount === 0) {
-        tl.innerHTML = '<div class="tiny">No intake yet for this project.</div>';
-      } else {
-        tl.innerHTML = '';
-        if (threadCount > 0 || ticketCount > 0) {
-          const stats = document.createElement('div');
-          stats.className = 'tiny';
-          stats.style.marginBottom = '8px';
-          stats.innerHTML = `<b>Project data:</b> ${threadCount} thread(s), ${ticketCount} ticket(s)`;
-          tl.appendChild(stats);
-        }
-
-        // Fetch first user message for each pipeline session in parallel
-        const sessionsToShow = pipelineSessions.slice(0, 10);
-        const messageResults = await Promise.all(
-          sessionsToShow.map(s =>
-            api.sessions.messages(s.sessionId).catch(() => [])
-          )
-        );
-
-        sessionsToShow.forEach((s, i) => {
-          const ev = document.createElement('div');
-          ev.className = 'event';
-          ev.style.cursor = 'pointer';
-          const time = s.updatedAt ? new Date(s.updatedAt).toLocaleTimeString() : '';
-          const statusClass = s.status === 'COMPLETED' ? 'good' : s.status === 'FAILED' ? 'bad' : '';
-
-          // Find first user message content for a meaningful title
-          const msgs = messageResults[i] || [];
-          const userMsg = msgs.find(m => m.role === 'user');
-          let title = userMsg?.content || '';
-          if (title.length > 120) title = title.substring(0, 120) + '\u2026';
-          if (!title) title = s.metadata?.agentId || 'pipeline';
-
-          ev.innerHTML = `<div class="eventTop"><div style="min-width:0"><div class="eventTitle">${esc(title)}</div><div class="tiny">${time}</div></div><span class="pill ${statusClass}">${s.status || 'IDLE'}</span></div>`;
-          ev.addEventListener('click', () => setSelected({ type: 'session', id: s.sessionId, data: s }));
-          tl.appendChild(ev);
-        });
+      function logLine(label, cls, text) {
+        const div = document.createElement('div');
+        div.className = 'log-line';
+        const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        div.innerHTML = `<span class="log-ts">${ts}</span><span class="log-label ${cls}">${esc(label)}</span>${esc(text)}`;
+        logEl.appendChild(div);
       }
-    } catch { /* sessions endpoint not available */ }
+
+      const safe = async (fn) => { try { return await fn(); } catch { return []; } };
+      const [threads, tickets, objs, blindspots, resources, agents] = await Promise.all([
+        safe(() => api.threads.list(pid)),
+        safe(() => api.tickets.list(pid)),
+        safe(() => api.objectives.list(pid)),
+        safe(() => api.blindspots.list(pid)),
+        safe(() => api.resources.list()),
+        safe(() => api.agents.list()),
+      ]);
+
+      logLine('data', 'accent', `${threads.length} threads, ${tickets.length} tickets, ${objs.length} objectives`);
+      logLine('data', 'accent', `${blindspots.length} blindspots, ${resources.length} resources`);
+
+      const openBs = blindspots.filter(b => b.status === 'OPEN').length;
+      if (openBs > 0) logLine('warn', 'warn', `${openBs} open blindspot(s)`);
+
+      const lowAvail = resources.filter(r => r.availability < 0.4);
+      if (lowAvail.length > 0) logLine('warn', 'warn', `${lowAvail.length} resource(s) below 40% availability`);
+
+      if (Array.isArray(agents) && agents.length > 0) {
+        logLine('sys', 'good', `${agents.length} agents registered`);
+      }
+
+      if (threads.length === 0 && tickets.length === 0) {
+        logLine('hint', '', 'paste content in intake to start generating data');
+      }
+    } catch { /* activity log is non-critical */ }
   }
 }
 

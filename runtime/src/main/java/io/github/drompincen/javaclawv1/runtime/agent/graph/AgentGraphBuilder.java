@@ -62,6 +62,14 @@ public class AgentGraphBuilder {
     private static final Pattern TOOL_CALL_ELEMENT_PATTERN =
             Pattern.compile("<tool_call>\\s*<(\\w+)>\\s*(\\{.*?\\})\\s*</\\1>\\s*</tool_call>", Pattern.DOTALL);
 
+    /** Fallback pattern for fully-XML args: <tool_call><name>x</name><args><key>val</key>...</args></tool_call> */
+    private static final Pattern TOOL_CALL_XML_ARGS_PATTERN =
+            Pattern.compile("<tool_call>\\s*<name>\\s*(.*?)\\s*</name>\\s*<args>(.*?)</args>\\s*</tool_call>", Pattern.DOTALL);
+
+    /** Pattern to extract XML child elements: <key>value</key> */
+    private static final Pattern XML_ELEMENT_PATTERN =
+            Pattern.compile("<(\\w+)>(.*?)</\\1>", Pattern.DOTALL);
+
     private final LlmService llmService;
     private final ToolRegistry toolRegistry;
     private final EventService eventService;
@@ -525,7 +533,69 @@ public class AgentGraphBuilder {
             }
         }
 
+        // If still nothing, try fully-XML args: <tool_call><name>x</name><args><key>val</key>...</args></tool_call>
+        if (calls.isEmpty()) {
+            Matcher xmlArgsMatcher = TOOL_CALL_XML_ARGS_PATTERN.matcher(response);
+            while (xmlArgsMatcher.find()) {
+                String name = xmlArgsMatcher.group(1).trim();
+                String argsXml = xmlArgsMatcher.group(2).trim();
+                if (!name.isBlank() && !argsXml.isBlank()) {
+                    try {
+                        String argsJson = xmlArgsToJson(argsXml);
+                        objectMapper.readTree(argsJson); // validate
+                        calls.add(new ToolCallRequest(name, argsJson));
+                        log.info("Parsed tool call via XML-args format: {} with converted args", name);
+                    } catch (Exception e) {
+                        log.warn("Failed to convert XML args for tool {}: {}", name, e.getMessage());
+                    }
+                }
+            }
+        }
+
         return calls;
+    }
+
+    /**
+     * Convert XML child elements to a JSON object string.
+     * Handles: simple values, JSON arrays/objects embedded as text, and plain strings.
+     * Example: {@code <projectId>abc</projectId><title>My Title</title><items>[1,2]</items>}
+     * becomes: {@code {"projectId":"abc","title":"My Title","items":[1,2]}}
+     */
+    String xmlArgsToJson(String argsXml) {
+        StringBuilder sb = new StringBuilder("{");
+        Matcher m = XML_ELEMENT_PATTERN.matcher(argsXml);
+        boolean first = true;
+        while (m.find()) {
+            String key = m.group(1).trim();
+            String value = m.group(2).trim();
+            if (!first) sb.append(",");
+            first = false;
+            sb.append("\"").append(escapeJsonString(key)).append("\":");
+            // If value looks like JSON (array or object), embed it directly
+            if ((value.startsWith("[") && value.endsWith("]"))
+                    || (value.startsWith("{") && value.endsWith("}"))) {
+                try {
+                    objectMapper.readTree(value); // validate it's real JSON
+                    sb.append(value);
+                } catch (Exception e) {
+                    // Not valid JSON — treat as string
+                    sb.append("\"").append(escapeJsonString(value)).append("\"");
+                }
+            } else {
+                sb.append("\"").append(escapeJsonString(value)).append("\"");
+            }
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private static String escapeJsonString(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     /**
@@ -536,6 +606,7 @@ public class AgentGraphBuilder {
         String stripped = TOOL_CALL_PATTERN.matcher(response).replaceAll("");
         stripped = TOOL_CALL_XML_PATTERN.matcher(stripped).replaceAll("");
         stripped = TOOL_CALL_ELEMENT_PATTERN.matcher(stripped).replaceAll("");
+        stripped = TOOL_CALL_XML_ARGS_PATTERN.matcher(stripped).replaceAll("");
         return stripped.trim();
     }
 

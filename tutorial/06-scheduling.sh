@@ -10,13 +10,20 @@ section() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
 ok()      { echo -e "${GREEN}  OK${NC} $1"; }
 fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
-# --- Create Project ---
-section "1. Create Project"
-PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Tutorial Scheduling","description":"CRON schedules and execution demo","tags":["tutorial","scheduling"]}')
-PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
-ok "Project: $PROJECT_ID"
+# --- Find or Create Project ---
+section "1. Find or Create Project"
+PROJECT_NAME="Tutorial KYC Platform"
+PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+  '.[] | select(.name == $name) | .projectId' | head -1)
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"KYC Platform tutorial project\",\"tags\":[\"tutorial\"]}")
+  PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
+  ok "Project created: $PROJECT_ID"
+else
+  ok "Project found: $PROJECT_ID"
+fi
 
 # --- Create CRON Schedule ---
 section "2. Create Daily Reconciliation Schedule"

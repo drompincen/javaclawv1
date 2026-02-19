@@ -70,6 +70,7 @@ body {
 .badge.good { background: var(--good); }
 .badge.warn { background: var(--warn); }
 .badge.bad { background: var(--bad); }
+.badge.has-items { background: var(--warn); color: #000; font-weight: 700; }
 
 .pill {
   display: inline-flex; gap: 6px; align-items: center; padding: 3px 8px;

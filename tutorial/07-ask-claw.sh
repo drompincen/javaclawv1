@@ -11,13 +11,20 @@ ok()      { echo -e "${GREEN}  OK${NC} $1"; }
 warn()    { echo -e "${YELLOW}  WARN${NC} $1"; }
 fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
-# --- Create + Seed Project ---
-section "1. Create and Seed Project"
-PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Tutorial Ask Claw","description":"Q&A demo","tags":["tutorial","ask"]}')
-PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
-ok "Project: $PROJECT_ID"
+# --- Find or Create + Seed Project ---
+section "1. Find or Create Project"
+PROJECT_NAME="Tutorial KYC Platform"
+PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+  '.[] | select(.name == $name) | .projectId' | head -1)
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"KYC Platform tutorial project\",\"tags\":[\"tutorial\"]}")
+  PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
+  ok "Project created: $PROJECT_ID"
+else
+  ok "Project found: $PROJECT_ID"
+fi
 
 # Seed a thread
 curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/threads" \
@@ -34,13 +41,13 @@ ok "Ticket: KYC-103"
 # Seed a blindspot
 curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/blindspots" \
   -H 'Content-Type: application/json' \
-  -d '{"title":"No load test for evidence service","category":"TECHNICAL","severity":"HIGH"}' > /dev/null
+  -d '{"title":"No load test for evidence service","category":"MISSING_TEST_SIGNAL","severity":"HIGH"}' > /dev/null
 ok "Blindspot: Missing load test"
 
 # Seed an objective
 curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/objectives" \
   -H 'Content-Type: application/json' \
-  -d "{\"sprintName\":\"Sprint 42\",\"outcome\":\"Complete Evidence Service refactor\",\"status\":\"ACTIVE\",\"startDate\":\"2026-02-17\",\"endDate\":\"2026-03-01\"}" > /dev/null
+  -d "{\"sprintName\":\"Sprint 42\",\"outcome\":\"Complete Evidence Service refactor\",\"status\":\"COMMITTED\"}" > /dev/null
 ok "Objective: Sprint 42"
 
 # --- Ask Questions ---

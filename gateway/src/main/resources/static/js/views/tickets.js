@@ -1,6 +1,7 @@
 import * as api from '../api.js';
 import { getState, setSelected } from '../state.js';
 import { renderTable } from '../components/table.js';
+import { toast } from '../components/toast.js';
 
 const STATUSES = ['ALL', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE', 'BLOCKED'];
 
@@ -54,6 +55,36 @@ export async function render() {
       rows,
       (row) => setSelected({ type: 'ticket', id: row._raw.ticketId, data: row._raw })
     );
+
+    // Append delete button to each row
+    const tableEl = document.getElementById('ticketTableContainer').querySelector('table');
+    if (tableEl) {
+      const thead = tableEl.querySelector('thead tr');
+      if (thead) { const th = document.createElement('th'); th.textContent = ''; thead.appendChild(th); }
+      const bodyRows = tableEl.querySelectorAll('tbody tr');
+      bodyRows.forEach((tr, i) => {
+        const td = document.createElement('td');
+        if (!filtered[i]) { tr.appendChild(td); return; }
+        const btn = document.createElement('button');
+        btn.className = 'btn danger';
+        btn.style.cssText = 'padding:2px 6px;font-size:11px;';
+        btn.textContent = '\u00d7';
+        btn.title = 'Delete ticket';
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('Delete ticket "' + (filtered[i].title || '') + '"?')) return;
+          try {
+            await api.tickets.delete(pid, filtered[i].ticketId);
+            const idx = allTickets.findIndex(t => t.ticketId === filtered[i].ticketId);
+            if (idx >= 0) allTickets.splice(idx, 1);
+            toast('ticket deleted');
+            renderFiltered(document.getElementById('ticketStatusFilter')?.value || 'ALL');
+          } catch (err) { toast('delete failed: ' + err.message); }
+        });
+        td.appendChild(btn);
+        tr.appendChild(td);
+      });
+    }
   }
 
   renderFiltered('ALL');

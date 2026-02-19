@@ -70,23 +70,48 @@ export async function render() {
       (row) => setSelected({ type: 'resource', id: row._raw.resourceId, data: row._raw })
     );
 
-    // Post-process availability cells to add FREE/BUSY pills
+    // Post-process table rows: availability pills + delete buttons
     const tableEl = document.getElementById('resourceTableContainer').querySelector('table');
     if (tableEl) {
+      const thead = tableEl.querySelector('thead tr');
+      if (thead) { const th = document.createElement('th'); th.textContent = ''; thead.appendChild(th); }
       const bodyRows = tableEl.querySelectorAll('tbody tr');
       bodyRows.forEach((tr, i) => {
+        // FREE/BUSY pill
         const cells = tr.querySelectorAll('td');
         const availCell = cells[3];
-        if (!availCell) return;
-        const val = resources[i]?.availability;
-        if (val != null) {
-          const pill = document.createElement('span');
-          pill.className = 'pill ' + (val >= 0.5 ? 'good' : 'bad');
-          pill.textContent = val >= 0.5 ? 'FREE' : 'BUSY';
-          pill.style.marginLeft = '6px';
-          pill.style.fontSize = '10px';
-          availCell.appendChild(pill);
+        if (availCell) {
+          const val = resources[i]?.availability;
+          if (val != null) {
+            const pill = document.createElement('span');
+            pill.className = 'pill ' + (val >= 0.5 ? 'good' : 'bad');
+            pill.textContent = val >= 0.5 ? 'FREE' : 'BUSY';
+            pill.style.marginLeft = '6px';
+            pill.style.fontSize = '10px';
+            availCell.appendChild(pill);
+          }
         }
+        // Delete button
+        const td = document.createElement('td');
+        if (!resources[i]) { tr.appendChild(td); return; }
+        const btn = document.createElement('button');
+        btn.className = 'btn danger';
+        btn.style.cssText = 'padding:2px 6px;font-size:11px;';
+        btn.textContent = '\u00d7';
+        btn.title = 'Delete resource';
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('Delete resource "' + (resources[i].name || '') + '"?')) return;
+          try {
+            await api.resources.delete(resources[i].resourceId);
+            const idx = allResources.findIndex(r => r.resourceId === resources[i].resourceId);
+            if (idx >= 0) allResources.splice(idx, 1);
+            toast('resource deleted');
+            renderView(currentMode);
+          } catch (err) { toast('delete failed: ' + err.message); }
+        });
+        td.appendChild(btn);
+        tr.appendChild(td);
       });
     }
   }

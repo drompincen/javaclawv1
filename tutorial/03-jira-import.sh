@@ -12,13 +12,21 @@ ok()      { echo -e "${GREEN}  OK${NC} $1"; }
 warn()    { echo -e "${YELLOW}  WARN${NC} $1"; }
 fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
-# --- Create Project ---
-section "1. Create Project"
-PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Tutorial Jira Import","description":"Jira + meeting notes import demo","tags":["tutorial","jira"]}')
-PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
-[ "$PROJECT_ID" != "null" ] && ok "Project: $PROJECT_ID" || fail "Project creation failed"
+# --- Find or Create Project ---
+section "1. Find or Create Project"
+PROJECT_NAME="Tutorial KYC Platform"
+PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+  '.[] | select(.name == $name) | .projectId' | head -1)
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"KYC Platform tutorial project\",\"tags\":[\"tutorial\"]}")
+  PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
+  ok "Project created: $PROJECT_ID"
+else
+  ok "Project found: $PROJECT_ID"
+fi
+[ "$PROJECT_ID" != "null" ] && [ -n "$PROJECT_ID" ] || fail "Project creation failed"
 
 # --- Seed Resources ---
 section "2. Seed Team Resources"
@@ -35,22 +43,24 @@ done
 
 # --- Seed Tickets from Jira Export ---
 section "3. Seed Jira Tickets"
-TICKET_COUNT=0
-while IFS=$'\t' read -r KEY EPIC SUMMARY ASSIGNEE STATUS PRIORITY SP; do
-  [ "$KEY" = "Key" ] && continue  # skip header
-  # Clean whitespace
-  KEY=$(echo "$KEY" | xargs); SUMMARY=$(echo "$SUMMARY" | xargs)
-  ASSIGNEE=$(echo "$ASSIGNEE" | xargs); STATUS=$(echo "$STATUS" | xargs)
-  PRIORITY=$(echo "$PRIORITY" | xargs)
+create_ticket() {
+  local TITLE="$1" DESC="$2" PRIO="$3"
   TICKET=$(curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/tickets" \
     -H 'Content-Type: application/json' \
-    -d "$(jq -n --arg t "$KEY: $SUMMARY" --arg d "Epic: $EPIC, Assignee: $ASSIGNEE, SP: $SP" --arg p "$PRIORITY" \
+    -d "$(jq -n --arg t "$TITLE" --arg d "$DESC" --arg p "$PRIO" \
       '{title: $t, description: $d, priority: $p}')")
   TID=$(echo "$TICKET" | jq -r '.ticketId')
-  ok "$KEY — $SUMMARY ($TID)"
-  TICKET_COUNT=$((TICKET_COUNT + 1))
-done < <(sed 's/  */\t/g' "$SCRIPT_DIR/sample-data/jira-export.txt")
-ok "Seeded $TICKET_COUNT tickets"
+  ok "$TITLE ($TID)"
+}
+
+create_ticket "KYC-101: Refactor passport handler"       "Epic: Evidence Service | Assignee: Joe | SP: 5"     "HIGH"
+create_ticket "KYC-102: Refactor utility bill handler"    "Epic: Evidence Service | Assignee: Joe | SP: 3"     "HIGH"
+create_ticket "KYC-103: Refactor bank statement handler"  "Epic: Evidence Service | Assignee: Joe | SP: 3"     "HIGH"
+create_ticket "KYC-104: Spike RabbitMQ queue integration" "Epic: KYC Screening | Assignee: Bob | SP: 5"        "MEDIUM"
+create_ticket "KYC-105: Implement leaky-bucket consumer"  "Epic: KYC Screening | Assignee: Joe | SP: 8"        "HIGH"
+create_ticket "KYC-106: Single-page wizard wireframes"    "Epic: Client Onboarding | Assignee: Joe | SP: 3"    "MEDIUM"
+create_ticket "KYC-107: Presigned S3 upload endpoint"     "Epic: Client Onboarding | Assignee: Alice | SP: 5"  "HIGH"
+TICKET_COUNT=7
 
 # --- Verify Tickets ---
 section "4. Verify Tickets"
@@ -83,8 +93,13 @@ while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
 done
 [ "$T_COUNT" -gt 0 ] && ok "$T_COUNT thread(s) created" || warn "No threads — pipeline may need real LLM"
 
+# --- Wait for full pipeline to complete (objectives, reconciliation) ---
+section "7. Waiting for Pipeline Completion"
+echo "  Waiting for objective + reconcile agents to finish..."
+sleep 15
+
 # --- Check Blindspots ---
-section "7. Check Blindspots"
+section "8. Check Blindspots"
 BLINDSPOTS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/blindspots")
 B_COUNT=$(echo "$BLINDSPOTS" | jq 'length')
 if [ "$B_COUNT" -gt 0 ]; then
@@ -95,7 +110,7 @@ else
 fi
 
 # --- Check Delta Packs ---
-section "8. Check Delta Packs"
+section "9. Check Delta Packs"
 DELTAS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/delta-packs")
 D_COUNT=$(echo "$DELTAS" | jq 'length')
 if [ "$D_COUNT" -gt 0 ]; then
@@ -105,13 +120,25 @@ else
   warn "No delta packs yet — reconciliation may still be running"
 fi
 
+# --- Check Objectives ---
+section "10. Check Objectives"
+OBJECTIVES=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/objectives")
+O_COUNT=$(echo "$OBJECTIVES" | jq 'length')
+if [ "$O_COUNT" -gt 0 ]; then
+  ok "$O_COUNT objective(s) created"
+  echo "$OBJECTIVES" | jq -r '.[] | "  [\(.status)] \(.outcome[:70])"'
+else
+  warn "No objectives yet"
+fi
+
 # --- Summary ---
-section "9. Summary"
-echo "  Project:    $PROJECT_ID"
-echo "  Resources:  3 (Joe, Alice, Bob)"
-echo "  Tickets:    $TICKET_COUNT"
-echo "  Threads:    ${T_COUNT:-0}"
-echo "  Blindspots: ${B_COUNT:-0}"
+section "11. Summary"
+echo "  Project:     $PROJECT_ID"
+echo "  Resources:   3 (Joe, Alice, Bob)"
+echo "  Tickets:     $TICKET_COUNT"
+echo "  Threads:     ${T_COUNT:-0}"
+echo "  Objectives:  ${O_COUNT:-0}"
+echo "  Blindspots:  ${B_COUNT:-0}"
 echo "  Delta Packs: ${D_COUNT:-0}"
 echo ""
 echo "  Key insight: Joe is assigned 5 of 7 tickets (22 story points)."

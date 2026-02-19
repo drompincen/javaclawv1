@@ -41,5 +41,9 @@ export function updateNavBadge(key, value) {
   const ws = WORKSPACES.find(w => w.key === key);
   if (!ws) return;
   const el = document.getElementById(ws.badgeId);
-  if (el) el.textContent = value;
+  if (el) {
+    el.textContent = value;
+    const num = parseInt(value, 10);
+    el.classList.toggle('has-items', !isNaN(num) && num > 0);
+  }
 }

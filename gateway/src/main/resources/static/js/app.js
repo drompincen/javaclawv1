@@ -79,6 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     'INTAKE_PIPELINE_COMPLETED',
     'MEMORY_STORED', 'MEMORY_DISTILLED',
     'SCHEDULE_CREATED', 'SCHEDULE_UPDATED',
+    'PROJECT_CREATED',
   ]);
 
   let _refreshTimer = null;
@@ -92,6 +93,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     _refreshTimer = setTimeout(() => {
       refreshNavBadges();
       renderCurrentView();
+      loadProjects();
+      refreshTokenCounter();
     }, 1500);
   });
 
@@ -159,9 +162,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Token counter
+  // Token counter + project poll fallback
   refreshTokenCounter();
-  setInterval(refreshTokenCounter, 30000);
+  setInterval(refreshTokenCounter, 10000);
+  setInterval(loadProjects, 10000);
 
   // Show share button if project already selected
   if (getState().currentProjectId) {
@@ -192,12 +196,14 @@ async function createNewProject() {
 }
 
 // ── Project selector ──
+let _projectListenerBound = false;
 async function loadProjects() {
   const sel = document.getElementById('projectSelect');
   if (!sel) return;
 
   try {
     const projectList = await api.projects.list();
+    const prevValue = sel.value;
     sel.innerHTML = '<option value="">— select project —</option>';
     projectList.forEach(p => {
       const opt = document.createElement('option');
@@ -207,23 +213,28 @@ async function loadProjects() {
     });
 
     // Restore previously selected project (from URL param or localStorage)
-    const savedId = getState().currentProjectId;
+    const savedId = getState().currentProjectId || prevValue;
     if (savedId) {
       // Support both project ID and project name in the URL
       const match = projectList.find(p => p.projectId === savedId || p.name === savedId);
       if (match) {
         sel.value = match.projectId;
-        setProject(match.projectId);
+        if (getState().currentProjectId !== match.projectId) {
+          setProject(match.projectId);
+        }
       }
     }
 
-    sel.addEventListener('change', () => {
-      const pid = sel.value || null;
-      setProject(pid);
-      if (pid) {
-        toast('project set: ' + (sel.options[sel.selectedIndex]?.textContent || pid));
-      }
-    });
+    if (!_projectListenerBound) {
+      _projectListenerBound = true;
+      sel.addEventListener('change', () => {
+        const pid = sel.value || null;
+        setProject(pid);
+        if (pid) {
+          toast('project set: ' + (sel.options[sel.selectedIndex]?.textContent || pid));
+        }
+      });
+    }
   } catch (e) {
     sel.innerHTML = '<option value="">Error loading projects</option>';
   }
