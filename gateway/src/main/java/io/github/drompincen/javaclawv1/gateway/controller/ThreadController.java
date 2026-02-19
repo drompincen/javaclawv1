@@ -132,7 +132,7 @@ public class ThreadController {
         return new ThreadDto(doc.getThreadId(), doc.getEffectiveProjectIds(), doc.getTitle(),
                 doc.getStatus(), doc.getModelConfig(), doc.getToolPolicy(),
                 doc.getCurrentCheckpointId(), doc.getCreatedAt(), doc.getUpdatedAt(),
-                doc.getSummary(), decisions, actions,
+                doc.getSummary(), doc.getContent(), decisions, actions,
                 doc.getEvidence() != null ? doc.getEvidence().size() : 0,
                 doc.getObjectiveIds() != null ? doc.getObjectiveIds() : List.of());
     }

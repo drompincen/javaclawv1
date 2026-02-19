@@ -28,6 +28,7 @@ public class ThreadDocument {
     private ToolPolicy toolPolicy;
     private String currentCheckpointId;
     private String summary;
+    private String content;
     private List<EvidenceRef> evidence;
     private List<Decision> decisions;
     private List<ActionItem> actions;
@@ -82,6 +83,9 @@ public class ThreadDocument {
 
     public String getSummary() { return summary; }
     public void setSummary(String summary) { this.summary = summary; }
+
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
 
     public List<EvidenceRef> getEvidence() { return evidence; }
     public void setEvidence(List<EvidenceRef> evidence) { this.evidence = evidence; }

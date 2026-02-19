@@ -2,6 +2,7 @@ package io.github.drompincen.javaclawv1.persistence.document;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
@@ -25,6 +26,8 @@ public class MemoryDocument {
     private String createdBy;
     private Instant createdAt;
     private Instant updatedAt;
+    @Indexed(expireAfterSeconds = 0)
+    private Instant expiresAt;
 
     public enum MemoryScope {
         GLOBAL, PROJECT, SESSION, THREAD
@@ -64,4 +67,7 @@ public class MemoryDocument {
 
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+
+    public Instant getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
 }

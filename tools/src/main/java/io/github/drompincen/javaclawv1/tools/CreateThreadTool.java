@@ -80,14 +80,74 @@ public class CreateThreadTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (title == null || title.isBlank()) return ToolResult.failure("'title' is required");
 
-        // Dedup: skip if thread with same title already exists for this project
+        // Dedup: if thread with same title exists, append content to it
         var existing = threadRepository.findByTitleIgnoreCaseAndProjectIdsContaining(title, projectId);
         if (existing.isPresent()) {
+            ThreadDocument existingThread = existing.get();
+            String newContent = input.path("content").asText(null);
+
+            // Append new content to existing thread content
+            if (newContent != null && !newContent.isBlank()) {
+                String currentContent = existingThread.getContent();
+                if (currentContent != null && !currentContent.isBlank()) {
+                    existingThread.setContent(currentContent + "\n\n---\n\n" + newContent);
+                } else {
+                    existingThread.setContent(newContent);
+                }
+
+                // Also save as message for history
+                if (messageRepository != null) {
+                    long seq = messageRepository.countBySessionId(existingThread.getThreadId()) + 1;
+                    MessageDocument msg = new MessageDocument();
+                    msg.setMessageId(UUID.randomUUID().toString());
+                    msg.setSessionId(existingThread.getThreadId());
+                    msg.setSeq(seq);
+                    msg.setRole("assistant");
+                    msg.setAgentId("thread-agent");
+                    msg.setContent(newContent);
+                    msg.setTimestamp(Instant.now());
+                    messageRepository.save(msg);
+                }
+            }
+
+            // Merge new decisions into existing lists
+            JsonNode decisionsNode = input.path("decisions");
+            if (decisionsNode.isArray() && decisionsNode.size() > 0) {
+                List<ThreadDocument.Decision> mergedDecisions = existingThread.getDecisions() != null
+                        ? new ArrayList<>(existingThread.getDecisions()) : new ArrayList<>();
+                for (JsonNode d : decisionsNode) {
+                    ThreadDocument.Decision decision = new ThreadDocument.Decision();
+                    decision.setText(d.asText());
+                    decision.setDate(Instant.now());
+                    mergedDecisions.add(decision);
+                }
+                existingThread.setDecisions(mergedDecisions);
+            }
+
+            // Merge new actions into existing lists
+            JsonNode actionsNode = input.path("actions");
+            if (actionsNode.isArray() && actionsNode.size() > 0) {
+                List<ThreadDocument.ActionItem> mergedActions = existingThread.getActions() != null
+                        ? new ArrayList<>(existingThread.getActions()) : new ArrayList<>();
+                for (JsonNode a : actionsNode) {
+                    ThreadDocument.ActionItem action = new ThreadDocument.ActionItem();
+                    action.setText(a.path("text").asText(""));
+                    String assignee = a.path("assignee").asText(null);
+                    if (assignee != null && !assignee.isBlank()) action.setAssignee(assignee);
+                    action.setStatus("OPEN");
+                    mergedActions.add(action);
+                }
+                existingThread.setActions(mergedActions);
+            }
+
+            existingThread.setUpdatedAt(Instant.now());
+            threadRepository.save(existingThread);
+
             ObjectNode result = MAPPER.createObjectNode();
-            result.put("threadId", existing.get().getThreadId());
+            result.put("threadId", existingThread.getThreadId());
             result.put("title", title);
             result.put("projectId", projectId);
-            result.put("status", "already_exists");
+            result.put("status", "updated_existing");
             return ToolResult.success(result);
         }
 
@@ -141,13 +201,18 @@ public class CreateThreadTool implements Tool {
             doc.setActions(actionItems);
         }
 
+        // Set content directly on the thread document
+        String content = input.path("content").asText(null);
+        if (content != null && !content.isBlank()) {
+            doc.setContent(content);
+        }
+
         doc.setCreatedAt(Instant.now());
         doc.setUpdatedAt(Instant.now());
 
         threadRepository.save(doc);
 
         // Seed content as the first message in the thread
-        String content = input.path("content").asText(null);
         if (content != null && !content.isBlank() && messageRepository != null) {
             MessageDocument msg = new MessageDocument();
             msg.setMessageId(UUID.randomUUID().toString());

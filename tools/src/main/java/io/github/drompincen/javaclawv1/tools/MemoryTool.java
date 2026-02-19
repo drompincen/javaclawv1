@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
@@ -106,6 +107,7 @@ public class MemoryTool implements Tool {
             doc.setContent(content);
             doc.setTags(tags.isEmpty() ? doc.getTags() : tags);
             doc.setUpdatedAt(Instant.now());
+            doc.setExpiresAt(computeExpiresAt(scope));
         } else {
             doc = new MemoryDocument();
             doc.setMemoryId(UUID.randomUUID().toString());
@@ -117,6 +119,7 @@ public class MemoryTool implements Tool {
             doc.setCreatedBy("agent");
             doc.setCreatedAt(Instant.now());
             doc.setUpdatedAt(Instant.now());
+            doc.setExpiresAt(computeExpiresAt(scope));
         }
 
         memoryRepository.save(doc);
@@ -193,6 +196,16 @@ public class MemoryTool implements Tool {
         result.put("deleted", true);
         result.put("key", key);
         return ToolResult.success(result);
+    }
+
+    private Instant computeExpiresAt(MemoryDocument.MemoryScope scope) {
+        Instant now = Instant.now();
+        return switch (scope) {
+            case SESSION -> now.plus(Duration.ofHours(24));
+            case THREAD -> now.plus(Duration.ofDays(7));
+            case PROJECT -> now.plus(Duration.ofDays(30));
+            case GLOBAL -> null;
+        };
     }
 
     private Optional<MemoryDocument> findByKey(MemoryDocument.MemoryScope scope, String sessionId, String key) {

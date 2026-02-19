@@ -5,6 +5,7 @@ import io.github.drompincen.javaclawv1.persistence.repository.*;
 import io.github.drompincen.javaclawv1.protocol.event.EventType;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -76,6 +77,7 @@ public class DistillerService {
         if (threadId != null) {
             mem.setScope(MemoryDocument.MemoryScope.THREAD);
             mem.setThreadId(threadId);
+            mem.setExpiresAt(Instant.now().plus(Duration.ofDays(7)));
             ThreadDocument thread = threadRepository.findById(threadId).orElse(null);
             if (thread != null) {
                 var pids = thread.getEffectiveProjectIds();
@@ -84,6 +86,7 @@ public class DistillerService {
         } else {
             mem.setScope(MemoryDocument.MemoryScope.SESSION);
             mem.setSessionId(sessionId);
+            mem.setExpiresAt(Instant.now().plus(Duration.ofHours(24)));
         }
 
         memoryRepository.save(mem);
@@ -141,6 +144,14 @@ public class DistillerService {
             }
         }
 
+        // Write distilled content back to the thread document
+        thread.setContent(content.toString());
+        if (thread.getSummary() == null || thread.getSummary().isBlank()) {
+            thread.setSummary(truncate(content.toString(), 300));
+        }
+        thread.setUpdatedAt(Instant.now());
+        threadRepository.save(thread);
+
         List<String> pids = thread.getEffectiveProjectIds();
 
         MemoryDocument mem = new MemoryDocument();
@@ -154,6 +165,7 @@ public class DistillerService {
         mem.setCreatedBy("distiller");
         mem.setCreatedAt(Instant.now());
         mem.setUpdatedAt(Instant.now());
+        mem.setExpiresAt(Instant.now().plus(Duration.ofDays(7)));
 
         memoryRepository.save(mem);
         System.out.println("[distiller] Saved thread memory " + mem.getKey() + " for thread " + threadId);

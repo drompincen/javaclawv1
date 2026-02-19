@@ -41,6 +41,27 @@ export async function render() {
       (row) => setSelected({ type: 'thread', id: row._raw.threadId, data: row._raw })
     );
 
+    // Append Outlook-style content preview below title in each row
+    const previewTbody = document.querySelector('#threadTableContainer tbody');
+    if (previewTbody) {
+      previewTbody.querySelectorAll('tr').forEach((tr, idx) => {
+        if (idx >= rows.length) return;
+        const raw = rows[idx]._raw;
+        if (raw.content) {
+          const titleCell = tr.querySelector('td:first-child');
+          if (titleCell) {
+            const preview = document.createElement('div');
+            preview.className = 'tiny';
+            preview.style.color = 'var(--dim)';
+            preview.style.marginTop = '2px';
+            const truncated = raw.content.length > 200 ? raw.content.substring(0, 200) + '\u2026' : raw.content;
+            preview.textContent = truncated;
+            titleCell.appendChild(preview);
+          }
+        }
+      });
+    }
+
     // Append delete button to each row
     const tbody = document.querySelector('#threadTableContainer tbody');
     if (tbody) {

@@ -46,6 +46,40 @@ class TestInspectorSession(unittest.TestCase):
                        "session messages should show agent ID when present")
 
 
+# ── 1b. Inspector: thread content display ─────────────────────────────────
+
+class TestInspectorThreadContent(unittest.TestCase):
+    def setUp(self):
+        self.src = read('js/panels/inspector.js')
+
+    def test_content_section_in_thread_case(self):
+        self.assertIn('d.content', self.src,
+                       "inspector.js must reference d.content in thread case")
+
+    def test_content_label(self):
+        self.assertIn('<b>Content:</b>', self.src,
+                       "inspector.js must render Content label")
+
+    def test_content_pre_wrap(self):
+        self.assertIn('white-space:pre-wrap', self.src,
+                       "content should use pre-wrap for formatting")
+
+
+# ── 1c. Threads view: content preview ────────────────────────────────────
+
+class TestThreadsContentPreview(unittest.TestCase):
+    def setUp(self):
+        self.src = read('js/views/threads.js')
+
+    def test_content_preview_div(self):
+        self.assertIn('raw.content', self.src,
+                       "threads.js must reference raw.content for preview")
+
+    def test_preview_truncation(self):
+        self.assertIn('200', self.src,
+                       "content preview should truncate at 200 chars")
+
+
 # ── 2. Agent buttons removed ─────────────────────────────────────────────
 
 class TestAgentPanel(unittest.TestCase):
@@ -210,6 +244,7 @@ class TestStructuralIntegrity(unittest.TestCase):
         'js/views/intake.js',
         'js/views/objectives.js',
         'js/views/resources.js',
+        'js/views/threads.js',
         'js/api.js',
         'js/app.js',
         'index.html',

@@ -27,6 +27,8 @@ export function renderInspector() {
         <div><b>Thread</b>: ${esc(d.title)}</div>
         <div class="tiny">status: ${d.status || d.lifecycle || '\u2013'} \u2022 evidence: ${d.evidenceCount || 0} \u2022 objectives: ${(d.objectiveIds || []).length}</div>
         ${d.summary ? `<div class="hr"></div><div class="tiny"><b>Summary:</b> ${esc(d.summary)}</div>` : ''}
+        ${d.content ? `<div class="hr"></div><div class="tiny"><b>Content:</b></div>
+<div class="tiny" style="white-space:pre-wrap;max-height:300px;overflow-y:auto">${esc(d.content)}</div>` : ''}
         ${decisions.length > 0 ? `<div class="hr"></div><div class="tiny"><b>Decisions:</b></div>${decisions.map(dec => `<div class="tiny">\u2714 ${esc(dec.text)}${dec.decidedBy ? ' (' + esc(dec.decidedBy) + ')' : ''}</div>`).join('')}` : ''}
         ${actions.length > 0 ? `<div class="hr"></div><div class="tiny"><b>Action Items:</b></div>${actions.map(a => `<div class="tiny">\u25B6 ${esc(a.text)}${a.assignee ? ' \u2192 ' + esc(a.assignee) : ''} <span class="pill">${a.status || 'OPEN'}</span></div>`).join('')}` : ''}
         <div class="hr"></div>

@@ -62,6 +62,31 @@ test('session inspector renders pills for roles', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+console.log('\n── 1b. Thread content preview + inspector ──');
+// ═══════════════════════════════════════════════════════════════
+
+test('threads.js references raw.content for preview', () => {
+  const src = readFile('js/views/threads.js');
+  assert.ok(src.includes('raw.content'), 'Must reference raw.content for preview');
+});
+
+test('threads.js truncates content at 200 chars', () => {
+  const src = readFile('js/views/threads.js');
+  assert.ok(src.includes('200'), 'Content preview should truncate at 200 chars');
+});
+
+test('inspector.js displays thread content', () => {
+  const src = readFile('js/panels/inspector.js');
+  assert.ok(src.includes('d.content'), 'Must reference d.content in thread inspector');
+  assert.ok(src.includes('<b>Content:</b>'), 'Must render Content label');
+});
+
+test('inspector content uses pre-wrap formatting', () => {
+  const src = readFile('js/panels/inspector.js');
+  assert.ok(src.includes('white-space:pre-wrap'), 'Content should use pre-wrap');
+});
+
+// ═══════════════════════════════════════════════════════════════
 console.log('\n── 2. Agent panel ──');
 // ═══════════════════════════════════════════════════════════════
 
@@ -270,6 +295,7 @@ const FILES = [
   'js/views/intake.js',
   'js/views/objectives.js',
   'js/views/resources.js',
+  'js/views/threads.js',
   'js/api.js',
   'js/app.js',
   'index.html',

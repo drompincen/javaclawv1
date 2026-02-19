@@ -324,6 +324,8 @@ public class IntakePipelineService {
                 + "- `content`: organized markdown for the topic\n"
                 + "- `decisions`: array of decision strings\n"
                 + "- `actions`: array of objects with `text` and `assignee`\n\n"
+                + "If a topic matches an existing thread title, call create_thread with the SAME title. "
+                + "The tool will automatically append content to the existing thread instead of creating a duplicate.\n"
                 + "If topics overlap significantly, merge them into a single thread.\n"
                 + TOOL_FORMAT
                 + "### Tool: create_thread\n"

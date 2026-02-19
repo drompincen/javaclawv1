@@ -79,6 +79,11 @@
             "assert": {"anyMatchField": "title", "anyMatchPattern": "Onboarding"}
           },
           {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"anyMatchField": "content", "anyMatchPattern": "Evidence"}
+          },
+          {
             "collection": "tickets",
             "filter": {"projectId": "{{projectId}}"},
             "assert": {"countEq": 4}

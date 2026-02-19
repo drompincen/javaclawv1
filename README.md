@@ -1,128 +1,438 @@
 # JavaClaw
 
-**An AI-powered engineering manager's cockpit.** JavaClaw is a Claude Code-like system built with Java 21, Spring AI, LangGraph4j, and MongoDB. It combines multi-agent orchestration, persistent memory, real-time event streaming, and a Bloomberg terminal-style UI into a personal assistant that can read codebases, manage projects, track teams, and execute code — all from your keyboard.
+**A continuous project intelligence engine for engineering managers.** JavaClaw is a multi-agent orchestration platform built with Java 21, Spring AI, LangGraph4j, and MongoDB. It turns raw meeting notes, Jira exports, and Confluence designs into structured threads, sprint objectives, capacity reports, and operational readiness checklists — then keeps them honest through scheduled reconciliation.
 
-## Vision
+## The Story
 
-JavaClaw is designed to be the **single pane of glass** for an engineering manager or tech lead who needs to:
+David opens JavaClaw early in the morning. He pastes his meeting notes — a mix of architecture decisions, open questions, and action items — into the Intake panel and hits enter. Within seconds, the system organizes the chaos into structured threads: "KYC-SVC Phase 1 Architecture", "Evidence Service Discussion", "Operational Readiness (ORR)". Each thread has a clean title, grouped related thoughts, and merged duplicates.
 
-- **Understand codebases** — Read, document, and explain code across multiple projects
-- **Manage projects and sprints** — Create tickets, track sprint objectives week-by-week, mark-to-market on Jira tickets
-- **Track team capacity** — See who's working on what, who has bandwidth, assign resources across projects
-- **Integrate with existing tools** — Read Jira ticket exports (Excel), check Confluence designs, cross-reference with codebase state
-- **Execute code on the fly** — Run Java (via JBang) or Python scripts directly from the agent
-- **Remember context** — Persistent memory across sessions so the AI remembers your preferences, project patterns, and team dynamics
-- **Work with multiple agents** — A controller routes tasks to specialists (coder, reviewer, analyst), each with their own skills and toolset
-- **Stay keyboard-driven** — Bloomberg terminal aesthetic with green-on-black, every action accessible via shortcut keys (F1-F12, Ctrl combos)
-- **Bridge the web gap** — When agents need current information, they ask you to search; your browser opens automatically and you paste results back
+Later, he pastes a Jira export, a Confluence design page, and a Smartsheet plan. The system layers intelligence: tickets are grouped, phases are extracted, objectives are synthesized, and a Delta Pack appears showing "Missing Epic: Evidence Service", "Milestone drift: March 8 -> March 15", "Owner mismatch: Alice vs Bob", "Unmapped tickets: 6". The system isn't just organizing — it's challenging inconsistencies across sources.
 
-This is not just a chatbot — it's an **orchestration platform** where AI agents collaborate via MongoDB change streams, persist their knowledge, and loop through quality checks before delivering results.
+The next morning, David asks "What are our objectives for this sprint?" The system computes — not guesses — and responds: "Deliver KYC-SVC facade and tooling — 72% covered. Prepare operational readiness — 40% covered, high risk." He asks "Who is working on what?" and learns Alice is overloaded while Bob has capacity. He asks "Create a plan from the current threads" and a three-phase execution path emerges with entry conditions, exit criteria, and linked milestones.
+
+Days pass. The scheduler triggers the Reconcile Agent overnight. When David returns, new insights appear: a milestone slipped, a ticket was added without an objective, a duplicate thread was created. The system kept the project honest without him.
+
+David never "manages tickets." He pastes information, asks questions, triggers intent. The system structures, aligns, challenges, and executes.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  javaclawui.java (JBang Bloomberg Terminal UI)              │
-│  Green-on-black, keyboard-driven, F1-F12 shortcuts          │
-│  Sessions | Chat | Agent Pane | Search Request | Memory     │
-└────────────────────────────┬────────────────────────────────┘
-                             │ REST + WebSocket
-         ┌───────────────────┼───────────────────┐
-         ▼                                       ▼
-┌─────────────────┐                   ┌─────────────────────┐
-│     gateway      │                   │         ui          │
-│  REST + WebSocket│                   │  Swing + FlatLaf    │
-│   (headless)     │                   │   (Spring + Swing)  │
-└────────┬─────────┘                   └──────────┬──────────┘
-         │                                        │
-         └──────────────┬─────────────────────────┘
-                        ▼
-              ┌───────────────────┐
-              │      runtime      │
-              │  Multi-Agent      │
-              │   Orchestration   │
-              │  Controller →     │
-              │   Specialist →    │
-              │    Checker loop   │
-              │  LLM (Spring AI)  │
-              │  Memory system    │
-              │  Checkpointing    │
-              └────────┬──────────┘
-                       │
-         ┌─────────────┼─────────────┐
-         ▼             ▼             ▼
-┌──────────────┐ ┌──────────┐ ┌─────────────┐
-│  persistence │ │ protocol │ │    tools     │
-│  MongoDB     │ │  DTOs    │ │  16 tools    │
-│  Documents   │ │  Enums   │ │  via SPI     │
-│  Repos       │ │  Events  │ │  Excel, Py,  │
-│  Change      │ │  WS msgs │ │  JBang, Git, │
-│  Streams     │ │          │ │  Memory, ... │
-└──────┬───────┘ └──────────┘ └─────────────┘
-       │
-       ▼
-┌──────────────┐
-│   MongoDB    │
-│  Replica Set │
-│  (rs0)       │
-│  Agents,     │
-│  Memories,   │
-│  Events,     │
-│  Sessions    │
-└──────────────┘
+                    ┌──────────────────────────────────────────┐
+                    │     Web Cockpit (Bloomberg-style UI)      │
+                    │  Green-on-black, keyboard-driven panels   │
+                    │  Intake | Threads | Objectives | Schedule │
+                    └─────────────────────┬────────────────────┘
+                                          │ REST + WebSocket
+                                          ▼
+                    ┌──────────────────────────────────────────┐
+                    │              gateway                      │
+                    │   24 REST controllers + WebSocket         │
+                    │   Cockpit static assets (HTML/JS/CSS)     │
+                    └─────────────────────┬────────────────────┘
+                                          │
+                    ┌──────────────────────┴────────────────────┐
+                    │                runtime                     │
+                    │   Multi-agent orchestration engine         │
+                    │   Controller → Specialist → Checker loop   │
+                    │   Intake pipeline, scheduler, distiller    │
+                    │   LLM integration (Anthropic / OpenAI)     │
+                    └──────────┬──────────┬──────────┬──────────┘
+                               │          │          │
+              ┌────────────────┤          │          ├────────────────┐
+              ▼                ▼          ▼          ▼                ▼
+     ┌──────────────┐  ┌──────────┐  ┌────────┐  ┌───────────────────┐
+     │  persistence  │  │ protocol │  │ tools  │  │     MongoDB       │
+     │  32 documents │  │  DTOs    │  │ 46 SPI │  │   Replica Set     │
+     │  35 repos     │  │  Enums   │  │ tools  │  │   32 collections  │
+     │  Change       │  │  Events  │  │        │  │   Change Streams  │
+     │  Streams      │  │  WS msgs │  │        │  │                   │
+     └───────────────┘  └──────────┘  └────────┘  └───────────────────┘
 ```
 
 ### Module Overview
 
 | Module | Purpose |
 |---|---|
-| **protocol** | Shared DTOs, enums (AgentRole, SessionStatus, ToolRiskProfile), event types (40+), WebSocket message contracts. Pure Java records — no Spring dependencies. |
-| **persistence** | MongoDB documents (20+ collections), repositories, and `ChangeStreamService` for real-time reactive streaming. Includes MemoryDocument, AgentDocument, MessageDocument with multimodal support. |
-| **runtime** | Multi-agent engine: `AgentLoop` orchestrates sessions, `AgentGraphBuilder` runs the controller→specialist→checker loop, `LlmService` integrates with Anthropic/OpenAI, `AgentBootstrapService` seeds default agents, `ReminderScheduler` handles recurring timers. |
-| **tools** | 17 built-in tools loaded via Java SPI: file I/O, shell, git, JBang, Python, Excel, memory, HTTP, human search, project management. |
-| **gateway** | Spring Boot REST + WebSocket server. Controllers for sessions, agents, specs, tools, reminders, memory, search responses, and API key configuration. |
-| **ui** | Swing desktop application with FlatLaf. Project sidebar, tabbed views (Thread, Board, Dashboard, Resources, Ideas). Connects directly to MongoDB. |
+| **protocol** | Shared DTOs (Java records), enums (AgentRole, SessionStatus, TicketStatus, MilestoneStatus, etc.), event types (40+), WebSocket message contracts. Pure Java — no Spring dependencies. |
+| **persistence** | 32 MongoDB document classes, 35 repository interfaces, `ChangeStreamService` for real-time reactive streaming. Covers agents, projects, threads, tickets, objectives, phases, milestones, checklists, resources, delta packs, blindspots, schedules, and more. |
+| **runtime** | Multi-agent engine: `AgentLoop` orchestrates sessions, `AgentGraphBuilder` runs the controller→specialist→checker loop, `IntakePipelineService` chains triage→thread creation→distillation, scheduler engine for automated agent runs, scenario test framework with 36 E2E tests. |
+| **tools** | 46 built-in tools loaded via Java SPI: file I/O, shell, git, JBang, Python, Excel, memory, HTTP, project management (tickets, phases, milestones, objectives, checklists, resources, delta packs, blindspots). |
+| **gateway** | Spring Boot REST + WebSocket server. 24 controllers for all domain objects. Serves the web cockpit UI as static assets. |
 
-## Key Features
+## Multi-Agent System
 
-### Multi-Agent Orchestration
+JavaClaw uses a **controller → specialist → checker** orchestration pattern. The controller analyzes the user's task and routes to the best specialist. The specialist executes using tools and LLM. The checker validates the result — if it fails, the loop retries (max 3 retries). For pipeline operations (forced agent routing), the controller and checker are bypassed entirely.
 
-JavaClaw uses a **controller → specialist → checker** pattern:
+### 15 Built-in Agents
 
-1. **Controller agent** analyzes the user's task and decides which specialist should handle it
-2. **Specialist agent** (e.g., coder) executes the task using tools
-3. **Checker agent** (reviewer) validates the result — if it fails, loops back to controller (max 3 retries)
+| Agent | Role | Purpose | Key Tools |
+|---|---|---|---|
+| `controller` | CONTROLLER | Routes tasks to the best specialist | `*` (all) |
+| `coder` | SPECIALIST | Writes code, runs shell commands, reads/writes files | `*` (all) |
+| `reviewer` | CHECKER | Validates output quality and correctness | read_file, search_files, shell_exec, memory |
+| `pm` | SPECIALIST | Project management — tickets, planning, stakeholder tracking | create_ticket, create_idea, memory, excel |
+| `generalist` | SPECIALIST | General questions, brainstorming, advice | memory, read_file |
+| `reminder` | SPECIALIST | Natural language timer/reminder creation | memory, read_file |
+| `distiller` | SPECIALIST | Distills completed sessions into persistent memories | memory |
+| `thread-extractor` | SPECIALIST | Extracts action items, ideas, and tickets from threads | read_thread_messages, create_ticket, create_idea |
+| `thread-agent` | SPECIALIST | Creates, renames, merges threads; attaches evidence | create_thread, rename_thread, merge_threads |
+| `objective-agent` | SPECIALIST | Derives sprint objectives, computes ticket coverage | compute_coverage, update_objective |
+| `checklist-agent` | SPECIALIST | Generates ORR and release readiness checklists | create_checklist, checklist_progress |
+| `intake-triage` | SPECIALIST | Classifies intake content and dispatches to agents | classify_content, dispatch_agent |
+| `plan-agent` | SPECIALIST | Creates execution phases and milestones from threads | create_phase, create_milestone, generate_plan_artifact |
+| `reconcile-agent` | SPECIALIST | Detects drift, mismatches, and gaps across data sources | read_tickets, read_objectives, create_delta_pack |
+| `resource-agent` | SPECIALIST | Maps people to tickets, computes capacity and load | read_resources, capacity_report, suggest_assignments |
 
-Agents are defined in MongoDB and can be created/modified via REST API. Five default agents are seeded on first startup:
+Agents are defined in MongoDB and auto-seeded on first startup. Missing agents are backfilled on subsequent starts.
 
-| Agent | Role | Purpose |
+### Intake Pipeline — How Content Reaches the Right Collections
+
+The intake pipeline is the primary way data enters JavaClaw. A user pastes raw content — meeting notes, Confluence pages, Jira exports, Smartsheet plans, or any combination — into the Intake panel and hits enter. The system then runs up to 7 phases, each handled by a specialist agent that writes to specific MongoDB collections using tools.
+
+#### Entry Point
+
+`POST /api/intake/pipeline` with `{projectId, content, filePaths[]}` triggers `IntakePipelineService.startPipeline()`. This creates a source session for UI tracking and launches the pipeline asynchronously. Files can also be uploaded via `POST /api/intake/upload` (multipart), which saves them to disk and creates `uploads` documents with status `INBOX`.
+
+#### Phase 1: Triage (intake-triage agent)
+
+The triage agent receives the raw content and calls `classify_content` — a pattern-matching tool that detects the content type without LLM assistance:
+
+| Pattern Detected | Classification |
+|---|---|
+| Jira keys (ABC-123) + status headers | `JIRA_DUMP` |
+| "Confluence" or "space key" or structured decisions | `CONFLUENCE_EXPORT` |
+| "milestone" + "owner" + "status" | `SMARTSHEET_EXPORT` |
+| "meeting" + "attendees" or "agenda" | `MEETING_NOTES` |
+| "background" + "proposal" + "alternatives" | `DESIGN_DOC` |
+| 3+ lines starting with "http" | `LINK_LIST` |
+| None of the above | `FREE_TEXT` |
+
+The tool also extracts dates (regex `\d{4}-\d{2}-\d{2}`), people (via `@Name` or `Assignee: Name` patterns), and Jira project keys. The triage agent then organizes the content into distinct topics with structured output (decisions, open questions, action items per topic).
+
+**Collections written:** None directly. The triage output is a text classification passed to subsequent phases. The triage agent's session and messages are written to `sessions`, `messages`, and `events`.
+
+#### Phase 2: Thread Creation (thread-agent)
+
+The thread agent receives the raw content + triage output and calls `create_thread` once per distinct topic. For example, meeting notes about "KYC Architecture", "Evidence Service", and "Operational Readiness" produce 3 threads.
+
+Each `create_thread` call:
+1. Checks for duplicates by title (case-insensitive) — if a thread with the same title already exists in the project, it appends the new content to the existing thread and merges decisions and actions, returning `updated_existing`
+2. Creates a `ThreadDocument` with `projectIds`, `title`, `lifecycle: ACTIVE`, `decisions[]`, and `actions[]`
+3. Seeds the organized markdown as the first message in the thread (stored in `messages` with `sessionId == threadId`, `role: assistant`, `agentId: thread-agent`)
+
+**Collections written:**
+- `threads` — One document per topic. Fields populated: `threadId`, `projectIds[]`, `title`, `lifecycle`, `decisions[]` (text + date), `actions[]` (text + assignee + status=OPEN), `createdAt`
+- `messages` — One seed message per thread with the organized content
+
+#### Phase 3: PM Agent (conditional — runs if Jira data detected)
+
+The pipeline inspects the triage output for Jira signals (`JIRA`, `JIRA_DUMP`, `TICKET` keywords, or `.xlsx`/`.xls` file paths). If detected, the PM agent processes Jira ticket data.
+
+If file paths are provided, the agent first calls `excel` to read the spreadsheet. Then it calls `create_ticket` once per ticket found.
+
+Each `create_ticket` call creates a `TicketDocument` with the original Jira key preserved in the title (e.g., "J-101: Build Evidence API"). Tickets without an epic are flagged as orphaned work in the description.
+
+**Collections written:**
+- `tickets` — One document per ticket. Fields populated: `ticketId`, `projectId`, `title` (includes Jira key), `description` (epic, status, owner info), `priority` (HIGH/MEDIUM/LOW), `status: TODO`, `createdAt`
+
+#### Phase 4: Plan Agent (conditional — runs if Smartsheet data detected)
+
+Runs in parallel with Phase 3 if Smartsheet/milestone data is detected. The plan agent calls `create_phase` for each phase and `create_milestone` for each milestone.
+
+**Collections written:**
+- `phases` — One document per phase. Fields: `phaseId`, `projectId`, `name`, `description`, `sortOrder`, `status: PENDING`, `createdAt`
+- `milestones` — One document per milestone. Fields: `milestoneId`, `projectId`, `name`, `targetDate`, `owner`, `status: UPCOMING`, `createdAt`
+
+#### Phase 5: Objective Agent (conditional — runs if Phases 3 or 4 ran)
+
+After PM and Plan agents complete, the objective agent synthesizes sprint objectives from the ticket and thread data. It calls `compute_coverage` which reads all tickets and objectives for the project, then computes what percentage of each objective is backed by tickets.
+
+The agent derives high-level objectives (e.g., "Deliver Evidence Service", "Complete Onboarding Flow") and maps existing tickets to them, reporting coverage percentages and flagging unmapped tickets.
+
+**Collections written:**
+- `objectives` — One document per derived objective. Fields: `objectiveId`, `projectId`, `outcome`, `ticketIds[]`, `threadIds[]`, `coveragePercent`, `status: PROPOSED`, `createdAt`
+
+#### Phase 6: Reconcile Agent (conditional — runs if Phase 5 ran)
+
+The reconcile agent cross-references all project data by calling `read_tickets`, `read_objectives`, and `read_phases` to load everything, then analyzes mismatches.
+
+It calls `create_delta_pack` with all detected deltas. A delta pack is a structured report containing individual deltas, each with a type, severity, title, description, the two conflicting sources, and a suggested action. For critical findings, it also calls `create_blindspot` to flag individual risk items.
+
+Example deltas from the Story 2 pipeline test:
+- **MISSING_EPIC** (HIGH): "J-104 has no epic assignment" — Jira vs Jira
+- **DATE_DRIFT** (MEDIUM): "Design date 2026-02-10 vs milestone 2026-03-15" — Confluence vs Smartsheet
+- **OWNER_MISMATCH** (HIGH): "Alice owns tickets, Bob owns milestone" — Jira vs Smartsheet
+- **ORPHANED_WORK** (MEDIUM): "J-104 not mapped to any epic or objective" — Jira vs (none)
+
+**Collections written:**
+- `delta_packs` — One document per reconciliation run. Fields: `deltaPackId`, `projectId`, `deltas[]` (deltaType, severity, title, description, sourceA, sourceB, suggestedAction), `summary` (totalDeltas, bySeverity, byType), `status: FINAL`, `createdAt`
+- `blindspots` — One document per critical finding. Fields: `blindspotId`, `projectId`, `title`, `category` (e.g., MISSING_OWNER), `severity`, `description`, `status: OPEN`, `createdAt`
+
+#### Phase 7: Distillation (DistillerService)
+
+The pipeline queries `threads` for all threads created during this pipeline run (by comparing `createdAt` against the pipeline start time). For each new thread, `DistillerService.distillThread()` writes distilled content back to the thread's `content` field (persistent knowledge) and creates a THREAD-scoped memory with a 7-day TTL (expiring summary).
+
+The distiller extracts:
+- Thread title and summary
+- All decisions (text + who decided)
+- All action items (text + assignee)
+- Thread message content (truncated to 500 chars per message)
+
+This is stored as a single `MemoryDocument` with scope `THREAD`, tagged `auto-distilled, thread-decisions, intake-pipeline`.
+
+**Collections written:**
+- `memories` — One document per thread. Fields: `memoryId`, `scope: THREAD`, `threadId`, `projectId`, `key` (e.g., "thread-distill-abc12345"), `content` (structured markdown), `tags`, `createdBy: distiller`, `createdAt`
+
+#### Complete Data Flow Diagram
+
+```
+User pastes content
+        │
+        ▼
+POST /api/intake/pipeline
+        │
+        ├─ creates → sessions (source session, status: RUNNING)
+        ├─ creates → messages (raw content as first user message)
+        │
+        ▼
+Phase 1: intake-triage
+        │  calls classify_content (pattern matching, no DB write)
+        │  produces structured topic list
+        │
+        ▼
+Phase 2: thread-agent
+        │  calls create_thread per topic
+        ├─ creates → threads (one per topic, with decisions[] and actions[])
+        ├─ creates → messages (seed content per thread, sessionId = threadId)
+        │
+        ├──────────────────────────────────────────────┐
+        ▼                                              ▼
+Phase 3: pm (if Jira data)              Phase 4: plan-agent (if Smartsheet)
+        │  calls create_ticket                    │  calls create_phase
+        ├─ creates → tickets                      ├─ creates → phases
+        │                                         │  calls create_milestone
+        │                                         ├─ creates → milestones
+        │                                         │
+        └──────────────┬───────────────────────────┘
+                       ▼
+             Phase 5: objective-agent
+                       │  calls compute_coverage
+                       ├─ creates → objectives (with coveragePercent)
+                       │
+                       ▼
+             Phase 6: reconcile-agent
+                       │  reads tickets, objectives, phases
+                       │  calls create_delta_pack
+                       ├─ creates → delta_packs (drift report)
+                       │  calls create_blindspot (for critical items)
+                       ├─ creates → blindspots (risk flags)
+                       │
+                       ▼
+             Phase 7: distiller
+                       │  reads new threads from Phase 2
+                       ├─ creates → memories (THREAD-scoped, one per thread)
+                       │
+                       ▼
+             Pipeline complete
+                       ├─ updates → sessions (source session → COMPLETED)
+                       └─ creates → messages (summary message)
+```
+
+#### What the Cockpit UI Sees
+
+The web cockpit fetches data from the same REST endpoints that the pipeline wrote to:
+
+- **Threads panel** (`GET /api/projects/{pid}/threads`) — Shows the threads created in Phase 2
+- **Tickets panel** (`GET /api/projects/{pid}/tickets`) — Shows tickets from Phase 3
+- **Objectives panel** (`GET /api/projects/{pid}/objectives`) — Shows objectives with coverage % from Phase 5
+- **Reconcile panel** (`GET /api/projects/{pid}/delta-packs`) — Shows the delta pack from Phase 6
+- **Blindspots panel** (`GET /api/projects/{pid}/blindspots`) — Shows risk items from Phase 6
+- **Schedule panel** (`GET /api/schedules`) — Shows when agents will run again automatically
+
+The scenario test framework validates this end-to-end: `scenario-story-2-pipeline.json` runs the full 7-phase pipeline with mock LLM responses and asserts that threads, tickets, phases, milestones, objectives, delta packs, and blindspots all appear in the correct collections with the expected data.
+
+### Scheduled Agent Execution
+
+Six default schedules are seeded on startup:
+
+| Agent | Schedule | Priority |
 |---|---|---|
-| `controller` | CONTROLLER | Routes tasks, delegates to specialists |
-| `coder` | SPECIALIST | Writes code, runs shell commands, uses JBang/Python |
-| `reviewer` | CHECKER | Reviews output, runs tests, validates correctness |
-| `pm` | SPECIALIST | Project management — planning, tickets, milestones, stakeholder tracking |
-| `distiller` | SPECIALIST | Distills completed sessions into persistent memories automatically |
+| reconcile-agent | 9am weekdays | 6 (highest) |
+| resource-agent | 9am weekdays | 5 |
+| objective-agent | 9am weekdays | 5 |
+| checklist-agent | 9am weekdays | 5 |
+| plan-agent | 10am Mondays | 4 |
+| thread-extractor | 6pm weekdays | 4 |
 
-The PM agent has access to `create_ticket`, `create_idea`, `memory`, `excel`, `read_file`, `list_directory`, and `search_files`. The distiller agent runs automatically after each session completes, extracting key topics and outcomes into THREAD or SESSION-scoped memories. If you upgrade from an older database, missing agents are automatically seeded on startup.
+Schedules support CRON expressions, fixed times, intervals, and immediate execution. The scheduler engine computes future executions, acquires distributed locks, and tracks results in `past_executions`.
 
-Agent-to-agent communication happens via MongoDB change streams — real-time, persistent, and observable from the UI.
+## MongoDB Data Model
 
-### Persistent Memory
+JavaClaw uses MongoDB as its single data store — no separate message broker, cache, or search index. The database is named `javaclaw` and requires a replica set (`rs0`) for change streams.
 
-Agents can **store and recall knowledge** across sessions using the `memory` tool:
+### Why MongoDB
 
-- **GLOBAL** scope — shared across all projects (e.g., "user prefers Java 21")
-- **PROJECT** scope — tied to a project (e.g., "this repo uses Gradle")
-- **SESSION** scope — tied to a standalone session
-- **THREAD** scope — tied to a thread (e.g., "sprint planning decisions from this thread")
+- **Change Streams** — Real-time agent-to-agent communication and UI event streaming without a separate message broker
+- **Document Model** — Agent state, memories, tool results, and event payloads are naturally hierarchical
+- **TTL Indexes** — Session locks auto-expire after 60 seconds, no background reaper needed
+- **Flexible Schema** — Tool outputs, event payloads, and delta packs hold arbitrary JSON
+- **Text Search** — Memory recall and upload search use MongoDB's built-in full-text search
+- **Replica Set** — Required for change streams; a single-node replica set works for development
 
-The **distiller agent** automatically runs after each session completes, extracting a summary of the conversation topic and outcome. Thread-bound sessions produce THREAD-scoped memories; standalone sessions produce SESSION-scoped memories. This ensures valuable context is preserved without manual intervention.
+### Entity Relationship Overview
 
-Memory is stored in MongoDB with text search, tag-based filtering, and key-based upsert. Before each LLM call, relevant memories are loaded into context so agents always have background knowledge.
+```
+projects (root aggregate)
+├── threads ────────── M:N via projectIds[]
+│   ├── messages ──── via sessionId (= threadId for threads)
+│   ├── events ────── via sessionId
+│   ├── checkpoints ─ via sessionId
+│   └── approvals ─── via threadId
+├── tickets ────────── via projectId (self-referential hierarchy)
+│   └── resource_assignments ─ via ticketId
+├── objectives ─────── via projectId
+├── phases ─────────── via projectId (ordered by sortOrder)
+│   ├── milestones ── via phaseId
+│   └── checklists ── via phaseId
+├── ideas ──────────── via projectId
+├── uploads ─────────── via projectId
+├── intakes ─────────── via projectId
+├── delta_packs ────── via projectId
+├── blindspots ─────── via projectId
+├── reconciliations ── via projectId
+├── links ──────────── via projectId
+├── resources ──────── via projectId
+└── reminders ──────── via projectId
 
-### Tool System (16 Built-in Tools)
+agents (global) ────── agent_schedules, future_executions, past_executions
+memories (scoped) ──── GLOBAL / PROJECT / SESSION / THREAD
+sessions (ephemeral) ─ deleted on restart, linked to threads via threadId
+```
+
+### Collections Reference (32)
+
+#### Core Orchestration
+
+| Collection | Document | Purpose | Key Fields |
+|---|---|---|---|
+| `agents` | AgentDocument | Agent definitions with system prompts and tool policies | agentId, role (CONTROLLER/SPECIALIST/CHECKER), systemPrompt, allowedTools[], enabled |
+| `sessions` | SessionDocument | Ephemeral agent execution contexts (deleted on restart) | sessionId, threadId (nullable), projectId, status (IDLE/RUNNING/PAUSED/FAILED/COMPLETED) |
+| `messages` | MessageDocument | Chat messages with multimodal support (text + images) | sessionId, seq, role (user/assistant/system), content, parts[] (type, mediaType, data), agentId |
+| `events` | EventDocument | Event sourcing — every action as a monotonic sequence | sessionId, seq (unique compound), type (40+ EventTypes), payload, timestamp |
+| `checkpoints` | CheckpointDocument | Agent state snapshots for resume/replay | sessionId, stepNo, state (JSON string), eventOffset |
+| `locks` | LockDocument | Distributed session locks with TTL auto-expiry (60s) | lockId (= sessionId), owner, expiresAt (TTL index) |
+| `approvals` | ApprovalDocument | Human-in-the-loop tool approval requests | threadId, toolName, toolInput, status (PENDING/APPROVED/DENIED) |
+| `testPrompts` | TestPromptDocument | Test mode prompt/response pairs for scenario testing | agentId, sessionId, prompt, llmResponse, responseFallback |
+
+**How sessions and threads share messages:** Both sessions and threads store messages in the `messages` collection keyed by `sessionId`. For threads, `sessionId == threadId`. The `AgentLoop` performs a dual-lookup — `SessionRepository` first, then `ThreadRepository` — so the agent loop, checkpointing, and event streaming work identically for both.
+
+#### Project Management
+
+| Collection | Document | Purpose | Key Fields |
+|---|---|---|---|
+| `projects` | ProjectDocument | Root aggregate — top-level container for all project data | projectId, name, status (ACTIVE/ARCHIVED/TEMPLATE), tags[] |
+| `threads` | ThreadDocument | Persistent knowledge store — distilled project content organized by topic | threadId, projectIds[] (M:N), title, lifecycle (DRAFT/ACTIVE/CLOSED/MERGED), summary, content (distilled markdown), evidence[], decisions[], actions[] |
+| `tickets` | TicketDocument | Work items with self-referential hierarchy | ticketId, projectId, title, status (TODO/IN_PROGRESS/REVIEW/DONE/BLOCKED), priority (LOW-CRITICAL), type (INITIATIVE/EPIC/STORY/SUBTASK), parentTicketId, assignedResourceId, objectiveIds[], externalRef (Jira key) |
+| `ideas` | IdeaDocument | Brainstorming items, promotable to tickets | ideaId, projectId, title, status (NEW/REVIEWED/PROMOTED/ARCHIVED), promotedToTicketId |
+| `objectives` | ObjectiveDocument | Sprint objectives with measurable coverage | objectiveId, projectId, sprintName, outcome, measurableSignal, coveragePercent, status (PROPOSED/COMMITTED/ACHIEVED/MISSED/DROPPED), threadIds[], ticketIds[] |
+| `phases` | PhaseDocument | Execution phases with entry/exit criteria | phaseId, projectId, name, entryCriteria[], exitCriteria[], status (PENDING/ACTIVE/COMPLETED/BLOCKED), sortOrder |
+| `milestones` | MilestoneDocument | Delivery milestones linked to phases | milestoneId, projectId, phaseId, name, targetDate, actualDate, status (UPCOMING/ON_TRACK/AT_RISK/MISSED/COMPLETED), objectiveIds[], ticketIds[], dependencies[] |
+| `checklists` | ChecklistDocument | Operational readiness and release checklists | checklistId, projectId, phaseId, name, items[] (text, assignee, checked, notes), status (PENDING/IN_PROGRESS/COMPLETED) |
+| `checklist_templates` | ChecklistTemplateDocument | Reusable checklist templates (global or project-scoped) | templateId, category (ORR/RELEASE_READINESS/ONBOARDING/SPRINT_CLOSE/DEPLOYMENT/ROLLBACK/CUSTOM), items[] |
+
+**Tickets form a hierarchy:** INITIATIVE → EPIC → STORY → SUBTASK via the `parentTicketId` field. Tickets link to objectives, phases, and threads. The `externalRef` field holds Jira issue keys for imported tickets.
+
+**Objectives drive alignment:** The objective-agent computes `coveragePercent` by mapping tickets and threads to each objective. Stories 3 and 4 test this — the agent evaluates threads (what's being discussed), tickets (what's planned), and milestones (what must be delivered) to produce coverage percentages and identify orphaned work.
+
+**Phases and milestones create execution structure:** The plan-agent creates phases with entry/exit criteria and links milestones to them. Story 5 tests this flow — "Create a plan from the current threads" produces Phase 1: Facade + Tooling, Phase 2: Threaded Execution, Phase 3: Operational Readiness.
+
+#### Resources and Capacity
+
+| Collection | Document | Purpose | Key Fields |
+|---|---|---|---|
+| `resources` | ResourceDocument | Team members with skills and capacity | resourceId, projectId, name, email, role (ENGINEER/DESIGNER/PM/QA), skills[], capacity (units), availability (0.0-1.0) |
+| `resource_assignments` | ResourceAssignmentDocument | Links resources to tickets with allocation | assignmentId, resourceId, ticketId, projectId, percentageAllocation |
+
+**Capacity planning:** The resource-agent maps people → tickets → objectives to compute load. Story 4 tests this — "Who is working on what?" reveals Alice at 138% (overloaded), Bob at 88% (5h spare), with rebalancing recommendations.
+
+#### Reconciliation and Drift Detection
+
+| Collection | Document | Purpose | Key Fields |
+|---|---|---|---|
+| `delta_packs` | DeltaPackDocument | Drift reports comparing data sources | deltaPackId, projectId, deltas[] (deltaType, severity, title, sourceA, sourceB, suggestedAction), status (DRAFT/FINAL/SUPERSEDED) |
+| `blindspots` | BlindspotDocument | Individual risk items found during reconciliation | blindspotId, projectId, category, severity (LOW-CRITICAL), status (OPEN/ACKNOWLEDGED/RESOLVED/DISMISSED) |
+| `reconciliations` | ReconciliationDocument | Source-to-ticket mapping with conflict detection | reconciliationId, projectId, mappings[] (sourceRow, ticketId, matchType), conflicts[] (field, sourceValue, ticketValue, resolution) |
+
+**Delta types:** MISSING_EPIC, DATE_DRIFT, OWNER_MISMATCH, SCOPE_MISMATCH, DEPENDENCY_MISMATCH, COVERAGE_GAP, ORPHANED_WORK, CAPACITY_OVERLOAD, STALE_ARTIFACT, PRIORITY_MISMATCH, STATUS_MISMATCH
+
+**Blindspot categories:** ORPHANED_TICKET, UNCOVERED_OBJECTIVE, EMPTY_PHASE, UNASSIGNED_WORK, MISSING_OWNER, DEPENDENCY_RISK, CAPACITY_GAP, SCOPE_OVERLAP, MISSING_TEST_SIGNAL, STALE_ARTIFACT
+
+Story 7 tests scheduled reconciliation — the reconcile-agent runs automatically overnight and produces a delta pack with "Payment Gateway milestone at risk" and "notification owner mismatch". Story 2 tests the full alignment flow after intake — the system challenges inconsistencies across Confluence, Jira, and Smartsheet data.
+
+#### Intake and Uploads
+
+| Collection | Document | Purpose | Key Fields |
+|---|---|---|---|
+| `intakes` | IntakeDocument | Raw content received for processing | intakeId, projectId, sourceType (CONFLUENCE_EXPORT/JIRA_DUMP/SMARTSHEET_EXPORT/MEETING_NOTES/FREE_TEXT/...), classifiedAs, dispatchedTo[], status (RECEIVED/PROCESSING/DISPATCHED/FAILED) |
+| `uploads` | UploadDocument | Processed documents with extracted metadata (full-text searchable) | uploadId, projectId, source, title, content (text-indexed), people[], systems[], threadId, status (INBOX/THREADED/ARCHIVED) |
+| `links` | LinkDocument | External URLs grouped by category and bundled | linkId, projectId, url, title, category, bundleId, threadIds[], objectiveIds[], phaseIds[] |
+
+#### Memory
+
+| Collection | Document | Purpose | Key Fields |
+|---|---|---|---|
+| `memories` | MemoryDocument | Expiring conversation summaries (full-text searchable) | memoryId, scope (GLOBAL/PROJECT/SESSION/THREAD), key, content, tags[], projectId, sessionId, threadId, createdBy, expiresAt (TTL) |
+
+**Four memory scopes with TTL:**
+- **GLOBAL** — Shared across all projects (e.g., "user prefers Java 21") — **never expires**
+- **PROJECT** — Tied to a project (e.g., "this repo uses Gradle") — **expires after 30 days**
+- **SESSION** — Tied to a standalone session — **expires after 24 hours**
+- **THREAD** — Tied to a thread (e.g., "sprint planning decisions") — **expires after 7 days**
+
+**Threads vs Memories:** Threads are the persistent knowledge store — content comes in, gets distilled, and old ideas are replaced by new ones via the `content` field. Memories are expiring conversation summaries that rotate and disappear via MongoDB TTL indexes. The distiller writes content back to threads (persistent) and creates memories as temporary summaries (expiring).
+
+The distiller agent automatically runs after each session completes, extracting summaries and storing them as scoped memories with TTL. Story 9 tests memory persistence — the distiller stores an S3 storage decision and later recalls it when asked "What did we decide about evidence storage?"
+
+#### Scheduling and Execution
+
+| Collection | Document | Purpose | Key Fields |
+|---|---|---|---|
+| `agent_schedules` | AgentScheduleDocument | CRON/interval schedule definitions for automated agent runs | scheduleId, agentId, scheduleType (CRON/FIXED_TIMES/INTERVAL/IMMEDIATE), cronExpr, projectScope (GLOBAL/PROJECT), executorPolicy (maxConcurrent, priority, maxAttempts) |
+| `future_executions` | FutureExecutionDocument | Upcoming scheduled runs with distributed locking | executionId, agentId, scheduledAt, execStatus (READY/PENDING/RUNNING/SKIPPED/CANCELLED), priority, lockOwner, attempt |
+| `past_executions` | PastExecutionDocument | Completed run history with metrics | pastExecutionId, agentId, resultStatus (SUCCESS/FAIL/CANCELLED/SKIPPED), durationMs, llmMetrics (tokens, cost), toolCallSummary, responseSummary |
+
+Story 10 tests the daily reset flow — CRON schedules are created, future executions are computed, and the PM summarizes what's scheduled for today. Story 7 tests the full cycle: schedule → trigger → reconcile → report.
+
+#### Observability
+
+| Collection | Document | Purpose | Key Fields |
+|---|---|---|---|
+| `logs` | LogDocument | System logs with level filtering | level (DEBUG/INFO/WARN/ERROR), source, sessionId, message, stackTrace |
+| `llm_interactions` | LlmInteractionDocument | LLM call metrics for cost and performance tracking | sessionId, agentId, provider, model, promptTokens, completionTokens, durationMs, success |
+| `reminders` | ReminderDocument | Recurring and one-shot timers | reminderId, projectId, message, type (TIME_BASED/CONDITION_BASED), triggerAt, recurring, intervalSeconds |
+
+### Index Strategy
+
+Key indexes defined in `mongo-init.js` and via Spring Data annotations:
+
+| Collection | Index | Purpose |
+|---|---|---|
+| events | `{sessionId, seq}` unique | Event ordering and deduplication |
+| messages | `{sessionId, seq}` unique | Message ordering |
+| checkpoints | `{sessionId, stepNo}` unique | Step-level state snapshots |
+| locks | `expiresAt` TTL | Auto-expiry of distributed locks |
+| tickets | `{projectId, status}`, `parentTicketId` | Status queries and hierarchy traversal |
+| objectives | `{projectId, status}`, `{projectId, sprintName}` | Sprint-scoped objective lookup |
+| memories | `{content, key}` text, `{scope, key}`, `{projectId, scope}`, `expiresAt` TTL | Full-text search, scope-filtered recall, auto-expiry of temporary summaries |
+| uploads | `{title, content}` text | Full-text search across uploaded documents |
+| future_executions | `{execStatus, scheduledAt}` | Pickup queue for scheduler |
+| agent_schedules | `{agentId, projectId}` unique | One schedule per agent per project |
+
+## Tool System (46 Built-in Tools)
 
 Tools implement the `Tool` SPI interface and are discovered via `ServiceLoader`:
+
+### File and Code Tools
 
 | Tool | Risk | Description |
 |---|---|---|
@@ -138,347 +448,285 @@ Tools implement the `Tool` SPI interface and are discovered via `ServiceLoader`:
 | `jbang_exec` | EXEC_SHELL | Write and execute Java code via JBang |
 | `python_exec` | EXEC_SHELL | Write and execute Python scripts |
 | `excel` | READ_ONLY + WRITE_FILES | Read/write Excel files (.xlsx/.xls) via Apache POI |
-| `memory` | WRITE_FILES | Store/recall/delete persistent memories |
+
+### Memory and Search Tools
+
+| Tool | Risk | Description |
+|---|---|---|
+| `memory` | WRITE_FILES | Store/recall/delete persistent memories (GLOBAL/PROJECT/SESSION/THREAD scope) |
 | `human_search` | BROWSER_CONTROL | Request human to perform web search, opens browser |
-| `create_ticket` | WRITE_FILES | Create project tickets |
+
+### Project Management Tools
+
+| Tool | Risk | Description |
+|---|---|---|
+| `create_ticket` | WRITE_FILES | Create project tickets (with hierarchy support) |
 | `create_idea` | WRITE_FILES | Create project ideas |
+| `create_thread` | WRITE_FILES | Create project threads |
+| `rename_thread` | WRITE_FILES | Rename an existing thread |
+| `merge_threads` | WRITE_FILES | Merge two threads into one |
+| `attach_evidence` | WRITE_FILES | Attach evidence references to threads |
+| `read_thread_messages` | READ_ONLY | Read messages from a thread |
+| `create_reminder` | WRITE_FILES | Create time-based or condition-based reminders |
+
+### Planning and Objectives Tools
+
+| Tool | Risk | Description |
+|---|---|---|
+| `create_phase` | WRITE_FILES | Create execution phases with entry/exit criteria |
+| `update_phase` | WRITE_FILES | Update phase status and criteria |
+| `create_milestone` | WRITE_FILES | Create delivery milestones linked to phases |
+| `update_milestone` | WRITE_FILES | Update milestone status and dates |
+| `generate_plan_artifact` | WRITE_FILES | Generate a consolidated plan document |
+| `update_objective` | WRITE_FILES | Update objective status and coverage |
+| `compute_coverage` | READ_ONLY | Compute ticket coverage percentage for objectives |
+
+### Checklist Tools
+
+| Tool | Risk | Description |
+|---|---|---|
+| `create_checklist` | WRITE_FILES | Create operational readiness or release checklists |
+| `update_checklist` | WRITE_FILES | Update checklist item status |
+| `checklist_progress` | READ_ONLY | Compute checklist completion progress |
+| `create_checklist_template` | WRITE_FILES | Create reusable checklist templates |
+
+### Resource Management Tools
+
+| Tool | Risk | Description |
+|---|---|---|
+| `read_resources` | READ_ONLY | List team members and their capacity |
+| `read_tickets` | READ_ONLY | Read project tickets |
+| `read_objectives` | READ_ONLY | Read project objectives |
+| `read_phases` | READ_ONLY | Read project phases |
+| `read_checklists` | READ_ONLY | Read project checklists |
+| `assign_resource` | WRITE_FILES | Assign a resource to a ticket |
+| `unassign_resource` | WRITE_FILES | Remove a resource assignment |
+| `capacity_report` | READ_ONLY | Generate capacity and load analysis |
+| `suggest_assignments` | READ_ONLY | AI-suggested resource-to-ticket assignments |
+
+### Reconciliation Tools
+
+| Tool | Risk | Description |
+|---|---|---|
+| `create_delta_pack` | WRITE_FILES | Create a drift/mismatch report (delta pack) |
+| `create_blindspot` | WRITE_FILES | Flag a risk item (blindspot) |
+
+### Intake Tools
+
+| Tool | Risk | Description |
+|---|---|---|
+| `classify_content` | READ_ONLY | Classify intake content type and extract metadata |
+| `dispatch_agent` | WRITE_FILES | Dispatch content to a specialist agent for processing |
 
 Tools with `WRITE_FILES` or `EXEC_SHELL` risk require user approval. Tool output streams in real-time via `ToolStream` callbacks.
 
-### Bloomberg Terminal UI (`javaclawui.java`)
+## Scenario Test Framework
 
-A JBang single-file Swing application with a retro green-on-black Bloomberg terminal aesthetic:
+JavaClaw includes a deterministic E2E test framework where every agent response is pre-scripted. Tests verify the full pipeline: project creation → agent execution → MongoDB state → REST API responses.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ JAVACLAW v1.0                              localhost:8080     15pt   │
-├────────────┬───────────────────────────────┬─────────────────────────┤
-│ NAVIGATOR  │                               │                         │
-│            │    CHAT / CONVERSATION        │    AGENTS / ACTIVITY    │
-│ PROJECTS   │                               │    (280px)              │
-│ ├─ MyProj  │ You: analyze this code        │ [controller] IDLE       │
-│ │ ├─Threads│ [coder]: Looking at...        │ [coder]  RUNNING        │
-│ │ │ └─T1   │ Tool: read_file               │ [reviewer] IDLE         │
-│ │ ├─Ideas  │ [coder]: The code has...      │                         │
-│ │ ├─Tickets│ [reviewer]: PASS              │ STEP 3 | read_file      │
-│ │ ├─Designs│                               │ Tokens: ~2.4k           │
-│ │ ├─Plans  │                               │                         │
-│ │ └─Score  │                               │                         │
-│ STANDALONE │ SEARCH REQUEST FROM AGENT     │                         │
-│ ├─ abc123  │ Search: "Spring AI multimodal"│                         │
-│ └─ def456  │ [OPEN BROWSER] [paste area]   │                         │
-│            │ [SUBMIT RESULTS TO AGENT]     │                         │
-│[+PROJECT]  ├───[ATT:2 files]──┬────┬───────┴─────────────────────────┤
-│[+SESSION]  │ > _              │SEND│                                  │
-├────────────┴──────────────────┴────┴─────────────────────────────────┤
-│ F1:Help F2:Project F3:Run F4:Pause F5:Tools F6:Nav F7:Chat F8:Timer │
-│ F9:File F10:Agents F11:Search F12:Memory ^K:Keys ^H:Tutorial ^+/-   │
-└──────────────────────────────────────────────────────────────────────┘
+### Running Scenarios
+
+```bash
+# Single scenario
+jbang javaclaw.java --headless --scenario runtime/src/test/resources/scenario-pm-tools-v2.json
+
+# All 36 scenarios (single JVM, ~10x faster)
+bash run-scenarios.sh
 ```
 
-**Keyboard shortcuts:**
+### V2 Scenario Features
 
-| Key | Action |
-|-----|--------|
-| `F1` | Toggle help overlay (all shortcuts listed) |
-| `F2` | Create new project |
-| `F3` | Run agent on current thread/session |
-| `F4` | Pause agent |
-| `F5` | Show available tools dialog |
-| `F6` | Focus project navigator |
-| `F7` / `Ctrl+L` | Focus chat input |
-| `F8` | Timer/reminder manager |
-| `F9` | Attach file (reads content locally) |
-| `F10` | Toggle agent pane |
-| `F11` | Toggle search request pane |
-| `F12` | Memory browser dialog |
-| `Ctrl+N` | Create standalone session |
-| `Ctrl+T` | New thread in current project |
-| `Ctrl+H` | Show tutorial / help guide |
-| `Ctrl+=` | Increase font size |
-| `Ctrl+-` | Decrease font size |
-| `Ctrl+0` | Reset font to 15pt default |
-| `Ctrl+V` | Paste image from clipboard (auto-detect) |
-| `Ctrl+K` | Configure API keys (in-memory only) |
-| `Enter` | Send message + auto-run agent (auto-creates session if needed) |
-| `Ctrl+R` | Refresh project navigator |
-| `Ctrl+W` | Clear chat display |
-| `Escape` | Close any overlay/dialog |
-| `Up/Down` | Navigate tree or input history |
+The V2 schema (schemaVersion: 2) supports:
 
-### Built-in Tutorial (Ctrl+H)
+- **Step types:** `context` (agent conversation), `seed` (REST API data seeding), `pipeline` (forced agent routing)
+- **Seed actions:** Pre-populate project data via REST POST before running agent steps
+- **Assertion types:** `sessionStatus`, `events` (containsTypes, minCounts), `mongo` (collection queries with countGte/exists), `messages` (anyAssistantContains), `http` (REST API response validation with status, body, jsonPath, jsonArrayMinSize)
 
-JavaClaw includes a step-by-step interactive tutorial that appears on first launch and can be re-opened anytime with `Ctrl+H`. The tutorial walks through all major capabilities in 6 steps:
+### 36 Built-in Scenarios
 
-**Step 1: Welcome to JavaClaw**
-
-JavaClaw is a Bloomberg-style AI terminal for engineering managers. It combines project management, AI-powered chat threads, and tool execution in a single interface. Navigate with Enter/Right to advance, Left to go back, or Escape to close.
-
-**Step 2: Projects & Navigation**
-
-The left sidebar is your Project Navigator:
-- `F2` — Create a new project
-- `Ctrl+N` — Create a standalone session
-- `Ctrl+T` — New thread in current project
-- `F6` — Focus the navigator
-
-Each project contains Threads, Ideas, Tickets, Designs, Plans, and a Scorecard. Click folders to open artifact dialogs.
-
-**Step 3: Chat & Agent Interaction**
-
-Select a thread or session, or just type and press Enter — a session is auto-created if needed:
-- `Enter` — Send message + auto-run the agent
-- `F3` — Re-run agent on current thread
-- `F4` — Pause agent
-- `F9` — Attach files to your message
-- `Ctrl+V` — Paste images from clipboard
-
-**Context commands** — type these directly in the chat input:
-- `use project <name>` — Attach the session to a project (creates a thread if needed)
-- `use thread <name>` — Switch to or create a thread within the current project
-- `whereami` — Show current project, thread, and session info
-
-Agent responses stream in real-time via WebSocket. Each response shows which agent produced it, the API used (mock/anthropic/openai), and the response time.
-
-**Step 4: Tools & Agents**
-
-JavaClaw routes your messages to the best agent automatically using the LLM:
-- **Coder** — coding, debugging, code review, file analysis
-- **PM** — sprint planning, tickets, milestones, backlog
-- **Generalist** — life advice, brainstorming, general knowledge
-- **Reminder** — "remind me to work out tomorrow at 7am" — saves to DB with parsed timing
-- **File tools** — reads files and auto-lists directories from paths you mention
-- **Web search** — weather, stocks, news (human-in-the-loop Google search)
-- **Jira import** — imports tickets from Excel/CSV exports
-
-When no API key is set, routing falls back to keyword matching and responses are mocked. Press `Ctrl+K` to add your OpenAI or Anthropic key.
-
-Shortcuts: `F5` (view tools), `F10` (toggle agent pane), `F11` (toggle search pane).
-
-**Step 5: Keyboard Shortcuts**
-
-Essential shortcuts for power users:
-- `F1` — Full keyboard reference
-- `Ctrl+=` / `Ctrl+-` / `Ctrl+0` — Font size control
-- `Ctrl+K` — Configure API keys
-- `Ctrl+R` — Refresh navigator
-- `Ctrl+W` — Clear chat display
-- `F8` — Timer/reminder manager
-- `F12` — Memory browser
-
-**Step 6: You're Ready!**
-
-Start by creating a project (`F2`) and adding a thread (`Ctrl+T`) to begin chatting with the AI. Or create a standalone session (`Ctrl+N`) for quick, project-free interactions. Press `Ctrl+H` anytime to re-open this tutorial.
-
-The tutorial is auto-shown on first launch (detected via `~/.javaclaw/tutorial-seen` marker file). After first viewing, it is only shown on demand via `Ctrl+H`.
-
----
-
-### Project-Centric Navigation
-
-JavaClaw organizes work around **projects** — each project is a container for related conversations, ideas, tickets, designs, and planning artifacts:
-
-```
-PROJECTS                    [+ PROJECT]
-├── My Project  ACTIVE
-│   ├── Threads (3)         ← AI chat conversations
-│   │   ├── Thread-1 IDLE
-│   │   └── Thread-2 RUNNING
-│   ├── Ideas (5)           ← Brainstorming, promotable to tickets
-│   ├── Tickets (2)         ← Work items with status/priority
-│   ├── Designs (1)         ← Design documents
-│   ├── Plans               ← Milestones and ticket linkage
-│   └── Scorecard           ← Health metrics for the project
-STANDALONE SESSIONS         [+ SESSION]
-├── abc12345  IDLE
-└── def67890  COMPLETED
-```
-
-- **Threads** are project-scoped AI chat sessions. They use the same agent loop as standalone sessions but are organized under a project.
-- **Ideas** can be promoted to **Tickets** with a single click.
-- **Tickets** have status (OPEN/IN_PROGRESS/DONE/CANCELLED), priority (LOW/MEDIUM/HIGH/CRITICAL), and resource assignment.
-- **Designs** track design documents with source attribution and versioning.
-- **Scorecard** provides project health metrics at a glance.
-- **Plans** link milestones to tickets for sprint planning.
-
-Standalone sessions remain available for quick, project-free interactions.
-
-### Font Size Adjustment
-
-The default font is 15pt (up from 13pt). Adjust dynamically:
-- `Ctrl+=` — Increase font size (max 24pt)
-- `Ctrl+-` — Decrease font size (min 10pt)
-- `Ctrl+0` — Reset to 15pt default
-
-The current font size is displayed in amber in the header bar. Font preference is persisted via the backend (`POST /api/config/font-size`).
-
-### WSL/Windows Path Support
-
-When running in WSL, JavaClaw automatically translates file paths between Windows and Linux formats:
-- `C:\Users\drom\file.txt` → `/mnt/c/Users/drom/file.txt`
-- Backslash paths are detected and converted automatically
-- Falls back to the original path if translation fails
-
-This works for `read_file`, `write_file`, and `list_directory` tools.
-
-### Logging & LLM Metrics
-
-All system logs and LLM interactions are persisted to MongoDB for debugging and metrics:
-
-| Endpoint | Description |
+| Scenario | What It Tests |
 |---|---|
-| `GET /api/logs` | System logs (filter by level, sessionId) |
-| `GET /api/logs/errors` | Error logs only |
-| `GET /api/logs/llm-interactions` | All LLM calls with token counts |
-| `GET /api/logs/llm-interactions/metrics` | Aggregate metrics (total interactions, tokens, avg duration, error rate) |
+| **V1 Basic (13)** | General chat, coder, PM, memory, file tools, git, JBang, Python, HTTP, Excel |
+| **V2 Framework (3)** | PM tools, memory, file tools with V2 assertions |
+| **Agent-Specific (10)** | Thread agent, objective agent, checklist agent, intake triage, plan agent, reconcile agent, resource agent, thread intake, extraction, intake pipeline |
+| **Story E2E (10)** | Stories 2-10: alignment pipeline, sprint objectives, resource load, plan creation, checklist generation, scheduled reconcile, on-demand agents, memory persistence, daily schedule reset |
 
-Every LLM call records: sessionId, agentId, provider, model, message count, prompt tokens, completion tokens, duration (ms), success/failure, and error message.
+Each story scenario seeds prerequisite data, runs agents with mock responses, and asserts both MongoDB state and REST API responses — verifying that the cockpit UI would display the correct data.
 
-### Human Search Requestor
+### Maven Unit Tests
 
-When agents need current web information:
+66 Maven tests across all modules (unit + integration via embedded MongoDB):
 
-1. Agent calls `human_search` tool with a query
-2. **User's default browser opens** automatically with the Google search URL
-3. Search request pane appears in the UI (F11)
-4. User browses results, copies content (`Ctrl+A`, `Ctrl+C`)
-5. User pastes into the search pane (`Ctrl+V`) and clicks **SUBMIT**
-6. Content is returned to the agent, which continues processing
-
-This bridges the gap when direct web search APIs are blocked or require authentication.
-
-### Excel Integration
-
-The `excel` tool supports:
-- **Reading** — Extract data from .xlsx/.xls files, any sheet, with row limits
-- **Writing** — Create or update Excel files with arrays of data
-- **Listing sheets** — Get sheet names and row counts
-
-Perfect for working with Jira exports, sprint data, team capacity spreadsheets, and generating reports.
-
-### Timers and Reminders
-
-Create recurring or one-shot reminders:
-- "Check build status 3 times a day" → fires every 8 hours
-- "Review PR queue daily at 9 AM" → one-shot recurring
-- Managed via F8 dialog or REST API
-- Recurring reminders automatically re-arm after firing
-
-### Multimodal Messages (Image Paste)
-
-Paste images from clipboard (`Ctrl+V`) and send them to the model for analysis. Images are sent as base64 PNG in multimodal message parts. The model receives both the image and any text you type.
-
-### API Key Management
-
-`Ctrl+K` opens a dialog to paste Anthropic or OpenAI API keys. Keys are stored **in-memory only** on the server — never written to config files or disk. Safe from accidental git commits.
-
-## How It Works
-
-### Data Model: Projects > Threads > Sessions
-
-JavaClaw organizes work in a hierarchy:
-
-```
-Projects (M:N with threads)
-└── Threads (belong to 1+ projects via projectIds)
-    └── Sessions (optionally linked to a thread via threadId)
-
-Standalone Sessions (threadId = null)
+```bash
+cmd.exe /c "mvnw.cmd test"   # Windows/WSL
+./mvnw test                   # Linux/Mac
 ```
 
-- **Sessions** (`/api/sessions`) — Standalone or thread-bound conversations, stored in the `sessions` collection. Sessions with a `threadId` belong to that thread; sessions without one are standalone.
-- **Threads** (`/api/projects/{pid}/threads`) — Project-scoped conversations, stored in the `threads` collection. A thread can belong to multiple projects (M:N via `projectIds` list).
-- **Projects** — Top-level containers for threads, tickets, ideas, designs, plans, and scorecards.
+## Quick Start
 
-Both sessions and threads share the `messages` collection — a thread's `threadId` is used as the `sessionId` when storing messages. The AgentLoop performs a **dual-lookup**: it first checks `SessionRepository`, then falls back to `ThreadRepository`. This means the agent loop, checkpoint system, and event streaming all work identically for both.
+### Step 1: Start MongoDB
 
-Sessions are **ephemeral by default** — the distiller agent decides what's worth persisting as memory after each session completes.
-
-From the UI's perspective, when the user selects a thread, `ChatPanel` stores both `currentSessionId` (= threadId) and `currentProjectId`, then routes API calls to the thread endpoints. When the user selects a standalone session, `currentProjectId` is null and API calls go to session endpoints.
-
-### Agent Loop
-
-1. A **session** or **thread** is created via REST API or the UI (or auto-created on first Enter)
-2. The user sends a **message**
-3. Calling `/run` (or auto-run on Enter) starts the **AgentLoop** which:
-   - Acquires a distributed **lock** on the session (60s TTL, auto-renewed)
-   - Loads the latest **checkpoint** (or starts fresh)
-   - Loads **relevant memories** (GLOBAL + PROJECT scope) into agent context
-   - Enters the **multi-agent orchestration loop**:
-     - **Controller** uses the LLM to pick the best agent from: `coder`, `pm`, `generalist`, `reminder` (falls back to keyword matching without an API key)
-     - **Specialist** executes using tools and LLM (max 50 steps)
-     - **Checker** validates the result
-     - If checker rejects → loops back to controller (max 3 retries)
-   - Emits events at every step (tokens, tool calls, agent switches)
-   - Saves **checkpoints** after each step
-   - Sets session status to `COMPLETED` or `FAILED`
-   - Releases the lock
-
-### Context Commands
-
-The agent loop recognizes built-in context commands that let users navigate between projects and threads from the chat input:
-
-| Command | Description |
-|---------|-------------|
-| `use project <name>` | Attach the current session/thread to a project by name. If the session is standalone, a thread is auto-created in the project. |
-| `use thread <name>` | Switch to (or create) a named thread within the current project. Requires a project to be selected first. |
-| `whereami` | Show the current context: project name, thread title, session ID, and message count. |
-
-**Examples:**
-```
-> use project MyApp
-  Attached to project: MyApp
-
-> use thread Sprint 3
-  Created and switched to thread: Sprint 3
-
-> whereami
-  Current Context
-  - Thread: Sprint 3 (abc12345...)
-  - Project: MyApp (def67890...)
-  - Messages: 4
+```bash
+docker compose up -d mongodb
+docker compose ps   # Wait for healthy status
 ```
 
-These commands are intercepted by the controller agent before any delegation occurs. They modify the session/thread/project associations in the database and return an immediate response.
+### Step 2: Set your LLM API key
 
-### Event Sourcing
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
 
-Every action is recorded as an **EventDocument** with a session-scoped monotonic sequence number. The `EventChangeStreamTailer` watches MongoDB's change stream for new inserts and broadcasts them to WebSocket subscribers.
+### Step 3: Start the server
 
-40+ event types including: `USER_MESSAGE_RECEIVED`, `MODEL_TOKEN_DELTA`, `TOOL_CALL_PROPOSED`, `TOOL_RESULT`, `AGENT_DELEGATED`, `AGENT_CHECK_PASSED`, `AGENT_CHECK_FAILED`, `MEMORY_STORED`, `SEARCH_REQUESTED`, `REMINDER_TRIGGERED`, and more.
+```bash
+jbang javaclaw.java --headless
+```
 
-## Why MongoDB
+Open `http://localhost:8080` in your browser for the web cockpit.
 
-- **Change Streams** — Real-time agent-to-agent communication without a separate message broker
-- **Document Model** — Agent state, memories, and tool results are naturally hierarchical
-- **TTL Indexes** — Session locks auto-expire, no background reaper needed
-- **Flexible Schema** — Tool outputs and event payloads can hold arbitrary JSON
-- **Text Search** — Memory recall uses MongoDB's built-in text search
-- **Replica Set** — Required for change streams; a single-node replica set works for development
+### JBang CLI Flags
 
-### Collections
+| Flag | Description | Default |
+|---|---|---|
+| `--headless` | REST gateway only (no desktop UI) | off |
+| `--testmode` | Test mode with deterministic LLM (no API key needed) | off |
+| `--scenario <file>` | Scenario-based E2E test (implies `--testmode`) | off |
+| `--api-key <key>` | Set API key (auto-detects Anthropic vs OpenAI) | none |
+| `--mongo <uri>` | Custom MongoDB connection URI | `mongodb://localhost:27017/javaclaw?replicaSet=rs0` |
+| `--port <port>` | HTTP server port | `8080` |
 
-| Collection | Purpose |
+## REST API
+
+Base URL: `http://localhost:8080`
+
+### Sessions and Conversations
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/sessions` | Create a new agent session |
+| `GET` | `/api/sessions` | List all sessions (newest first) |
+| `POST` | `/api/sessions/{id}/messages` | Send a message (text or multimodal) |
+| `POST` | `/api/sessions/{id}/run` | Start the multi-agent loop |
+| `POST` | `/api/sessions/{id}/pause` | Pause execution |
+
+### Projects
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/projects` | Create a project |
+| `GET` | `/api/projects` | List all projects |
+| `PUT` | `/api/projects/{id}` | Update project |
+| `DELETE` | `/api/projects/{id}` | Delete project |
+
+### Threads (Project-Scoped)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/projects/{pid}/threads` | Create a thread |
+| `GET` | `/api/projects/{pid}/threads` | List threads for project |
+| `POST` | `/api/projects/{pid}/threads/{tid}/messages` | Send message to thread |
+| `POST` | `/api/projects/{pid}/threads/{tid}/run` | Run agent on thread |
+
+### Tickets, Objectives, Phases, Milestones, Checklists
+
+All follow the same sub-resource pattern under `/api/projects/{pid}/...`:
+
+| Resource | Endpoint Pattern | Operations |
+|---|---|---|
+| Tickets | `/api/projects/{pid}/tickets` | CRUD + status filter |
+| Objectives | `/api/projects/{pid}/objectives` | CRUD + sprint filter |
+| Phases | `/api/projects/{pid}/phases` | CRUD + status filter |
+| Milestones | `/api/projects/{pid}/milestones` | CRUD + status filter |
+| Checklists | `/api/projects/{pid}/checklists` | CRUD |
+| Ideas | `/api/projects/{pid}/ideas` | CRUD + promote to ticket |
+| Links | `/api/projects/{pid}/links` | CRUD |
+| Reconciliations | `/api/projects/{pid}/reconciliations` | CRUD |
+| Delta Packs | `/api/projects/{pid}/delta-packs` | CRUD |
+| Blindspots | `/api/projects/{pid}/blindspots` | CRUD + status filter |
+
+### Resources, Agents, Memory, Schedules
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET/POST/PUT/DELETE` | `/api/resources` | Team members and capacity |
+| `GET/POST/PUT/DELETE` | `/api/agents` | Agent definitions |
+| `GET/POST/DELETE` | `/api/memories` | Persistent memories (filter by scope, query) |
+| `GET/POST/PUT/DELETE` | `/api/schedules` | Agent schedule definitions |
+| `POST` | `/api/executions/trigger` | Trigger immediate agent execution |
+
+### Intake
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/projects/{pid}/intake` | Submit raw content for intake processing |
+| `POST` | `/api/projects/{pid}/intake/pipeline` | Run full intake pipeline (triage → threads → distill) |
+| `GET` | `/api/projects/{pid}/intake` | List intake records |
+
+### Observability
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/logs` | System logs (filter: level, sessionId, limit) |
+| `GET` | `/api/logs/llm-interactions` | LLM call metrics |
+| `GET` | `/api/logs/llm-interactions/metrics` | Aggregate LLM metrics |
+| `GET` | `/api/tools` | List available tools with schemas |
+
+### WebSocket
+
+Connect to `ws://localhost:8080/ws`:
+
+```json
+{"type": "SUBSCRIBE_SESSION", "sessionId": "<id>"}
+{"type": "SUBSCRIBE_PROJECT", "projectId": "<id>"}
+```
+
+40+ event types streamed in real-time: `USER_MESSAGE_RECEIVED`, `MODEL_TOKEN_DELTA`, `TOOL_CALL_STARTED`, `TOOL_RESULT`, `AGENT_DELEGATED`, `AGENT_CHECK_PASSED`, `MEMORY_STORED`, `TICKET_CREATED`, and more.
+
+## Developer Guide
+
+### How to Add a New Tool
+
+1. Create a class in `tools/src/main/java/.../tools/` implementing `io.github.drompincen.javaclawv1.runtime.tools.Tool`
+2. Implement: `name()`, `description()`, `riskProfiles()`, `inputSchema()`, `execute(ctx, input, stream)`
+3. Register via SPI: add to `tools/src/main/resources/META-INF/services/io.github.drompincen.javaclawv1.runtime.tools.Tool`
+4. Auto-discovered by `ToolRegistry` at startup
+
+### How to Add a New Collection
+
+1. Create a `Document` class in `persistence/src/main/java/.../persistence/document/`
+2. Create a `MongoRepository` interface in `.../persistence/repository/`
+3. Create a DTO record in `protocol/src/main/java/.../protocol/api/`
+4. Create a REST controller in `gateway/src/main/java/.../gateway/controller/`
+5. Add indexes to `mongo-init.js`
+
+### Key File Paths
+
+| File | Purpose |
 |---|---|
-| events | Event sourcing (sessionId + seq, unique compound) |
-| messages | Chat messages with multimodal support |
-| sessions | Agent sessions with status tracking |
-| checkpoints | Agent state snapshots |
-| agents | Agent definitions (controller, coder, reviewer, pm, custom) |
-| memories | Persistent memory (GLOBAL/PROJECT/SESSION scope) |
-| reminders | Recurring and one-shot timers |
-| projects | Project definitions with status and tags |
-| threads | Project-scoped AI chat sessions |
-| tickets | Work items with status, priority, assignment |
-| ideas | Brainstorming items, promotable to tickets |
-| designs | Design documents with versioning |
-| plans | Sprint plans with milestones |
-| scorecards | Project health metrics |
-| resources | Team members and capacity |
-| logs | System logs (INFO/WARN/ERROR) |
-| llm_interactions | LLM call metrics (tokens, duration, success) |
-| specs | Technical specifications |
-| approvals, resource_assignments, locks | Operations |
+| `javaclaw.java` | JBang server launcher (single file, includes all modules) |
+| `runtime/.../agent/AgentLoop.java` | Core agent orchestration — dual-lookup for sessions and threads |
+| `runtime/.../agent/graph/AgentGraphBuilder.java` | Controller → specialist → checker loop |
+| `runtime/.../agent/AgentBootstrapService.java` | Seeds 15 default agents on startup |
+| `runtime/.../agent/IntakePipelineService.java` | Chains triage → thread creation → distillation |
+| `runtime/.../agent/llm/ScenarioRunner.java` | E2E scenario test playback engine |
+| `persistence/.../stream/EventChangeStreamTailer.java` | MongoDB change stream → WebSocket bridge |
+| `gateway/.../websocket/JavaClawWebSocketHandler.java` | WebSocket handler for event streaming |
+| `run-scenarios.sh` | Run all 36 scenario tests in a single JVM |
+| `stories.txt` | 10 user stories describing the full workflow |
+
+### Common Pitfalls
+
+| Pitfall | Details |
+|---|---|
+| **`mvnw spring-boot:run -pl gateway` doesn't recompile** | Always run `mvnw install -DskipTests` first |
+| **Change streams require replica set** | MongoDB must run with `--replSet rs0` |
+| **Messages collection is shared** | Sessions and threads both use `messages`, keyed by `sessionId`. For threads, `sessionId == threadId` |
+| **Sessions are ephemeral** | Deleted on startup. Threads and all project data persist |
+| **Thread IDs need dual-lookup** | `AgentLoop` checks `SessionRepository` first, then `ThreadRepository` |
+| **Lock TTL is 60s** | Distributed session lock expires after 60 seconds |
+| **WSL path translation** | `WslPathHelper` auto-converts `C:\...` to `/mnt/c/...` on WSL |
+| **Windows ARM64 testing** | Flapdoodle embedded MongoDB forced to `os.arch=amd64` via `TestMongoConfiguration` |
 
 ## Prerequisites
 
@@ -489,497 +737,6 @@ Every action is recorded as an **EventDocument** with a session-scoped monotonic
 - **API Key** — Set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable
 - **Python 3** (optional — for `python_exec` tool)
 
-## Quick Start with JBang (Recommended)
-
-### Step 1: Start MongoDB
-
-```bash
-docker compose up -d mongodb
-# Wait for healthy status:
-docker compose ps
-```
-
-### Step 2: Set your LLM API key
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-# Or use the UI: Ctrl+K to paste keys at runtime
-```
-
-### Step 3: Start the server
-
-```bash
-jbang javaclaw.java --headless
-```
-
-### Step 4: Launch the Bloomberg terminal UI
-
-```bash
-jbang javaclawui.java
-```
-
-The terminal UI connects to `http://localhost:8080`. On first launch, a **built-in tutorial** walks you through all features. Press **F2** to create your first project, **Ctrl+T** to add a thread, type a message, and press **Enter** — the agent runs automatically. Or just type and press Enter without selecting anything — a standalone session is auto-created. Press **Ctrl+H** to re-open the tutorial anytime, and **F1** for the full shortcut reference.
-
-### JBang CLI Flags
-
-| Flag | Description | Default |
-|---|---|---|
-| `--headless` | REST gateway only (no UI) | off |
-| `--testmode` | Test mode with deterministic LLM (no API key needed) | off |
-| `--scenario <file>` | Scenario-based E2E test (implies `--testmode`) | off |
-| `--api-key <key>` | Set API key (auto-detects Anthropic `sk-ant-*` vs OpenAI `sk-*`) | none |
-| `--mongo <uri>` | Custom MongoDB connection URI | `mongodb://localhost:27017/javaclaw?replicaSet=rs0` |
-| `--port <port>` | HTTP server port | `8080` |
-| `--url <url>` | (UI only) Backend URL | `http://localhost:8080` |
-
-## REST API
-
-Base URL: `http://localhost:8080`
-
-### Sessions
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/sessions` | Create a new agent session |
-| `GET` | `/api/sessions` | List all sessions (newest first) |
-| `GET` | `/api/sessions/{id}` | Get session details |
-| `POST` | `/api/sessions/{id}/messages` | Send a message (text or multimodal) |
-| `POST` | `/api/sessions/{id}/run` | Start the multi-agent loop |
-| `POST` | `/api/sessions/{id}/pause` | Pause execution |
-| `POST` | `/api/sessions/{id}/resume` | Resume execution |
-
-### Agents
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/agents` | List all agents |
-| `GET` | `/api/agents/{id}` | Get agent details |
-| `POST` | `/api/agents` | Create a custom agent |
-| `PUT` | `/api/agents/{id}` | Update agent (system prompt, tools, skills) |
-| `DELETE` | `/api/agents/{id}` | Delete agent |
-
-### Memory
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/memories` | List memories (filter: `?scope=`, `?query=`) |
-| `GET` | `/api/memories/{id}` | Get memory details |
-| `POST` | `/api/memories` | Create memory |
-| `DELETE` | `/api/memories/{id}` | Delete memory |
-
-### Reminders
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/reminders` | Create a timer/reminder |
-| `GET` | `/api/reminders?sessionId=X` | List reminders |
-| `DELETE` | `/api/reminders/{id}` | Delete reminder |
-
-### Search
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/search/response` | Submit human search results back to agent |
-
-### Projects
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/projects` | Create a project |
-| `GET` | `/api/projects` | List all projects (newest first) |
-| `GET` | `/api/projects/{id}` | Get project details |
-| `PUT` | `/api/projects/{id}` | Update project |
-| `DELETE` | `/api/projects/{id}` | Delete project |
-
-### Threads (Project-Scoped)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/projects/{pid}/threads` | Create a thread |
-| `GET` | `/api/projects/{pid}/threads` | List threads for project |
-| `GET` | `/api/projects/{pid}/threads/{tid}` | Get thread details |
-| `POST` | `/api/projects/{pid}/threads/{tid}/messages` | Send message to thread |
-| `POST` | `/api/projects/{pid}/threads/{tid}/run` | Run agent on thread |
-| `POST` | `/api/projects/{pid}/threads/{tid}/pause` | Pause thread agent |
-
-### Ideas
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/projects/{pid}/ideas` | Create an idea |
-| `GET` | `/api/projects/{pid}/ideas` | List ideas for project |
-| `GET` | `/api/projects/{pid}/ideas/{id}` | Get idea details |
-| `PUT` | `/api/projects/{pid}/ideas/{id}` | Update idea |
-| `POST` | `/api/projects/{pid}/ideas/{id}/promote` | Promote idea to ticket |
-
-### Tickets
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/projects/{pid}/tickets` | Create a ticket |
-| `GET` | `/api/projects/{pid}/tickets` | List tickets (filter: `?status=`) |
-| `GET` | `/api/projects/{pid}/tickets/{id}` | Get ticket details |
-| `PUT` | `/api/projects/{pid}/tickets/{id}` | Update ticket |
-| `DELETE` | `/api/projects/{pid}/tickets/{id}` | Delete ticket |
-
-### Designs
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/projects/{pid}/designs` | Create a design |
-| `GET` | `/api/projects/{pid}/designs` | List designs for project |
-| `GET` | `/api/projects/{pid}/designs/{id}` | Get design details |
-| `PUT` | `/api/projects/{pid}/designs/{id}` | Update design |
-| `DELETE` | `/api/projects/{pid}/designs/{id}` | Delete design |
-
-### Scorecard
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/projects/{pid}/scorecard` | Get project scorecard |
-| `PUT` | `/api/projects/{pid}/scorecard` | Upsert project scorecard |
-
-### Plans
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/projects/{pid}/plans` | Create a plan |
-| `GET` | `/api/projects/{pid}/plans` | List plans for project |
-| `GET` | `/api/projects/{pid}/plans/{id}` | Get plan details |
-| `PUT` | `/api/projects/{pid}/plans/{id}` | Update plan |
-| `DELETE` | `/api/projects/{pid}/plans/{id}` | Delete plan |
-
-### Resources
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/resources` | Create a resource |
-| `GET` | `/api/resources` | List all resources |
-| `GET` | `/api/resources/{id}` | Get resource details |
-| `PUT` | `/api/resources/{id}` | Update resource |
-| `DELETE` | `/api/resources/{id}` | Delete resource |
-| `GET` | `/api/resources/{id}/assignments` | Get resource assignments |
-
-### Logs & LLM Metrics
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/logs` | System logs (filter: `?level=`, `?sessionId=`, `?limit=`) |
-| `GET` | `/api/logs/errors` | Error logs only |
-| `GET` | `/api/logs/llm-interactions` | LLM interaction records (filter: `?sessionId=`, `?agentId=`) |
-| `GET` | `/api/logs/llm-interactions/metrics` | Aggregate LLM metrics |
-
-### Configuration
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/config/keys` | Set API keys (in-memory only) |
-| `GET` | `/api/config/keys` | Get masked API key status |
-| `POST` | `/api/config/font-size` | Set font size preference (10-24) |
-| `GET` | `/api/config/font-size` | Get current font size |
-
-### Tools
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/tools` | List available tools with schemas |
-| `GET` | `/api/tools/{name}` | Get tool descriptor |
-| `POST` | `/api/tools/{name}/invoke` | Execute a tool directly |
-
-### Specs
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/specs` | List specs (filter: `?tag=`, `?q=`) |
-| `POST` | `/api/specs` | Create spec |
-| `PUT` | `/api/specs/{id}` | Update spec |
-
-### WebSocket
-
-Connect to `ws://localhost:8080/ws`:
-
-```json
-{"type": "SUBSCRIBE_SESSION", "sessionId": "<id>"}
-{"type": "UNSUBSCRIBE", "sessionId": "<id>"}
-```
-
-Events pushed as:
-```json
-{"type": "EVENT", "sessionId": "<id>", "payload": {"type": "MODEL_TOKEN_DELTA", "seq": 42}}
-```
-
-## Test Mode & Scenario Testing
-
-### Test Mode (`--testmode`)
-
-Test mode replaces the real LLM (Anthropic/OpenAI) with a deterministic response system. No API key is needed. Activate with:
-
-```bash
-jbang javaclaw.java --testmode --headless
-```
-
-In test mode:
-- **TestModeLlmService** writes each prompt to the `testPrompts` MongoDB collection
-- **TestLLMConsumer** watches for new prompts via change stream and generates responses using **TestResponseGenerator**
-- Responses are based on agent role and message content (controller returns delegation JSON, reviewer returns pass/fail JSON, specialists return tool calls or text)
-- All prompt/response pairs are observable in MongoDB for debugging
-
-### Scenario Testing (`--scenario`)
-
-Scenario files provide **fully deterministic E2E testing** where every agent's response is explicitly specified per user query. This tests the full `controller → specialist → reviewer` loop with known inputs and outputs.
-
-```bash
-jbang javaclaw.java --headless --scenario runtime/src/test/resources/scenario-pm.json
-```
-
-The `--scenario` flag implies `--testmode`. When a scenario is loaded:
-1. **ScenarioService** loads the JSON file and provides `(userQuery, agentName) → responseFallback` lookup
-2. **TestModeLlmService** checks the scenario first: if a match is found for the current `(userQuery, agentName)` pair, it returns that response immediately
-3. If no match is found, it falls back to the standard TestResponseGenerator behavior
-4. **ScenarioRunner** auto-plays all steps via REST API after server startup, logging pass/fail for each step
-
-### Scenario JSON Format
-
-Each step has a `userQuery` and an `agentResponses` array keyed by `agentName`:
-
-```json
-{
-  "projectName": "Sprint Tracker",
-  "description": "PM workflow: sprint status, team capacity",
-  "steps": [
-    {
-      "userQuery": "use project Sprint Tracker",
-      "description": "Context command — no LLM call needed"
-    },
-    {
-      "userQuery": "what is the current sprint status?",
-      "description": "PM agent handles sprint query",
-      "agentResponses": [
-        {
-          "agentName": "controller",
-          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"sprint status check\"}"
-        },
-        {
-          "agentName": "pm",
-          "responseFallback": "Sprint 3 has 5 completed, 3 in progress, 2 not started."
-        },
-        {
-          "agentName": "reviewer",
-          "responseFallback": "{\"pass\": true, \"summary\": \"PM provided sprint status\"}"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### Built-in Scenarios
-
-| File | Description |
-|------|-------------|
-| `runtime/src/test/resources/scenario-pm.json` | PM workflow: sprint status, team capacity, ticket creation |
-| `runtime/src/test/resources/scenario-coder.json` | Coder workflow: file reading, architecture explanation |
-| `runtime/src/test/resources/scenario-coder-exec.json` | Coder workflow: write Java/Python code, execute via JBang/Python, clean up temp files |
-| `runtime/src/test/resources/scenario-general.json` | Generalist workflow: greetings, general knowledge |
-
-### Creating New Scenarios
-
-1. Create a JSON file following the format above
-2. Each step with `agentResponses` tests one full agent loop (controller → specialist → reviewer)
-3. Steps without `agentResponses` are context commands (e.g., `use project`)
-4. The `agentName` must match agent IDs: `controller`, `coder`, `pm`, `generalist`, `reviewer`
-5. Run with: `jbang javaclaw.java --headless --scenario your-scenario.json`
-6. Check logs for step pass/fail summary
-
-## Developer Guide
-
-This section is for LLMs and developers continuing work on the project.
-
-### How to Add a New Tool
-
-1. Create a class in `tools/src/main/java/.../tools/` implementing `io.github.drompincen.javaclawv1.runtime.tools.Tool`
-2. Implement required methods:
-   - `name()` — unique tool identifier (e.g., `"my_tool"`)
-   - `description()` — what the tool does (shown to LLM)
-   - `riskProfile()` — `READ_ONLY`, `WRITE_FILES`, `EXEC_SHELL`, `NETWORK_CALLS`, or `BROWSER_CONTROL`
-   - `parameters()` — JSON Schema describing input parameters
-   - `execute(Map<String, Object> params, ToolContext ctx)` — returns `ToolResult`
-3. Register via SPI: add fully qualified class name to `tools/src/main/resources/META-INF/services/io.github.drompincen.javaclawv1.runtime.tools.Tool`
-4. The tool is auto-discovered by `ToolRegistry` at startup — no other wiring needed
-
-### How to Add a New REST Endpoint
-
-1. Create a controller class in `gateway/src/main/java/.../gateway/controller/`
-2. Annotate with `@RestController` and `@RequestMapping("/api/your-path")`
-3. Inject repositories from the `persistence` module
-4. Follow the pattern of existing controllers (e.g., `TicketController` for CRUD, `SessionController` for run/pause)
-5. If the entity needs persistence, create a `Document` class in `persistence/src/main/java/.../persistence/document/` and a `MongoRepository` interface in `.../persistence/repository/`
-6. For new DTOs, add records in `protocol/src/main/java/.../protocol/api/`
-
-### How to Add a New Agent
-
-Agents can be created at runtime via the REST API:
-
-```bash
-curl -X POST http://localhost:8080/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{
-    "agentId": "analyst",
-    "name": "Analyst",
-    "description": "Data analysis specialist",
-    "systemPrompt": "You are a data analyst. Use Excel and Python tools to analyze data.",
-    "skills": ["data analysis", "visualization", "reporting"],
-    "allowedTools": ["excel", "python_exec", "read_file", "memory"],
-    "role": "SPECIALIST",
-    "enabled": true
-  }'
-```
-
-Or add to `AgentBootstrapService.bootstrap()` for built-in agents that seed on first startup.
-
-### How to Add a New UI Panel/Dialog
-
-The UI is a single JBang file (`javaclawui.java`). To add a new dialog:
-
-1. Create a static inner class extending `JDialog` (follow `TimerDialog` or `ApiKeyDialog` patterns)
-2. Use `Theme` constants for colors, `TERM_FONT` for fonts
-3. Register a keyboard shortcut in `MainPanel.registerShortcuts()`:
-   ```java
-   bind(im, am, "ctrl SOMETHING", "actionName", e -> showYourDialog());
-   ```
-4. Add the shortcut to `HELP_ROWS` and the status bar labels
-
-### Testing & Verification
-
-```bash
-# Run all tests (103+)
-./mvnw test
-
-# Compile only (faster)
-./mvnw compile
-
-# Start gateway (requires MongoDB running)
-./mvnw spring-boot:run -pl gateway
-
-# Verify agents seeded (should show 4: controller, coder, reviewer, pm)
-curl -s http://localhost:8080/api/agents | python3 -m json.tool
-
-# End-to-end test flow
-curl -X POST http://localhost:8080/api/projects -H "Content-Type: application/json" -d '{"name":"Test","description":"e2e"}'
-# Use returned projectId:
-curl -X POST http://localhost:8080/api/projects/<pid>/threads -H "Content-Type: application/json" -d '{"title":"Thread 1"}'
-# Use returned threadId:
-curl -X POST http://localhost:8080/api/projects/<pid>/threads/<tid>/messages -H "Content-Type: application/json" -d '{"content":"Hello","role":"user"}'
-curl -X POST http://localhost:8080/api/projects/<pid>/threads/<tid>/run
-
-# Verify JBang UI compiles (on Windows)
-jbang javaclawui.java --url http://localhost:8080
-```
-
-### Common Pitfalls
-
-| Pitfall | Details |
-|---|---|
-| **Thread IDs need dual-lookup** | `AgentLoop` checks both `SessionRepository` and `ThreadRepository`. If you add code that looks up sessions by ID, also check threads. |
-| **Lock TTL is 60s** | The distributed session lock expires after 60 seconds. If debugging takes longer, the lock expires and another loop could start. |
-| **Change streams require replica set** | MongoDB must run with `--replSet rs0`. Without it, `EventChangeStreamTailer` fails silently and no WebSocket events flow. |
-| **JBang UI compiles separately** | `javaclawui.java` is not part of the Maven build. Changes to it won't be caught by `./mvnw compile`. Test it with `jbang javaclawui.java`. |
-| **Messages collection is shared** | Both sessions and threads store messages in the same `messages` collection, keyed by `sessionId`. For threads, `sessionId` = `threadId`. |
-| **Auto-run on Enter** | `sendMessage()` in ChatPanel auto-creates a session if none exists, sends the message, then auto-runs the agent. The old Ctrl+Enter-to-run pattern is removed. |
-| **PM agent auto-seed** | `AgentBootstrapService.ensurePmAgent()` adds the PM agent even if other agents already exist. Safe to run on upgraded databases. |
-| **API key placeholders** | `application.yml` uses `sk-ant-placeholder-set-real-key-via-ctrl-k` as default. This passes Spring AI's `hasText` validation but won't authenticate. Set real keys via env vars or Ctrl+K. |
-| **WSL path translation** | `WslPathHelper` converts `C:\...` to `/mnt/c/...` in file tools. Only active when running on WSL (detected via `/proc/version`). |
-
-### Key File Paths
-
-| File | Purpose |
-|---|---|
-| `runtime/src/main/java/.../agent/AgentLoop.java` | Core agent orchestration — dual-lookup for sessions and threads |
-| `runtime/src/main/java/.../agent/AgentGraphBuilder.java` | LangGraph4j graph: controller → specialist → checker loop |
-| `runtime/src/main/java/.../agent/AgentBootstrapService.java` | Seeds 4 default agents on first startup |
-| `runtime/src/main/java/.../agent/llm/AnthropicLlmService.java` | Anthropic API integration via Spring AI |
-| `runtime/src/main/java/.../agent/llm/OpenAiLlmService.java` | OpenAI API integration via Spring AI |
-| `runtime/src/main/java/.../tools/ToolRegistry.java` | SPI tool discovery and registration |
-| `persistence/src/main/java/.../stream/EventChangeStreamTailer.java` | MongoDB change stream → WebSocket bridge |
-| `gateway/src/main/java/.../websocket/JavaClawWebSocketHandler.java` | WebSocket handler for event streaming |
-| `gateway/src/main/java/.../controller/SessionController.java` | Session CRUD + run/pause |
-| `gateway/src/main/java/.../controller/ThreadController.java` | Thread CRUD + run/pause (project-scoped) |
-| `javaclawui.java` | JBang Bloomberg terminal UI (single file) |
-| `javaclaw.java` | JBang server launcher (single file) |
-| `docker-compose.yml` | MongoDB + gateway Docker setup |
-| `mongo-init.js` | MongoDB index initialization |
-
-### Event Types Reference
-
-35 event types in `protocol/src/main/java/.../protocol/event/EventType.java`:
-
-**Core Agent**: `USER_MESSAGE_RECEIVED`, `AGENT_STEP_STARTED`, `MODEL_TOKEN_DELTA`, `TOOL_CALL_PROPOSED`, `TOOL_CALL_APPROVED`, `TOOL_CALL_DENIED`, `TOOL_CALL_STARTED`, `TOOL_STDOUT_DELTA`, `TOOL_STDERR_DELTA`, `TOOL_PROGRESS`, `TOOL_RESULT`, `AGENT_STEP_COMPLETED`, `CHECKPOINT_CREATED`, `SESSION_STATUS_CHANGED`, `ERROR`
-
-**Multi-Agent**: `AGENT_DELEGATED`, `AGENT_RESPONSE`, `AGENT_CHECK_REQUESTED`, `AGENT_CHECK_PASSED`, `AGENT_CHECK_FAILED`, `AGENT_SWITCHED`
-
-**Memory**: `MEMORY_STORED`, `MEMORY_RECALLED`
-
-**Human Interaction**: `SEARCH_REQUESTED`, `SEARCH_RESPONSE_SUBMITTED`
-
-**Project Management**: `TICKET_CREATED`, `TICKET_UPDATED`, `IDEA_PROMOTED`, `REMINDER_TRIGGERED`, `APPROVAL_REQUESTED`, `APPROVAL_RESPONDED`, `RESOURCE_ASSIGNED`
-
-## TODO
-
-See [TODO.md](TODO.md) for the current task list, including:
-- E2E multi-agent orchestration tests (JBang scenarios + JUnit)
-- Java execution test: write a time util, run via ProcessBuilder, assert output
-- Python execution test: write a time util, run via ProcessBuilder, assert output
-- Combined agent orchestration + real tool execution flow test
-
-## Roadmap
-
-### Recently Completed
-
-- **Context Menus** — Right-click on projects (new thread, add resource, view resources, delete) and threads/sessions (open, delete) with confirmation dialogs
-- **Agent Observability** — Fixed blank agent responses (token key mismatch). Each response shows agent name, API provider (mock/anthropic/openai), call duration, and mock flag. Full per-step logging in server console.
-- **Project & Thread Management** — Delete projects/threads from UI with warning dialogs, add/view resources via context menu, REST endpoints for all CRUD operations
-- **File Tools in Agent Loop** — Controller reads files and lists directories when asked (e.g., "show me /path/to/file"). Coder agent auto-reads referenced files as context.
-- **Jira Excel/CSV Import** — `use project X` then "import tickets from /path/to/jira-export.csv". Parses CSV and .xlsx with column mapping (Summary, Priority, Status, Issue Key). REST endpoint: `POST /api/projects/{id}/tickets/import`
-- **Context Commands** — `use project <name>`, `use thread <name>`, `whereami` — navigate between projects and threads directly from chat input
-- **Message History** — Switching sessions/threads now loads past messages with agent metadata
-- **Response Metadata** — MessageDoc stores agentId, apiProvider, durationMs, mocked flag for every assistant response
-- **LLM-Based Agent Routing** — Controller uses the LLM to decide which agent handles each request (falls back to keyword matching when no API key). Agents: coder, pm, generalist, reminder, reviewer, distiller
-- **Generalist Agent** — Handles general questions, life advice, brainstorming, and anything that doesn't fit other specialists
-- **Reminder Agent** — Set reminders via natural language ("remind me to work out tomorrow at 7am"). LLM parses timing and recurrence, stores in MongoDB
-- **Rich Agent Prompts** — Each agent has a detailed system prompt with listed skills, used for both routing and response generation
-- **Real LLM Integration** — All agents (PM, coder, generalist, etc.) use OpenAI/Anthropic APIs when keys are configured. Ctrl+K to add keys
-- **Coder Execution** — Coder agent writes files and executes code via `jbang` (Java) or `python`. Say "create a java tool and run it" — code is written to `/tmp`, executed, output returned. "run it" re-runs previous code from session context. Jbang location saved to global memory.
-- **Real Reviewer** — Reviewer uses LLM to check if responses actually address the user's request. Returns PASS, FAIL, or OPTIONS with next steps for partial responses.
-- **Search Results Flow** — Pasted search results are saved as session messages and the agent re-runs to incorporate them.
-- **Context-Aware File Tool** — "read those files" after a listing resolves paths from previous messages. Directory listings auto-read text files or offer options.
-
-### Future Vision
-
-- **Confluence integration** — Read designs and compare against implementation
-- **Jira API integration** — Direct Jira REST API access (not just Excel imports)
-- **Sprint management** — Week-by-week objective tracking, velocity metrics, burndown
-- **Mark-to-market** — Compare planned vs. actual ticket completion per sprint
-- **Team management** — Track directs, see who has capacity, auto-suggest assignments
-- **Multi-project dashboard** — Manage multiple projects simultaneously
-- **RAG/Embedding memory** — Semantic search over memories using vector embeddings
-- **Code documentation agent** — Auto-generate docs by reading entire codebases
-- **Approval workflows** — Human-in-the-loop for risky agent actions
-- **Custom agent creation via UI** — Define new specialist agents with custom prompts
-
-## Alternative: Maven Multi-Module Build
-
-```bash
-docker compose up -d mongodb
-./mvnw spring-boot:run -pl gateway       # headless REST + WebSocket
-./mvnw spring-boot:run -pl ui            # Swing desktop app
-```
-
-## Alternative: Docker Compose
-
-```bash
-docker compose up -d    # MongoDB + gateway
-```
-
 ## LLM Configuration
 
 | Provider | Env Variable | Default Model |
@@ -988,72 +745,6 @@ docker compose up -d    # MongoDB + gateway
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o` |
 
 Set provider: `JAVACLAW_LLM_PROVIDER=anthropic` (default) or `openai`.
-
-Or paste keys at runtime via `Ctrl+K` in the UI (stored in-memory only, never on disk).
-
-## Project Structure
-
-```
-javaclawv1/
-├── javaclaw.java              # JBang server (self-contained Spring Boot)
-├── javaclawui.java            # JBang Bloomberg terminal UI client
-├── docker-compose.yml         # MongoDB + gateway services
-├── Dockerfile                 # Multi-stage gateway build
-├── mongo-init.js              # Collection indexes (20+ collections)
-├── pom.xml                    # Parent POM (Java 21, Spring Boot 3.2.5)
-├── protocol/                  # Shared types (pure Java, no Spring)
-│   └── api/                   # DTOs: SessionDto, AgentRole, ReminderDto, ToolRiskProfile, ...
-│   └── event/                 # EventType enum (40+ types)
-│   └── ws/                    # WebSocket message contracts
-├── persistence/               # MongoDB data layer
-│   └── document/              # AgentDocument, MemoryDocument, MessageDocument, ...
-│   └── repository/            # 20+ MongoRepository interfaces
-│   └── stream/                # ChangeStreamService, EventChangeStreamTailer
-├── runtime/                   # Multi-agent engine
-│   └── agent/                 # AgentLoop, AgentGraphBuilder, AgentBootstrapService
-│   └── agent/llm/             # AnthropicLlmService, OpenAiLlmService
-│   └── checkpoint/            # CheckpointService
-│   └── lock/                  # SessionLockService (distributed TTL)
-│   └── reminder/              # ReminderScheduler (recurring + one-shot)
-│   └── tools/                 # Tool SPI: Tool, ToolRegistry, ToolContext, ToolResult
-├── tools/                     # 17 built-in tool implementations
-│   └── ReadFileTool, WriteFileTool, ShellExecTool, JBangExecTool,
-│       PythonExecTool, ExcelTool, MemoryTool, HumanSearchTool,
-│       GitStatusTool, GitDiffTool, GitCommitTool, HttpGetTool,
-│       ListDirectoryTool, SearchFilesTool, CreateTicketTool, CreateIdeaTool
-├── gateway/                   # REST + WebSocket server
-│   └── controller/            # Session, Agent, Memory, Reminder, Search,
-│                              # Config, Spec, Tool controllers
-│   └── websocket/             # JavaClawWebSocketHandler
-└── ui/                        # Swing desktop app (FlatLaf)
-    └── view/                  # MainWindow, ThreadView, BoardView,
-                               # DashboardView, ResourcesView, IdeasView
-```
-
-## Diagnostics
-
-### Check MongoDB
-```bash
-docker ps --filter name=javaclaw-mongo
-docker exec javaclaw-mongo mongosh --quiet --eval "rs.status().ok"
-```
-
-### Check Gateway
-```bash
-curl -s http://localhost:8080/api/sessions | python3 -m json.tool
-curl -s http://localhost:8080/api/agents | python3 -m json.tool
-curl -s http://localhost:8080/api/tools | python3 -m json.tool
-```
-
-### Common Issues
-
-| Problem | Fix |
-|---|---|
-| MongoDB not reachable | `docker compose up -d mongodb` and wait for healthy |
-| Change streams not available | Ensure MongoDB is running as replica set (`--replSet rs0`) |
-| API key errors | Set env var or use `Ctrl+K` in UI to paste keys |
-| Lock acquisition failed | Locks auto-expire after 60s; wait or restart |
-| Port 8080 in use | Use `--port 9090` or kill existing process |
 
 ## License
 

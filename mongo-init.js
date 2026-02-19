@@ -41,7 +41,8 @@ db.resource_assignments.createIndex({ resourceId: 1 });
 // Reminders: project + trigger time
 db.reminders.createIndex({ projectId: 1, triggerAt: 1 });
 
-// Memories: scope + key, content text search
+// Memories: scope + key, content text search, TTL for expiring summaries
+db.memories.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 db.memories.createIndex({ scope: 1, key: 1 });
 db.memories.createIndex({ projectId: 1, scope: 1 });
 db.memories.createIndex({ sessionId: 1, scope: 1 });

@@ -48,6 +48,11 @@
             "collection": "memories",
             "filter": {"projectId": "{{projectId}}"},
             "assert": {"countGte": 1}
+          },
+          {
+            "collection": "memories",
+            "filter": {"projectId": "{{projectId}}", "expiresAt": {"$ne": null}},
+            "assert": {"countGte": 1}
           }
         ],
         "messages": {

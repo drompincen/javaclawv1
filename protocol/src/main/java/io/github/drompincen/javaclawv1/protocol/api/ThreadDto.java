@@ -14,6 +14,7 @@ public record ThreadDto(
         Instant createdAt,
         Instant updatedAt,
         String summary,
+        String content,
         List<DecisionDto> decisions,
         List<ActionDto> actions,
         int evidenceCount,
