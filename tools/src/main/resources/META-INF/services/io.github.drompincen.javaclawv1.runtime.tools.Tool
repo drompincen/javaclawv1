@@ -21,6 +21,7 @@ io.github.drompincen.javaclawv1.tools.CreateThreadTool
 io.github.drompincen.javaclawv1.tools.RenameThreadTool
 io.github.drompincen.javaclawv1.tools.MergeThreadsTool
 io.github.drompincen.javaclawv1.tools.AttachEvidenceTool
+io.github.drompincen.javaclawv1.tools.CreateObjectiveTool
 io.github.drompincen.javaclawv1.tools.UpdateObjectiveTool
 io.github.drompincen.javaclawv1.tools.ComputeCoverageTool
 io.github.drompincen.javaclawv1.tools.UpdateChecklistTool
@@ -44,3 +45,4 @@ io.github.drompincen.javaclawv1.tools.AssignResourceTool
 io.github.drompincen.javaclawv1.tools.UnassignResourceTool
 io.github.drompincen.javaclawv1.tools.CapacityReportTool
 io.github.drompincen.javaclawv1.tools.SuggestAssignmentsTool
+io.github.drompincen.javaclawv1.tools.CreateResourceTool

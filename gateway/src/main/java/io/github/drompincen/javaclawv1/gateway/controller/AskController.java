@@ -24,6 +24,11 @@ public class AskController {
     private final BlindspotRepository blindspotRepository;
     private final ResourceRepository resourceRepository;
     private final MemoryRepository memoryRepository;
+    private final ResourceAssignmentRepository resourceAssignmentRepository;
+    private final ChecklistRepository checklistRepository;
+    private final PhaseRepository phaseRepository;
+    private final MilestoneRepository milestoneRepository;
+    private final DeltaPackRepository deltaPackRepository;
     private final LlmService llmService;
 
     public AskController(ThreadRepository threadRepository,
@@ -32,6 +37,11 @@ public class AskController {
                          BlindspotRepository blindspotRepository,
                          ResourceRepository resourceRepository,
                          MemoryRepository memoryRepository,
+                         ResourceAssignmentRepository resourceAssignmentRepository,
+                         ChecklistRepository checklistRepository,
+                         PhaseRepository phaseRepository,
+                         MilestoneRepository milestoneRepository,
+                         DeltaPackRepository deltaPackRepository,
                          LlmService llmService) {
         this.threadRepository = threadRepository;
         this.objectiveRepository = objectiveRepository;
@@ -39,6 +49,11 @@ public class AskController {
         this.blindspotRepository = blindspotRepository;
         this.resourceRepository = resourceRepository;
         this.memoryRepository = memoryRepository;
+        this.resourceAssignmentRepository = resourceAssignmentRepository;
+        this.checklistRepository = checklistRepository;
+        this.phaseRepository = phaseRepository;
+        this.milestoneRepository = milestoneRepository;
+        this.deltaPackRepository = deltaPackRepository;
         this.llmService = llmService;
     }
 
@@ -72,8 +87,10 @@ public class AskController {
         state.setProjectId(projectId);
         state.setThreadId("ask-" + UUID.randomUUID());
         state = state.withMessage("system",
-                "You are a project analyst. Answer questions using the provided project data. " +
-                "Be concise and data-driven. Reference specific items by name.");
+                "You are a project analyst. Answer questions using ONLY the structured data below. " +
+                "For ticket assignments, use ONLY the 'assignee=' field — a ticket is unassigned " +
+                "if and only if assignee=UNASSIGNED. Do NOT infer assignment from description text. " +
+                "Be specific — list item names and counts.");
         state = state.withMessage("user", enrichedPrompt);
 
         // Call LLM
@@ -139,17 +156,65 @@ public class AskController {
             if (o.getEndDate() != null) ctx.append("  End: ").append(o.getEndDate()).append("\n");
         }
 
-        // Tickets
+        // Pre-compute assignment data for tickets and resources
+        List<ResourceAssignmentDocument> assignments = resourceAssignmentRepository.findByProjectId(projectId);
+        List<ResourceDocument> resources = resourceRepository.findByProjectId(projectId);
+        if (resources.isEmpty()) {
+            resources = resourceRepository.findAll();
+        }
+        Map<String, String> resourceIdToName = resources.stream()
+                .collect(Collectors.toMap(ResourceDocument::getResourceId, ResourceDocument::getName, (a, b) -> a));
+
+        // Build ticketId → assignee name from resource_assignments
+        Map<String, String> ticketAssigneeFromAssignments = new HashMap<>();
+        // Build resourceId → list of ticketIds from resource_assignments
+        Map<String, List<String>> resourceTicketMap = new HashMap<>();
+        for (ResourceAssignmentDocument a : assignments) {
+            String name = resourceIdToName.getOrDefault(a.getResourceId(), a.getResourceId());
+            ticketAssigneeFromAssignments.put(a.getTicketId(), name);
+            resourceTicketMap.computeIfAbsent(a.getResourceId(), k -> new ArrayList<>()).add(a.getTicketId());
+        }
+
+        // Tickets — resolve assignee from 3 sources, never omit
         List<TicketDocument> tickets = ticketRepository.findByProjectId(projectId);
+        Map<String, TicketDocument> ticketById = tickets.stream()
+                .collect(Collectors.toMap(TicketDocument::getTicketId, t -> t, (a, b) -> a));
+
+        List<String> assignedTicketIds = new ArrayList<>();
+        List<String> unassignedTicketIds = new ArrayList<>();
+
         ctx.append("\n## TICKETS (").append(tickets.size()).append(")\n");
         for (TicketDocument t : tickets) {
+            // Resolve assignee: owner > assignedResourceId > resource_assignments
+            String assignee = null;
+            if (t.getOwner() != null && !t.getOwner().isBlank()) {
+                assignee = t.getOwner();
+            } else if (t.getAssignedResourceId() != null && !t.getAssignedResourceId().isBlank()) {
+                assignee = resourceIdToName.getOrDefault(t.getAssignedResourceId(), t.getAssignedResourceId());
+            } else {
+                assignee = ticketAssigneeFromAssignments.get(t.getTicketId());
+            }
+
+            if (assignee != null) {
+                assignedTicketIds.add(safe(t.getTitle()));
+            } else {
+                unassignedTicketIds.add(safe(t.getTitle()));
+            }
+
             ctx.append("- **").append(safe(t.getTitle())).append("**");
             if (t.getStatus() != null) ctx.append(" [").append(t.getStatus()).append("]");
             if (t.getPriority() != null) ctx.append(" priority=").append(t.getPriority());
-            if (t.getOwner() != null) ctx.append(" assignee=").append(t.getOwner());
+            ctx.append(" assignee=").append(assignee != null ? assignee : "UNASSIGNED");
+            if (t.getExternalRef() != null) ctx.append(" externalRef=").append(t.getExternalRef());
             ctx.append("\n");
-            if (t.getDescription() != null) {
-                ctx.append("  ").append(truncate(t.getDescription(), 200)).append("\n");
+            if (t.getLinkedThreadIds() != null && !t.getLinkedThreadIds().isEmpty()) {
+                ctx.append("  linkedThreads: ").append(String.join(", ", t.getLinkedThreadIds())).append("\n");
+            }
+            if (t.getBlockedBy() != null && !t.getBlockedBy().isEmpty()) {
+                ctx.append("  blockedBy: ").append(String.join(", ", t.getBlockedBy())).append("\n");
+            }
+            if (t.getObjectiveIds() != null && !t.getObjectiveIds().isEmpty()) {
+                ctx.append("  objectiveIds: ").append(String.join(", ", t.getObjectiveIds())).append("\n");
             }
         }
 
@@ -166,12 +231,7 @@ public class AskController {
             }
         }
 
-        // Resources
-        List<ResourceDocument> resources = resourceRepository.findByProjectId(projectId);
-        if (resources.isEmpty()) {
-            // Fallback: include all resources (resources may not be project-scoped)
-            resources = resourceRepository.findAll();
-        }
+        // Resources — enhanced with assignment info
         ctx.append("\n## RESOURCES (").append(resources.size()).append(")\n");
         for (ResourceDocument r : resources) {
             ctx.append("- **").append(safe(r.getName())).append("**");
@@ -179,6 +239,102 @@ public class AskController {
             ctx.append(" capacity=").append(r.getCapacity());
             ctx.append(" availability=").append(r.getAvailability());
             ctx.append("\n");
+
+            // Show assigned tickets
+            List<String> ticketIds = resourceTicketMap.getOrDefault(r.getResourceId(), List.of());
+            if (!ticketIds.isEmpty()) {
+                List<String> ticketLabels = ticketIds.stream()
+                        .map(tid -> {
+                            TicketDocument td = ticketById.get(tid);
+                            if (td != null) {
+                                String label = safe(td.getTitle());
+                                if (td.getPriority() != null) label += " (" + td.getPriority() + ")";
+                                return label;
+                            }
+                            return tid;
+                        })
+                        .collect(Collectors.toList());
+                ctx.append("  Assigned: ").append(String.join(", ", ticketLabels));
+                ctx.append(" — ").append(ticketIds.size()).append(ticketIds.size() == 1 ? " ticket" : " tickets");
+                ctx.append("\n");
+            } else {
+                ctx.append("  Assigned: (none) — 0 tickets\n");
+            }
+        }
+
+        // Assignment Summary
+        ctx.append("\n## ASSIGNMENT SUMMARY\n");
+        ctx.append("Total tickets: ").append(tickets.size()).append("\n");
+        ctx.append("Assigned: ").append(assignedTicketIds.size());
+        if (!assignedTicketIds.isEmpty()) {
+            ctx.append(" (").append(String.join(", ", assignedTicketIds)).append(")");
+        }
+        ctx.append("\n");
+        ctx.append("Unassigned: ").append(unassignedTicketIds.size());
+        if (!unassignedTicketIds.isEmpty()) {
+            ctx.append(" (").append(String.join(", ", unassignedTicketIds)).append(")");
+        }
+        ctx.append("\n");
+
+        // Checklists
+        List<ChecklistDocument> checklists = checklistRepository.findByProjectId(projectId);
+        ctx.append("\n## CHECKLISTS (").append(checklists.size()).append(")\n");
+        for (ChecklistDocument c : checklists) {
+            ctx.append("- **").append(safe(c.getName())).append("**");
+            if (c.getStatus() != null) ctx.append(" [").append(c.getStatus()).append("]");
+            int totalItems = c.getItems() != null ? c.getItems().size() : 0;
+            long checkedItems = c.getItems() != null
+                    ? c.getItems().stream().filter(ChecklistDocument.ChecklistItem::isChecked).count()
+                    : 0;
+            ctx.append(" items=").append(totalItems).append(" checked=").append(checkedItems);
+            if (c.getPhaseId() != null) ctx.append(" phaseId=").append(c.getPhaseId());
+            ctx.append("\n");
+        }
+
+        // Phases
+        List<PhaseDocument> phases = phaseRepository.findByProjectIdOrderBySortOrder(projectId);
+        ctx.append("\n## PHASES (").append(phases.size()).append(")\n");
+        for (PhaseDocument p : phases) {
+            ctx.append("- **").append(safe(p.getName())).append("**");
+            if (p.getStatus() != null) ctx.append(" [").append(p.getStatus()).append("]");
+            ctx.append(" sortOrder=").append(p.getSortOrder());
+            if (p.getStartDate() != null) ctx.append(" start=").append(p.getStartDate());
+            if (p.getEndDate() != null) ctx.append(" end=").append(p.getEndDate());
+            ctx.append("\n");
+            if (p.getEntryCriteria() != null && !p.getEntryCriteria().isEmpty()) {
+                ctx.append("  entryCriteria: ").append(p.getEntryCriteria().size()).append(" items\n");
+            }
+            if (p.getExitCriteria() != null && !p.getExitCriteria().isEmpty()) {
+                ctx.append("  exitCriteria: ").append(p.getExitCriteria().size()).append(" items\n");
+            }
+        }
+
+        // Milestones
+        List<MilestoneDocument> milestones = milestoneRepository.findByProjectIdOrderByTargetDateAsc(projectId);
+        ctx.append("\n## MILESTONES (").append(milestones.size()).append(")\n");
+        for (MilestoneDocument m : milestones) {
+            ctx.append("- **").append(safe(m.getName())).append("**");
+            if (m.getStatus() != null) ctx.append(" [").append(m.getStatus()).append("]");
+            if (m.getTargetDate() != null) ctx.append(" targetDate=").append(m.getTargetDate());
+            if (m.getActualDate() != null) ctx.append(" actualDate=").append(m.getActualDate());
+            if (m.getOwner() != null) ctx.append(" owner=").append(m.getOwner());
+            if (m.getPhaseId() != null) ctx.append(" phaseId=").append(m.getPhaseId());
+            ctx.append("\n");
+        }
+
+        // Delta Packs
+        List<DeltaPackDocument> deltaPacks = deltaPackRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
+        ctx.append("\n## DELTA PACKS (").append(deltaPacks.size()).append(")\n");
+        for (DeltaPackDocument d : deltaPacks) {
+            ctx.append("- **").append(safe(d.getDeltaPackId())).append("**");
+            if (d.getStatus() != null) ctx.append(" [").append(d.getStatus()).append("]");
+            int deltaCount = d.getDeltas() != null ? d.getDeltas().size() : 0;
+            ctx.append(" deltas=").append(deltaCount);
+            if (d.getCreatedAt() != null) ctx.append(" createdAt=").append(d.getCreatedAt());
+            ctx.append("\n");
+            if (d.getSummary() != null && !d.getSummary().isEmpty()) {
+                ctx.append("  summary: ").append(truncate(d.getSummary().toString(), 200)).append("\n");
+            }
         }
 
         // Memories

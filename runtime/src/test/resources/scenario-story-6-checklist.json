@@ -41,7 +41,7 @@
           "body": {
             "name": "Phase 2: Onboarding",
             "sortOrder": 2,
-            "description": "Onboarding wizard, KYC integration, upload component"
+            "description": "Onboarding wizard, payment verification, upload component"
           }
         },
         {

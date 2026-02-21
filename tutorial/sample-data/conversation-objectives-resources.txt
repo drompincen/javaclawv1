@@ -1,0 +1,37 @@
+Sprint 42 Planning — Payment Gateway
+Date: 2026-02-18
+Attendees: Alice Chen, Bob Taylor, Joe Martinez, Sarah (PM)
+
+Sarah: Let's lock down Sprint 42. We have three main objectives this sprint.
+
+Objective 1: Complete Payment Processing Engine refactor
+- Outcome: All 3 handlers migrated to strategy pattern
+- Measurable signal: PAY-201, PAY-202, PAY-203 all closed
+- Risk: Joe is assigned to all 3 — if he gets pulled into webhook work this slips
+- Linked tickets: PAY-201, PAY-202, PAY-203
+- Status: COMMITTED
+
+Objective 2: Webhook Integration queue prototype validated
+- Outcome: RabbitMQ integration spike complete, load test passing at 500 msg/s
+- Measurable signal: Spike ticket closed, consumer ticket at least 50% complete
+- Risk: Dependency on Stripe sandbox access — Bob needs credentials by Wednesday
+- Linked tickets: PAY-204, PAY-205
+- Status: COMMITTED
+
+Objective 3: Merchant Onboarding wizard design approved
+- Outcome: Wireframes reviewed by UX team, S3 upload API draft ready
+- Measurable signal: Wireframe review meeting scheduled, API spec PR open
+- Risk: UX team has limited availability — may push to Sprint 43
+- Linked tickets: PAY-206, PAY-207
+- Status: PROPOSED
+
+Resource Allocation:
+- Joe Martinez: Engineer, capacity 100%, availability 80% (20% on-call rotation). Skills: Java, Spring Boot, MongoDB, React. Assigned 22 SP across 5 tickets — OVERLOADED
+- Alice Chen: Engineer, capacity 100%, availability 100%. Skills: Java, AWS, S3, PostgreSQL. Assigned 5 SP on 1 ticket — has bandwidth
+- Bob Taylor: Engineer, capacity 100%, availability 60% (shared with Platform team). Skills: RabbitMQ, Docker, Kubernetes, Terraform. Assigned 5 SP on 1 ticket — reasonable load
+
+Action Items:
+- Sarah to get Stripe sandbox creds for Bob by Wednesday
+- Alice to pick up PAY-206 wireframe review to unblock Joe
+- Joe to focus on PAY-201 first (highest risk)
+- Bob to timebox RabbitMQ spike to 3 days

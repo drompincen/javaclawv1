@@ -1,6 +1,7 @@
 import * as api from '../api.js';
 import { getState, setSelected } from '../state.js';
 import { toast } from '../components/toast.js';
+import { initSplitter } from '../components/splitter.js';
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
@@ -26,9 +27,11 @@ function daysUntil(dateStr) {
 }
 
 let completedVisible = false;
+let selectedObjId = null;
 
 export async function render() {
   completedVisible = false;
+  selectedObjId = null;
   const pid = getState().currentProjectId;
   document.getElementById('centerTitle').textContent = 'OBJECTIVES';
   document.getElementById('centerSub').textContent =
@@ -56,7 +59,10 @@ export async function render() {
         </div>
       </div>
       <div class="cardB" id="objTableContainer"></div>
+      <div id="readingPane" style="display:none"></div>
     </div>`;
+
+  initSplitter(body.querySelector('.card'));
 
   // Toggle form
   document.getElementById('addObjToggle')?.addEventListener('click', () => {
@@ -78,6 +84,7 @@ export async function render() {
     try {
       await api.objectives.create(pid, { sprintName, outcome, startDate, endDate, status: 'PROPOSED' });
       toast('objective created');
+      document.dispatchEvent(new CustomEvent('jc:data-changed'));
       document.getElementById('addObjForm').style.display = 'none';
       render();
     } catch (e) {
@@ -181,24 +188,34 @@ export async function render() {
         actionsSpan.appendChild(mkBtn('\u2713', '', async () => {
           await api.objectives.update(pid, objId, { ...o, status: 'ACHIEVED' });
           toast('objective marked ACHIEVED');
+          document.dispatchEvent(new CustomEvent('jc:data-changed'));
           render();
         }));
         actionsSpan.appendChild(mkBtn('\u26A0', '', async () => {
           const risks = [...(o.risks || []), 'flagged at-risk manually'];
           await api.objectives.update(pid, objId, { ...o, status: 'AT_RISK', risks });
           toast('objective marked AT_RISK');
+          document.dispatchEvent(new CustomEvent('jc:data-changed'));
           render();
         }));
         actionsSpan.appendChild(mkBtn('\u2715', 'danger', async () => {
           if (!confirm('Delete this objective?')) return;
           await api.objectives.delete(pid, objId);
           toast('objective deleted');
+          document.dispatchEvent(new CustomEvent('jc:data-changed'));
           render();
         }));
 
         el.addEventListener('click', (e) => {
           if (e.target.closest('button')) return;
-          setSelected({ type: 'objective', id: objId, data: o });
+          if (selectedObjId === objId) {
+            selectedObjId = null;
+            document.getElementById('readingPane').style.display = 'none';
+          } else {
+            selectedObjId = objId;
+            setSelected({ type: 'objective', id: objId, data: o });
+            renderReadingPane(pid, o);
+          }
         });
 
         section.appendChild(el);
@@ -217,4 +234,58 @@ export async function render() {
   } catch {
     document.getElementById('objTableContainer').innerHTML = '<div class="tiny">Could not load objectives.</div>';
   }
+}
+
+function renderReadingPane(pid, o) {
+  const pane = document.getElementById('readingPane');
+  pane.style.display = 'block';
+
+  const coverage = o.coveragePercent != null ? o.coveragePercent + '%' : '\u2013';
+
+  let html = `<div class="reading-pane-divider">Objective Detail</div>`;
+  html += `<div class="reading-pane">`;
+  html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">`;
+  html += `<b style="font-size:14px">${esc(o.sprintName || '')}: ${esc(o.outcome || '')}</b>`;
+  html += `<span class="pill">${esc(o.status || '')}</span>`;
+  html += `</div>`;
+
+  html += `<div class="hr"></div>`;
+  html += `<div class="tiny">coverage: ${coverage}</div>`;
+  html += `<div class="tiny">measurableSignal: ${esc(o.measurableSignal || '-')}</div>`;
+  html += `<div class="tiny">tickets: ${(o.ticketIds || []).length}</div>`;
+  if ((o.risks || []).length > 0) {
+    html += `<div class="tiny" style="color:var(--warn)">risks: ${o.risks.join(', ')}</div>`;
+  }
+  if (o.startDate) html += `<div class="tiny">start: ${o.startDate}</div>`;
+  if (o.endDate) html += `<div class="tiny">end: ${o.endDate}</div>`;
+
+  html += `<div class="hr"></div>`;
+  html += `<div class="row" style="gap:6px">`;
+  html += `<button class="btn" id="rpObjComplete">\u2713 Complete</button>`;
+  html += `<button class="btn" id="rpObjRisk">\u26A0 At Risk</button>`;
+  html += `<button class="btn danger" id="rpObjDelete">\u2715 Delete</button>`;
+  html += `</div>`;
+  html += `</div>`;
+  pane.innerHTML = html;
+
+  pane.querySelector('#rpObjComplete')?.addEventListener('click', async () => {
+    await api.objectives.update(pid, o.objectiveId, { ...o, status: 'ACHIEVED' });
+    toast('objective marked ACHIEVED');
+    document.dispatchEvent(new CustomEvent('jc:data-changed'));
+    render();
+  });
+  pane.querySelector('#rpObjRisk')?.addEventListener('click', async () => {
+    const risks = [...(o.risks || []), 'flagged at-risk manually'];
+    await api.objectives.update(pid, o.objectiveId, { ...o, status: 'AT_RISK', risks });
+    toast('objective marked AT_RISK');
+    document.dispatchEvent(new CustomEvent('jc:data-changed'));
+    render();
+  });
+  pane.querySelector('#rpObjDelete')?.addEventListener('click', async () => {
+    if (!confirm('Delete this objective?')) return;
+    await api.objectives.delete(pid, o.objectiveId);
+    toast('objective deleted');
+    document.dispatchEvent(new CustomEvent('jc:data-changed'));
+    render();
+  });
 }

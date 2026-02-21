@@ -14,13 +14,13 @@ fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
 # --- Find or Create Project ---
 section "1. Find or Create Project"
-PROJECT_NAME="Tutorial KYC Platform"
+PROJECT_NAME="Tutorial Payment Gateway"
 PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
   PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
-    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"KYC Platform tutorial project\",\"tags\":[\"tutorial\"]}")
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
   ok "Project created: $PROJECT_ID"
 else
@@ -53,13 +53,13 @@ create_ticket() {
   ok "$TITLE ($TID)"
 }
 
-create_ticket "KYC-101: Refactor passport handler"       "Epic: Evidence Service | Assignee: Joe | SP: 5"     "HIGH"
-create_ticket "KYC-102: Refactor utility bill handler"    "Epic: Evidence Service | Assignee: Joe | SP: 3"     "HIGH"
-create_ticket "KYC-103: Refactor bank statement handler"  "Epic: Evidence Service | Assignee: Joe | SP: 3"     "HIGH"
-create_ticket "KYC-104: Spike RabbitMQ queue integration" "Epic: KYC Screening | Assignee: Bob | SP: 5"        "MEDIUM"
-create_ticket "KYC-105: Implement leaky-bucket consumer"  "Epic: KYC Screening | Assignee: Joe | SP: 8"        "HIGH"
-create_ticket "KYC-106: Single-page wizard wireframes"    "Epic: Client Onboarding | Assignee: Joe | SP: 3"    "MEDIUM"
-create_ticket "KYC-107: Presigned S3 upload endpoint"     "Epic: Client Onboarding | Assignee: Alice | SP: 5"  "HIGH"
+create_ticket "PAY-101: Refactor card payment handler"    "Epic: Payment Processing | Assignee: Joe | SP: 5"     "HIGH"
+create_ticket "PAY-102: Refactor bank transfer handler"   "Epic: Payment Processing | Assignee: Joe | SP: 3"     "HIGH"
+create_ticket "PAY-103: Refactor digital wallet handler"  "Epic: Payment Processing | Assignee: Joe | SP: 3"     "HIGH"
+create_ticket "PAY-104: Spike RabbitMQ queue integration" "Epic: Webhook Integration | Assignee: Bob | SP: 5"    "MEDIUM"
+create_ticket "PAY-105: Implement retry/backoff consumer" "Epic: Webhook Integration | Assignee: Joe | SP: 8"    "HIGH"
+create_ticket "PAY-106: Single-page wizard wireframes"    "Epic: Merchant Onboarding | Assignee: Joe | SP: 3"    "MEDIUM"
+create_ticket "PAY-107: Presigned S3 upload endpoint"     "Epic: Merchant Onboarding | Assignee: Alice | SP: 5"  "HIGH"
 TICKET_COUNT=7
 
 # --- Verify Tickets ---
@@ -71,7 +71,7 @@ echo "$TICKETS" | jq -r '.[] | "  [\(.status)] \(.title)"'
 
 # --- Submit Meeting Notes to Pipeline ---
 section "5. Submit Meeting Notes to Intake Pipeline"
-NOTES=$(cat "$SCRIPT_DIR/sample-data/meeting-notes-kyc.txt")
+NOTES=$(cat "$SCRIPT_DIR/sample-data/meeting-notes-payments.txt")
 PAYLOAD=$(jq -n --arg pid "$PROJECT_ID" --arg content "$NOTES" \
   '{projectId: $pid, content: $content}')
 RESP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \

@@ -26,6 +26,7 @@ import org.springframework.util.MimeType;
 import reactor.core.publisher.Flux;
 
 import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * Default LLM service that checks both Anthropic and OpenAI keys.
@@ -146,7 +147,8 @@ public class DefaultLlmService implements LlmService {
             try {
                 AnthropicApi api = new AnthropicApi(key);
                 AnthropicChatOptions options = AnthropicChatOptions.builder()
-                        .model("claude-sonnet-4-5-20250929").build();
+                        .model("claude-sonnet-4-5-20250929")
+                        .maxTokens(8192).build();
                 lazyAnthropicModel = new AnthropicChatModel(api, options);
                 log.info("Created Anthropic model (lazy) — key set via --api-key or Ctrl+K");
                 return lazyAnthropicModel;
@@ -184,7 +186,21 @@ public class DefaultLlmService implements LlmService {
                     }
                     return "";
                 })
-                .filter(text -> !text.isEmpty());
+                .filter(text -> !text.isEmpty())
+                .onErrorResume(e -> {
+                    if (isRetryableError(e)) {
+                        log.warn("Stream hit retryable error, falling back to blocking+retry: {}", e.getMessage());
+                        try {
+                            org.springframework.ai.chat.model.ChatResponse chatResp =
+                                    callWithRetry(() -> model.call(prompt));
+                            String text = chatResp.getResult().getOutput().getText();
+                            return Flux.just(text != null ? text : "");
+                        } catch (Exception ex) {
+                            return Flux.error(ex);
+                        }
+                    }
+                    return Flux.error(e);
+                });
     }
 
     @Override
@@ -195,8 +211,52 @@ public class DefaultLlmService implements LlmService {
         }
         log.debug("Blocking response via {}", resolveProvider());
         Prompt prompt = buildPrompt(state);
-        var response = model.call(prompt);
+        var response = callWithRetry(() -> model.call(prompt));
         return response.getResult().getOutput().getText();
+    }
+
+    private static final int MAX_RETRIES = 3;
+    private static final long[] BACKOFF_MS = {2_000, 4_000, 8_000};
+
+    /** Call supplier with exponential backoff on retryable errors (429, 503, 529). */
+    private <T> T callWithRetry(Supplier<T> supplier) {
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                return supplier.get();
+            } catch (Exception e) {
+                if (isRetryableError(e) && attempt < MAX_RETRIES - 1) {
+                    long delay = BACKOFF_MS[attempt];
+                    log.warn("Retryable error (attempt {}/{}), retrying in {}ms: {}",
+                            attempt + 1, MAX_RETRIES, delay, e.getMessage());
+                    try { Thread.sleep(delay); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
+        throw new IllegalStateException("Exhausted retries"); // unreachable
+    }
+
+    /** Check if error is retryable by walking cause chain for 429/503/529/rate-limit signals. */
+    private boolean isRetryableError(Throwable t) {
+        Throwable current = t;
+        while (current != null) {
+            String msg = current.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase();
+                if (lower.contains("429") || lower.contains("500") || lower.contains("503") || lower.contains("529")
+                        || lower.contains("rate limit") || lower.contains("rate_limit")
+                        || lower.contains("overloaded") || lower.contains("too many requests")
+                        || lower.contains("internal server error")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private Prompt buildPrompt(AgentState state) {

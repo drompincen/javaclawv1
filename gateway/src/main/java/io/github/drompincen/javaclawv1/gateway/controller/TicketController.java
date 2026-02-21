@@ -31,6 +31,9 @@ public class TicketController {
         doc.setDescription(req.description());
         doc.setStatus(TicketDto.TicketStatus.TODO);
         doc.setPriority(req.priority() != null ? req.priority() : TicketDto.TicketPriority.MEDIUM);
+        if (req.owner() != null && !req.owner().isBlank()) {
+            doc.setOwner(req.owner());
+        }
         doc.setCreatedAt(Instant.now());
         doc.setUpdatedAt(Instant.now());
         ticketRepository.save(doc);
@@ -63,6 +66,7 @@ public class TicketController {
             if (updates.getPriority() != null) existing.setPriority(updates.getPriority());
             if (updates.getAssignedResourceId() != null) existing.setAssignedResourceId(updates.getAssignedResourceId());
             if (updates.getBlockedBy() != null) existing.setBlockedBy(updates.getBlockedBy());
+            if (updates.getOwner() != null) existing.setOwner(updates.getOwner());
             existing.setUpdatedAt(Instant.now());
             ticketRepository.save(existing);
             return ResponseEntity.ok(toDto(existing));

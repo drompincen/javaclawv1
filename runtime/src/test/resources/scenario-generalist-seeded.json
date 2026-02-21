@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Generalist Agent Seeded Test",
+  "description": "Seed rich project data, then ask the generalist to create objectives, project plan, and checklists in one session",
+  "defaults": {
+    "maxWaitMs": 90000
+  },
+  "steps": [
+    {
+      "name": "Seed project data: threads, tickets, resources, memories",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Payment Gateway Architecture",
+            "content": "Architecture: Stripe integration with webhook handlers. PostgreSQL for transaction records. Redis for idempotency keys. Target: 2-sprint delivery."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Fraud Detection System",
+            "content": "ML-based fraud scoring with real-time transaction analysis. Integration with payment gateway events. Threshold-based alerting."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-101: Stripe webhook handler",
+            "description": "Implement webhook endpoints for payment events.\nAssignee: Carol",
+            "priority": "HIGH",
+            "owner": "Carol"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-102: Fraud scoring model",
+            "description": "Build ML model for real-time fraud detection.\nAssignee: Dave",
+            "priority": "HIGH",
+            "owner": "Dave"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Carol",
+            "role": "ENGINEER",
+            "skills": ["Java", "Spring", "Stripe"],
+            "capacity": 100,
+            "availability": 0.9,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Dave",
+            "role": "ENGINEER",
+            "skills": ["Python", "ML", "TensorFlow"],
+            "capacity": 100,
+            "availability": 0.7,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/memories",
+          "body": {
+            "scope": "PROJECT",
+            "projectId": "{{projectId}}",
+            "content": "Sprint cadence: 2-week sprints, Tuesday planning, Friday retrospective.",
+            "tags": ["process"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Generalist creates objectives, plans, and checklists",
+      "userQuery": "Create sprint objectives, a project plan with phases, and a release checklist from the project data.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"generalist\", \"subTask\": \"create objectives, project plan, and checklists from project data\"}"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Reading all project data first.\n\n<tool_call>\n{\"name\": \"read_threads\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_resources\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Creating sprint objectives.\n\n<tool_call>\n{\"name\": \"create_objective\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Deliver Stripe payment integration\", \"description\": \"Complete webhook handler and transaction recording. Covers T-101.\", \"week\": \"W1\", \"status\": \"PROPOSED\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_objective\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Build fraud detection MVP\", \"description\": \"ML model for real-time fraud scoring. Covers T-102.\", \"week\": \"W1\", \"status\": \"PROPOSED\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Creating project plan phases.\n\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Foundation\", \"description\": \"Stripe integration and base infrastructure\", \"sortOrder\": 1}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"ML Integration\", \"description\": \"Fraud model training and integration\", \"sortOrder\": 2}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Release\", \"description\": \"End-to-end testing and production deployment\", \"sortOrder\": 3}}\n</tool_call>"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Creating release checklist.\n\n<tool_call>\n{\"name\": \"create_checklist\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Payment Platform Release Checklist\", \"items\": [{\"text\": \"Stripe webhooks tested end-to-end\"}, {\"text\": \"Fraud model accuracy validated\"}, {\"text\": \"Load testing completed\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Done. Created 2 sprint objectives, 3 project phases, and 1 release checklist."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Generalist created objectives, plan phases, and checklist from seeded project data.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "objectives",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "phases",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 3}
+          },
+          {
+            "collection": "checklists",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          }
+        ]
+      }
+    }
+  ]
+}

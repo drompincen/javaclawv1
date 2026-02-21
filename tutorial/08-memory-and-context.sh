@@ -12,13 +12,13 @@ fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
 # --- Find or Create Project + Thread ---
 section "1. Setup"
-PROJECT_NAME="Tutorial KYC Platform"
+PROJECT_NAME="Tutorial Payment Gateway"
 PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
   PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
-    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"KYC Platform tutorial project\",\"tags\":[\"tutorial\"]}")
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
   ok "Project created: $PROJECT_ID"
 else
@@ -27,7 +27,7 @@ fi
 
 THREAD=$(curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/threads" \
   -H 'Content-Type: application/json' \
-  -d '{"title":"Evidence Service Refactor"}')
+  -d '{"title":"Payment Processing Refactor"}')
 THREAD_ID=$(echo "$THREAD" | jq -r '.threadId')
 ok "Thread: $THREAD_ID"
 
@@ -52,10 +52,10 @@ M2=$(curl -s -X POST "$BASE_URL/api/memories" \
   -d "{
     \"scope\": \"PROJECT\",
     \"key\": \"architecture-decision\",
-    \"content\": \"Evidence Service uses strategy pattern. One handler per document type.\",
+    \"content\": \"Payment Processing uses strategy pattern. One handler per payment method.\",
     \"projectId\": \"$PROJECT_ID\",
     \"createdBy\": \"user\",
-    \"tags\": [\"architecture\",\"evidence\"]
+    \"tags\": [\"architecture\",\"payments\"]
   }")
 M2_ID=$(echo "$M2" | jq -r '.memoryId // .id')
 ok "Project memory stored: $M2_ID"
@@ -67,7 +67,7 @@ M3=$(curl -s -X POST "$BASE_URL/api/memories" \
   -d "{
     \"scope\": \"THREAD\",
     \"key\": \"refactor-status\",
-    \"content\": \"Passport handler done. Utility handler in progress. Bank handler not started.\",
+    \"content\": \"Card payment handler done. Bank transfer handler in progress. Digital wallet handler not started.\",
     \"projectId\": \"$PROJECT_ID\",
     \"sessionId\": \"$THREAD_ID\",
     \"createdBy\": \"user\",

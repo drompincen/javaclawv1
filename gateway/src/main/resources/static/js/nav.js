@@ -44,6 +44,7 @@ export function updateNavBadge(key, value) {
   if (el) {
     el.textContent = value;
     const num = parseInt(value, 10);
-    el.classList.toggle('has-items', !isNaN(num) && num > 0);
+    const hasItems = (!isNaN(num) && num > 0) || (isNaN(num) && value !== '' && value !== '0');
+    el.classList.toggle('has-items', hasItems);
   }
 }

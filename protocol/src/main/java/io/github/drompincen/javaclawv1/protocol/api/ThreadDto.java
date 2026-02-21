@@ -18,7 +18,10 @@ public record ThreadDto(
         List<DecisionDto> decisions,
         List<ActionDto> actions,
         int evidenceCount,
-        List<String> objectiveIds
+        List<String> objectiveIds,
+        String lifecycle,
+        List<String> mergedFromThreadIds,
+        String mergedIntoThreadId
 ) {
     public record DecisionDto(String text, String decidedBy) {}
     public record ActionDto(String text, String assignee, String status) {}

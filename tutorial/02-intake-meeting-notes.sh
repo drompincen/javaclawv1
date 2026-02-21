@@ -14,13 +14,13 @@ fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
 # --- Find or Create Project ---
 section "1. Find or Create Project"
-PROJECT_NAME="Tutorial KYC Platform"
+PROJECT_NAME="Tutorial Payment Gateway"
 PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
   PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
-    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"KYC Platform tutorial project\",\"tags\":[\"tutorial\"]}")
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
   ok "Project created: $PROJECT_ID"
 else
@@ -30,8 +30,8 @@ fi
 
 # --- Load Meeting Notes ---
 section "2. Load Meeting Notes"
-NOTES=$(cat "$SCRIPT_DIR/sample-data/meeting-notes-kyc.txt")
-ok "Loaded KYC Architecture Review notes ($(echo "$NOTES" | wc -l) lines)"
+NOTES=$(cat "$SCRIPT_DIR/sample-data/meeting-notes-payments.txt")
+ok "Loaded Payment Gateway Architecture Review notes ($(echo "$NOTES" | wc -l) lines)"
 
 # --- Submit to Intake Pipeline ---
 section "3. Submit to Intake Pipeline"

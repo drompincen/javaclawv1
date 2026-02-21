@@ -11,13 +11,19 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Auto-plays scenarios after server startup via REST API calls.
@@ -38,6 +44,7 @@ public class ScenarioRunner implements ApplicationRunner {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private String scenarioProjectId;
+    private final Map<String, Object> stepVariables = new HashMap<>();
 
     @Autowired(required = false)
     private ToolMockRegistry toolMockRegistry;
@@ -114,6 +121,7 @@ public class ScenarioRunner implements ApplicationRunner {
             // Reload scenario
             scenarioService.reset();
             scenarioProjectId = null;
+            stepVariables.clear();
             scenarioService.loadScenario(filePath);
 
             if (!scenarioService.isLoaded()) {
@@ -262,6 +270,8 @@ public class ScenarioRunner implements ApplicationRunner {
                 ScenarioReport.StepReport stepReport;
                 if ("seed".equals(step.type())) {
                     stepReport = playSeedStep(baseUrl, step, i + 1, total);
+                } else if ("upload".equals(step.type())) {
+                    stepReport = playUploadStep(baseUrl, step, i + 1, total);
                 } else if ("pipeline".equals(step.type())) {
                     stepReport = playPipelineStep(baseUrl, step, defaults, i + 1, total);
                 } else {
@@ -490,8 +500,19 @@ public class ScenarioRunner implements ApplicationRunner {
             java.util.Map<String, Object> pipelineBody = new java.util.LinkedHashMap<>();
             pipelineBody.put("projectId", projectId);
             pipelineBody.put("content", content);
-            if (step.filePaths() != null && !step.filePaths().isEmpty()) {
-                pipelineBody.put("filePaths", step.filePaths());
+
+            // Merge explicit filePaths with any uploaded file paths from prior upload steps
+            List<String> allFilePaths = new ArrayList<>();
+            if (step.filePaths() != null) {
+                allFilePaths.addAll(step.filePaths());
+            }
+            @SuppressWarnings("unchecked")
+            List<String> uploadedPaths = (List<String>) stepVariables.get("_uploadedFilePaths");
+            if (uploadedPaths != null) {
+                allFilePaths.addAll(uploadedPaths);
+            }
+            if (!allFilePaths.isEmpty()) {
+                pipelineBody.put("filePaths", allFilePaths);
             }
 
             String bodyJson = objectMapper.writeValueAsString(pipelineBody);
@@ -569,6 +590,124 @@ public class ScenarioRunner implements ApplicationRunner {
                     List.of(new AssertionResult("interrupted", false, "completed", "interrupted")));
         } catch (Exception e) {
             log.error("[ScenarioRunner] Pipeline step error: {}", e.getMessage(), e);
+            return new ScenarioReport.StepReport(stepName, false,
+                    List.of(new AssertionResult("exception", false, "no error", e.getMessage())));
+        }
+    }
+
+    // ======================== Upload Step Playback ========================
+
+    /**
+     * Plays an upload step: uploads files via multipart POST to /api/intake/upload.
+     * Stores uploaded file paths in stepVariables for use by subsequent pipeline steps.
+     */
+    private ScenarioReport.StepReport playUploadStep(String baseUrl, ScenarioConfigV2.Step step,
+                                                      int stepNum, int totalSteps) {
+        String stepName = step.name() != null ? step.name() : "upload";
+        try {
+            // 1. Ensure project exists
+            String projectId = scenarioProjectId;
+            if (projectId == null) {
+                projectId = ensureProject(baseUrl, scenarioService.getProjectName());
+                scenarioProjectId = projectId;
+            }
+            if (projectId == null) {
+                return new ScenarioReport.StepReport(stepName, false,
+                        List.of(new AssertionResult("createProject", false, "projectId", "null")));
+            }
+
+            if (step.uploadFiles() == null || step.uploadFiles().isEmpty()) {
+                log.warn("[ScenarioRunner] Upload step has no uploadFiles — skipping");
+                return new ScenarioReport.StepReport(stepName, true, List.of());
+            }
+
+            // 2. Build multipart/form-data request body
+            String boundary = "----ScenarioUpload" + UUID.randomUUID().toString().replace("-", "");
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+            // projectId field
+            baos.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            baos.write("Content-Disposition: form-data; name=\"projectId\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+            baos.write((projectId + "\r\n").getBytes(StandardCharsets.UTF_8));
+
+            // File parts
+            for (String resourcePath : step.uploadFiles()) {
+                InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath);
+                if (is == null) {
+                    return new ScenarioReport.StepReport(stepName, false,
+                            List.of(new AssertionResult("loadFile", false, resourcePath, "not found on classpath")));
+                }
+                byte[] fileBytes = is.readAllBytes();
+                is.close();
+
+                String fileName = resourcePath.contains("/")
+                        ? resourcePath.substring(resourcePath.lastIndexOf('/') + 1)
+                        : resourcePath;
+
+                baos.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                baos.write(("Content-Disposition: form-data; name=\"files\"; filename=\"" + fileName + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+                baos.write("Content-Type: application/octet-stream\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                baos.write(fileBytes);
+                baos.write("\r\n".getBytes(StandardCharsets.UTF_8));
+            }
+
+            baos.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+            byte[] body = baos.toByteArray();
+
+            // 3. POST to /api/intake/upload
+            HttpRequest uploadReq = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/intake/upload"))
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                    .build();
+
+            HttpResponse<String> uploadResp = httpClient.send(uploadReq, HttpResponse.BodyHandlers.ofString());
+            if (uploadResp.statusCode() != 200) {
+                return new ScenarioReport.StepReport(stepName, false,
+                        List.of(new AssertionResult("upload", false, "200",
+                                uploadResp.statusCode() + ": " + uploadResp.body())));
+            }
+
+            // 4. Parse response and store file paths
+            JsonNode uploadResult = objectMapper.readTree(uploadResp.body());
+            List<String> filePaths = new ArrayList<>();
+            if (uploadResult.isArray()) {
+                for (JsonNode item : uploadResult) {
+                    String filePath = item.path("filePath").asText(null);
+                    if (filePath != null) filePaths.add(filePath);
+                }
+            }
+            stepVariables.put("_uploadedFilePaths", filePaths);
+            log.info("[ScenarioRunner] Uploaded {} file(s), paths: {}", filePaths.size(), filePaths);
+
+            // 5. Run assertions if present
+            if (step.expects() != null && scenarioAsserts != null) {
+                ScenarioAsserts.StepContext ctx = new ScenarioAsserts.StepContext(
+                        null, projectId, 0, null, baseUrl);
+                List<AssertionResult> results = scenarioAsserts.evaluate(step.expects(), ctx);
+
+                boolean allPassed = true;
+                for (AssertionResult ar : results) {
+                    String tag = ar.passed() ? "PASS" : "FAIL";
+                    log.info("[ScenarioRunner]   [{}] {}: expected={}, actual={}",
+                            tag, ar.name(), ar.expected(), ar.actual());
+                    if (!ar.passed()) allPassed = false;
+                }
+                return new ScenarioReport.StepReport(stepName, allPassed, results);
+            }
+
+            // No expects: just check files were uploaded
+            boolean passed = !filePaths.isEmpty();
+            return new ScenarioReport.StepReport(stepName, passed,
+                    List.of(new AssertionResult("uploadCount", passed,
+                            ">0", String.valueOf(filePaths.size()))));
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ScenarioReport.StepReport(stepName, false,
+                    List.of(new AssertionResult("interrupted", false, "completed", "interrupted")));
+        } catch (Exception e) {
+            log.error("[ScenarioRunner] Upload step error: {}", e.getMessage(), e);
             return new ScenarioReport.StepReport(stepName, false,
                     List.of(new AssertionResult("exception", false, "no error", e.getMessage())));
         }

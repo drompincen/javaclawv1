@@ -31,8 +31,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-101: Build Evidence API",
-            "description": "Epic: Evidence Service | Owner: Alice | Estimate: 30h",
-            "priority": "HIGH"
+            "description": "Epic: Evidence Service | Estimate: 30h",
+            "priority": "HIGH",
+            "owner": "Alice"
           }
         },
         {
@@ -40,8 +41,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-102: UI for onboarding",
-            "description": "Epic: Onboarding | Owner: Bob | Estimate: 20h",
-            "priority": "MEDIUM"
+            "description": "Epic: Onboarding | Estimate: 20h",
+            "priority": "MEDIUM",
+            "owner": "Bob"
           }
         },
         {
@@ -49,8 +51,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-103: Validation rules",
-            "description": "Epic: Evidence Service | Owner: Alice | Estimate: 25h",
-            "priority": "HIGH"
+            "description": "Epic: Evidence Service | Estimate: 25h",
+            "priority": "HIGH",
+            "owner": "Alice"
           }
         },
         {
@@ -58,8 +61,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-104: Refactor intake",
-            "description": "Epic: (none) | Owner: Bob | Estimate: 15h",
-            "priority": "LOW"
+            "description": "Epic: (none) | Estimate: 15h",
+            "priority": "LOW",
+            "owner": "Bob"
           }
         },
         {

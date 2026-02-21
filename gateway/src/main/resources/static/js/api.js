@@ -43,6 +43,7 @@ export const threads = {
   get:    (pid, id)    => get(`${projectPath(pid)}/threads/${id}`),
   update: (pid, id, d) => put(`${projectPath(pid)}/threads/${id}`, d),
   delete: (pid, id)    => del(`${projectPath(pid)}/threads/${id}`),
+  merge:  (pid, data)  => post(`${projectPath(pid)}/threads/merge`, data),
 };
 
 export const tickets = {

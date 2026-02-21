@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Unassigned Tickets Blindspot Test",
+  "description": "Reconcile agent detects unassigned tickets and creates UNASSIGNED_WORK blindspot",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed 3 tickets (2 without owner)",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-001: Build login page",
+            "description": "Frontend login page with OAuth",
+            "priority": "HIGH",
+            "owner": "Alice"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-002: Set up CI/CD pipeline",
+            "description": "GitHub Actions workflow for build and deploy",
+            "priority": "HIGH"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-003: Write API documentation",
+            "description": "Swagger/OpenAPI docs for all endpoints",
+            "priority": "MEDIUM"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Alice",
+            "role": "ENGINEER",
+            "capacity": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reconcile to detect unassigned tickets",
+      "userQuery": "Please reconcile the project and flag any issues.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"reconcile-agent\", \"subTask\": \"reconcile project data and flag issues\"}"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Reading project data for reconciliation.\n\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_resources\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Found 3 tickets. 2 tickets (T-002, T-003) have no owner assigned. Flagging as blindspot.\n\n<tool_call>\n{\"name\": \"create_blindspot\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"2 tickets unassigned — T-002, T-003\", \"description\": \"Tickets T-002 (Set up CI/CD pipeline) and T-003 (Write API documentation) have no owner assigned. These will not be worked on unless someone picks them up.\", \"category\": \"UNASSIGNED_WORK\", \"severity\": \"HIGH\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Reconciliation complete. 1 blindspot flagged:\n- **UNASSIGNED_WORK** (HIGH): 2 tickets without owners (T-002, T-003). Recommend assigning to Alice or adding more resources."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Reconcile agent detected 2 unassigned tickets and created an UNASSIGNED_WORK blindspot.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "blindspots",
+            "filter": {"projectId": "{{projectId}}", "category": "UNASSIGNED_WORK"},
+            "assert": {"countGte": 1}
+          }
+        ]
+      }
+    }
+  ]
+}

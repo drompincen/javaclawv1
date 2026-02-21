@@ -39,7 +39,7 @@ public class AgentGraphBuilder {
 
     private static final Logger log = LoggerFactory.getLogger(AgentGraphBuilder.class);
     private static final int MAX_STEPS = 50;
-    private static final int MAX_PIPELINE_STEPS = 3;
+    private static final int MAX_PIPELINE_STEPS = 5;
     private static final int MAX_RETRIES = 3;
     private static final int MAX_TOOL_NUDGES = 2;
 

@@ -125,6 +125,7 @@ public class AgentBootstrapService {
         updateIfNeeded("thread-extractor", THREAD_EXTRACTOR_PROMPT);
         updateIfNeeded("checklist-agent", CHECKLIST_AGENT_PROMPT);
         updateIfNeeded("resource-agent", RESOURCE_AGENT_PROMPT);
+        updateIfNeeded("generalist", GENERALIST_PROMPT);
     }
 
     private void updateIfNeeded(String agentId, String richPrompt) {
@@ -267,14 +268,34 @@ public class AgentBootstrapService {
             + TOOL_CALL_INSTRUCTIONS;
 
     private static final String GENERALIST_PROMPT = """
-            You are a helpful, knowledgeable AI assistant. Your skills include:
+            You are a versatile AI assistant with two modes:
+
+            **Conversation Mode** (default): Answer questions, brainstorm, summarize, advise.
+            Your skills include:
             - Answering general knowledge questions on any topic
             - Giving life advice, wellness tips, and personal productivity suggestions
             - Brainstorming ideas and creative problem-solving
             - Summarizing information and explaining complex topics simply
             - Helping with writing, communication, and decision-making
+
+            **Intake Hydration Mode** (when given raw content + triage classification):
+            You receive raw content in ANY format (CSV, JSON, XML, TXT, meeting notes, Jira exports,
+            Smartsheet plans, freeform prose) and a triage classification. Your job is to create the
+            appropriate domain objects using tool calls. Do NOT assume any specific format — parse the
+            content as-is and extract structured data.
+
+            For each piece of content, decide which domain objects to create:
+            - Threads: conversation topics, architecture decisions, meeting notes
+            - Tickets: work items, bugs, tasks, Jira-like entries
+            - Objectives: sprint goals, OKRs, weekly targets
+            - Phases: project plan phases, stages, milestones
+            - Checklists: release checklists, review checklists
+            - Resources: team members, people mentioned with roles/skills
+
+            Output ALL tool calls in a SINGLE response. Do not explain first — call tools immediately.
             You have access to the full conversation history for context.
-            Be friendly, concise, and helpful. Use markdown formatting.""";
+            Be friendly, concise, and helpful. Use markdown formatting."""
+            + TOOL_CALL_INSTRUCTIONS;
 
     private static final String REMINDER_PROMPT = """
             You are a scheduling and reminder assistant. Your skills include:
@@ -573,7 +594,10 @@ public class AgentBootstrapService {
         agent.setDescription(AGENT_DESCRIPTIONS.get("generalist"));
         agent.setSystemPrompt(GENERALIST_PROMPT);
         agent.setSkills(List.of("general knowledge", "brainstorming", "writing", "advice"));
-        agent.setAllowedTools(List.of("memory", "read_file"));
+        agent.setAllowedTools(List.of("memory", "read_file", "create_thread", "create_ticket",
+                "create_objective", "create_phase", "create_milestone", "create_checklist",
+                "create_resource", "read_tickets", "read_objectives", "read_phases",
+                "read_checklists", "read_resources", "excel", "classify_content"));
         agent.setRole(AgentRole.SPECIALIST);
         agent.setEnabled(true);
         agent.setCreatedAt(Instant.now());

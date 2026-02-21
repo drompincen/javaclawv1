@@ -85,7 +85,7 @@ class ScenarioServiceTest {
                                 java.util.List.of(
                                         new ScenarioConfig.AgentResponse("pm", "ticket created")
                                 ),
-                                null, null, null, null, null
+                                null, null, null, null, null, null
                         )
                 )
         );
@@ -105,7 +105,7 @@ class ScenarioServiceTest {
                                 java.util.List.of(
                                         new ScenarioConfig.AgentResponse("pm", "ticket created")
                                 ),
-                                null, null, null, null, null
+                                null, null, null, null, null, null
                         )
                 )
         );

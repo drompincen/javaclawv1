@@ -4,7 +4,6 @@ import { getState, setProject, setView, onChange, setWsConnected } from './state
 import { initNav, highlightNav, updateNavBadge } from './nav.js';
 import { initAgentPanel, initTimerPanel } from './panels/agents.js';
 import { initActivityStream } from './panels/activity.js';
-import { initInspector } from './panels/inspector.js';
 import { toast } from './components/toast.js';
 
 // View modules (lazy-ish: all loaded upfront as ES modules)
@@ -46,8 +45,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   initAgentPanel();
   initTimerPanel();  // async — runs in background, does not block init
   initActivityStream();
-  initInspector();
-
   // WebSocket
   ws.connect();
   ws.onEvent((msg) => {
@@ -75,6 +72,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     'MILESTONE_CREATED', 'MILESTONE_UPDATED',
     'CHECKLIST_CREATED', 'CHECKLIST_UPDATED', 'CHECKLIST_COMPLETED',
     'RESOURCE_ASSIGNED', 'RESOURCE_OVERLOADED',
+    'LINK_CREATED', 'LINK_UPDATED',
+    'OBJECTIVE_CREATED', 'OBJECTIVE_DELETED',
+    'REMINDER_CREATED',
     'DELTA_PACK_CREATED',
     'INTAKE_PIPELINE_COMPLETED',
     'MEMORY_STORED', 'MEMORY_DISTILLED',
@@ -90,9 +90,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Debounce: refresh after 1.5s of quiet (avoids rapid re-renders during pipeline)
     clearTimeout(_refreshTimer);
-    _refreshTimer = setTimeout(() => {
-      refreshNavBadges();
-      renderCurrentView();
+    _refreshTimer = setTimeout(async () => {
+      await renderCurrentView();
+      await refreshNavBadges();
       loadProjects();
       refreshTokenCounter();
     }, 1500);
@@ -173,8 +173,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (shareBtn) shareBtn.style.display = '';
   }
 
-  // Render initial view
-  renderCurrentView();
+  // Listen for in-app data changes (create/delete/update from views)
+  document.addEventListener('jc:data-changed', () => refreshNavBadges());
+
+  // Render initial view then refresh badges
+  await renderCurrentView();
+  await refreshNavBadges();
 });
 
 // ── New project ──
@@ -261,10 +265,11 @@ async function refreshTokenCounter() {
   if (!el) return;
   try {
     const m = await api.logs.metrics();
-    const tokens = m.totalTokens ?? 0;
-    const calls = m.totalCalls ?? 0;
-    const avg = m.avgLatencyMs != null ? Math.round(m.avgLatencyMs) : 0;
-    el.textContent = `\u{1FA99} ${tokens} tokens | ${calls} calls | avg ${avg}ms`;
+    const tokens = m.recentTokens ?? 0;
+    const calls = m.totalInteractions ?? 0;
+    const msgs = m.totalMessages ?? 0;
+    const avg = m.avgDurationMs != null ? Math.round(m.avgDurationMs) : 0;
+    el.textContent = `\u{1FA99} ${tokens} tok | ${msgs} msgs | ${calls} calls | avg ${avg}ms`;
   } catch { /* metrics endpoint not available yet */ }
 }
 

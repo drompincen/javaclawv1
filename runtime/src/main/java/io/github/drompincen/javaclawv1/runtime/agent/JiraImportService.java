@@ -18,6 +18,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 
+/**
+ * @deprecated Use the intake pipeline with generalist agent instead.
+ * LLM handles all format parsing including CSV, Excel, and Jira exports.
+ * This class will be removed in a future release.
+ */
+@Deprecated
 @Service
 public class JiraImportService {
 

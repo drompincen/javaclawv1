@@ -1,0 +1,4 @@
+Key,Epic,Summary,Assignee,Status,Priority,SP
+J-301,Upload Epic,Build upload endpoint,Alice,In Progress,HIGH,5
+J-302,Upload Epic,File content extraction,Bob,Todo,MEDIUM,3
+J-303,,CSV parser improvements,Charlie,Todo,LOW,2

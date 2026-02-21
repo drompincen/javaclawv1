@@ -87,16 +87,24 @@ public class MergeThreadsTool implements Tool {
             target.setTitle(targetTitle);
         }
 
-        // Collect all messages from source threads, re-parent to target
-        int totalMessages = 0;
+        // Collect all messages from target + sources into memory
+        List<MessageDocument> allMsgs = new ArrayList<>(
+                messageRepository.findBySessionIdOrderBySeqAsc(target.getThreadId()));
+
+        // Merge content from source threads into target
+        StringBuilder contentBuilder = new StringBuilder(target.getContent() != null ? target.getContent() : "");
         for (int i = 1; i < sourceThreads.size(); i++) {
             ThreadDocument source = sourceThreads.get(i);
-            List<MessageDocument> msgs = messageRepository.findBySessionIdOrderBySeqAsc(source.getThreadId());
-            for (MessageDocument msg : msgs) {
-                msg.setSessionId(target.getThreadId());
-                messageRepository.save(msg);
+            allMsgs.addAll(messageRepository.findBySessionIdOrderBySeqAsc(source.getThreadId()));
+
+            // Append source content to target
+            if (source.getContent() != null && !source.getContent().isBlank()) {
+                if (contentBuilder.length() > 0) contentBuilder.append("\n\n---\n\n");
+                contentBuilder.append(source.getContent());
             }
-            totalMessages += msgs.size();
+
+            // Delete source messages
+            messageRepository.deleteBySessionId(source.getThreadId());
 
             // Mark source as merged
             source.setLifecycle(ThreadLifecycle.MERGED);
@@ -105,16 +113,19 @@ public class MergeThreadsTool implements Tool {
             threadRepository.save(source);
         }
 
-        // Re-sequence all messages in the merged thread by timestamp
-        List<MessageDocument> allMsgs = messageRepository.findBySessionIdOrderBySeqAsc(target.getThreadId());
+        // Delete target messages to avoid seq collisions
+        messageRepository.deleteBySessionId(target.getThreadId());
+
+        // Sort all collected messages by timestamp, re-assign seq, save
         allMsgs.sort(Comparator.comparing(m -> m.getTimestamp() != null ? m.getTimestamp() : Instant.EPOCH));
         for (int i = 0; i < allMsgs.size(); i++) {
+            allMsgs.get(i).setSessionId(target.getThreadId());
             allMsgs.get(i).setSeq(i + 1);
             messageRepository.save(allMsgs.get(i));
         }
-        totalMessages += messageRepository.findBySessionIdOrderBySeqAsc(target.getThreadId()).size() - totalMessages;
 
-        // Update target with merge metadata
+        // Update target with merge metadata + merged content
+        target.setContent(contentBuilder.toString());
         target.setMergedFromThreadIds(sourceIds.subList(1, sourceIds.size()));
         target.setUpdatedAt(Instant.now());
         threadRepository.save(target);

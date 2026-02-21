@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Unallocated Resources Blindspot Test",
+  "description": "Reconcile agent detects idle resource with no assigned tickets and creates CAPACITY_GAP blindspot",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed 2 resources + 2 tickets (all assigned to resource 1)",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Alice",
+            "role": "ENGINEER",
+            "skills": ["Java", "Spring"],
+            "capacity": 100
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Bob",
+            "role": "ENGINEER",
+            "skills": ["React", "TypeScript"],
+            "capacity": 100
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-301: Build backend API",
+            "description": "REST API for core service",
+            "priority": "HIGH",
+            "owner": "Alice"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-302: Database schema migration",
+            "description": "Migrate from v1 to v2 schema",
+            "priority": "MEDIUM",
+            "owner": "Alice"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reconcile to detect unallocated resource",
+      "userQuery": "Reconcile the project and check resource allocation.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"reconcile-agent\", \"subTask\": \"reconcile project and check resource allocation\"}"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Reading project data.\n\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_resources\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Found 2 resources and 2 tickets. Alice has both tickets assigned. Bob has zero tickets — idle resource.\n\n<tool_call>\n{\"name\": \"create_blindspot\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Bob has no assigned work\", \"description\": \"Bob (ENGINEER, React/TypeScript) has 100% capacity available but no tickets assigned. Consider redistributing work from Alice (who has 2 tickets) or assigning new work to Bob.\", \"category\": \"CAPACITY_GAP\", \"severity\": \"MEDIUM\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "reconcile-agent",
+          "responseFallback": "Reconciliation complete. 1 blindspot flagged:\n- **CAPACITY_GAP** (MEDIUM): Bob has no assigned work. Alice has 2 tickets — consider rebalancing."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Reconcile agent detected Bob as an idle resource with no tickets and created a CAPACITY_GAP blindspot.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "blindspots",
+            "filter": {"projectId": "{{projectId}}", "category": "CAPACITY_GAP"},
+            "assert": {"countGte": 1}
+          }
+        ]
+      }
+    }
+  ]
+}

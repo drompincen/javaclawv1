@@ -1,0 +1,243 @@
+================================================================================
+PLAN: Ask-Claw Must Ground All Answers in Collection Data
+================================================================================
+
+Status: PROPOSAL
+Date:   2026-02-19
+
+================================================================================
+1. BUG REPORT
+================================================================================
+
+When asking "are there unassigned tickets?" via POST /api/ask, the system
+incorrectly responds "all tickets are assigned" — even when multiple tickets
+have NO owner AND NO assignedResourceId AND NO ResourceAssignmentDocument.
+
+Root cause: AskController.buildProjectContext() (line 149) only checks
+ticket.getOwner() when building the context string. It ignores:
+
+  a) ticket.getAssignedResourceId() — the FK field on TicketDocument
+  b) resource_assignments collection — where AssignResourceTool writes
+  c) Tickets created by the LLM (via create_ticket tool) often have the
+     assignee name embedded in the description string (e.g.
+     "Assignee: Joe | SP: 5") but owner and assignedResourceId are both null
+
+The LLM sees a ticket with no "assignee=" label in the context and has no way
+to know whether it's assigned or not. Worse, if the assignee name is buried
+in the description text, the LLM may incorrectly infer assignment from prose.
+
+================================================================================
+2. PRINCIPLE
+================================================================================
+
+Every data point the LLM uses to answer a question MUST come from an explicit
+field in a MongoDB collection — never from parsing free-text description fields,
+never from inference, never from hallucination.
+
+For ticket assignment specifically, the answer MUST be derived from:
+  - ticket.owner (String field, set by TicketController or create_ticket tool)
+  - ticket.assignedResourceId (FK to ResourceDocument)
+  - resource_assignments collection (ResourceAssignmentDocument records)
+
+If ALL THREE are null/empty for a ticket, that ticket is UNASSIGNED. Period.
+
+================================================================================
+3. CURRENT STATE — WHAT THE LLM SEES
+================================================================================
+
+AskController.buildProjectContext() builds this context per ticket:
+
+  - **Refactor passport handler** [TODO] priority=HIGH assignee=Joe
+  - **RabbitMQ spike** [IN_PROGRESS] priority=MEDIUM
+  - **CSV parser improvements** [TODO] priority=LOW
+
+Problem 1: "assignee=" only appears if ticket.getOwner() != null.
+           ticket.assignedResourceId is ignored.
+           resource_assignments collection is never queried.
+
+Problem 2: The description field is dumped as free text:
+             "Epic: Evidence Service | Assignee: Joe | SP: 5"
+           The LLM reads "Assignee: Joe" from the description and thinks
+           the ticket is assigned, even though the structured owner field
+           is null. This is unreliable — description format varies.
+
+Problem 3: Resource context shows team members but not their assignments:
+  - **Joe Martinez** role=ENGINEER capacity=1 availability=0.8
+  No information about which tickets Joe is assigned to.
+
+Problem 4: No explicit "UNASSIGNED" label. The LLM has to infer from
+           the absence of "assignee=" which is ambiguous — maybe the
+           field just wasn't exported.
+
+================================================================================
+4. REQUIRED CHANGES
+================================================================================
+
+4.1  AskController.java — Inject ResourceAssignmentRepository
+-------------------------------------------------------------
+File: gateway/.../controller/AskController.java
+
+Add ResourceAssignmentRepository to the constructor. Query it in
+buildProjectContext() to build a complete ticket→resource mapping.
+
+4.2  AskController.java — Fix Ticket Context (lines 142-154)
+-------------------------------------------------------------
+Replace the ticket section with:
+
+  a) Query resource_assignments for this project:
+     List<ResourceAssignmentDocument> assignments =
+         resourceAssignmentRepository.findByProjectId(projectId);
+
+  b) Build a Map<ticketId, resourceName> by joining assignments → resources:
+     Map<String, String> ticketAssigneeMap = new HashMap<>();
+     for (ResourceAssignmentDocument a : assignments) {
+         ResourceDocument r = resourceRepository.findById(a.getResourceId()).orElse(null);
+         String name = r != null ? r.getName() : a.getResourceId();
+         ticketAssigneeMap.put(a.getTicketId(), name);
+     }
+
+  c) For each ticket, resolve assignee from 3 sources (priority order):
+     1. ticket.getOwner()         — explicit owner string
+     2. ticket.getAssignedResourceId() → look up resource name
+     3. ticketAssigneeMap.get(ticket.getTicketId()) — from assignments collection
+
+  d) Always emit assignment status explicitly:
+     - If assignee found: " assignee=Joe Martinez"
+     - If NOT found:      " assignee=UNASSIGNED"
+     Never omit the field — the LLM must always see assignment status.
+
+  e) Do NOT include ticket.getDescription() in the context.
+     Description is free-text, may contain stale/misleading assignee info.
+     Only include structured fields: title, status, priority, assignee,
+     linkedThreadIds, objectiveIds, externalRef.
+
+4.3  AskController.java — Fix Resource Context (lines 169-182)
+--------------------------------------------------------------
+Enhance resource section to show current assignments:
+
+  For each resource:
+    - List tickets assigned to them (from resource_assignments)
+    - Show total allocated SP or ticket count
+    - Show utilization: allocated / (capacity * availability)
+
+  Example output:
+    - **Joe Martinez** role=ENGINEER capacity=1 availability=0.8
+      Assigned: PAY-201 (HIGH), PAY-202 (HIGH), PAY-205 (HIGH) — 3 tickets
+    - **Alice Chen** role=ENGINEER capacity=1 availability=1.0
+      Assigned: PAY-207 (HIGH) — 1 ticket
+    - **Bob Taylor** role=ENGINEER capacity=1 availability=0.6
+      Assigned: (none) — 0 tickets
+
+4.4  AskController.java — Add Assignment Summary Section
+---------------------------------------------------------
+After tickets and resources, add an explicit summary:
+
+  ## ASSIGNMENT SUMMARY
+  Total tickets: 7
+  Assigned: 4 (PAY-201, PAY-202, PAY-205, PAY-207)
+  Unassigned: 3 (PAY-203, PAY-204, PAY-206)
+
+This makes it impossible for the LLM to get the answer wrong.
+
+4.5  AskController.java — Strengthen System Prompt (lines 74-76)
+----------------------------------------------------------------
+Current:
+  "You are a project analyst. Answer questions using the provided project data.
+   Be concise and data-driven. Reference specific items by name."
+
+Change to:
+  "You are a project analyst. Answer questions using ONLY the structured data
+   below. For ticket assignments, use ONLY the 'assignee=' field — a ticket
+   is unassigned if and only if assignee=UNASSIGNED. Do NOT infer assignment
+   from description text. Be specific — list item names and counts."
+
+================================================================================
+5. FIELDS TO INCLUDE / EXCLUDE IN CONTEXT
+================================================================================
+
+TICKETS — include:
+  - ticketId
+  - title
+  - status
+  - priority
+  - assignee (resolved from owner / assignedResourceId / assignments)
+  - linkedThreadIds (shows thread connections)
+  - objectiveIds (shows objective coverage)
+  - externalRef (Jira key etc.)
+  - blockedBy (dependency info)
+
+TICKETS — EXCLUDE:
+  - description (free text, unreliable for structured queries)
+  - evidenceLinks
+  - phaseId (use phase section instead)
+  - createdAt/updatedAt (noise)
+
+RESOURCES — include:
+  - name, role, capacity, availability
+  - assigned tickets (from resource_assignments)
+  - total allocation percentage
+
+RESOURCES — EXCLUDE:
+  - email (PII, not needed for analysis)
+  - skills (only relevant for assignment suggestions, not Q&A)
+
+================================================================================
+6. COLLECTIONS THE ASK CONTEXT MUST QUERY
+================================================================================
+
+Currently queries:
+  [x] threads
+  [x] objectives
+  [x] tickets
+  [x] blindspots
+  [x] resources
+  [x] memories
+
+Missing — must add:
+  [ ] resource_assignments  — ticket-to-resource mapping
+  [ ] checklists           — completion status for plan tracking questions
+  [ ] phases               — phase status for timeline questions
+  [ ] milestones           — milestone dates for deadline questions
+  [ ] delta_packs          — reconciliation gaps
+
+After this change, the context covers ALL domain objects the user might ask
+about. Any question that can be answered by looking at the data will be
+answered correctly.
+
+================================================================================
+7. TEST PLAN
+================================================================================
+
+7.1  Scenario Test (testMode, mock LLM)
+  - Seed project with 5 tickets: 2 with owner, 1 with assignedResourceId,
+    2 with neither
+  - Seed 3 resources, create resource_assignments for 3 tickets
+  - Call POST /api/ask with question "which tickets are unassigned?"
+  - Assert the context string passed to LLM contains:
+    - "assignee=UNASSIGNED" for the 2 unassigned tickets
+    - "assignee=Joe" (or similar) for the 3 assigned tickets
+    - ASSIGNMENT SUMMARY section with correct counts
+
+7.2  Tutorial Test (real LLM)
+  - In tutorial/07-ask-claw.sh (or new 15-ask-claw-assignments.sh):
+  - Seed tickets where some have owner, some have resource_assignments,
+    some have neither
+  - Ask "are there unassigned tickets?"
+  - Assert the answer mentions the specific unassigned ticket names
+  - Ask "who is overloaded?"
+  - Assert the answer cites resource capacity data
+
+================================================================================
+8. NON-GOALS
+================================================================================
+
+- Do NOT give the ask-claw agent tool-calling access to query MongoDB directly.
+  The context-injection pattern is correct — just fix what's injected.
+- Do NOT change the agent architecture. The issue is data completeness,
+  not agent capability.
+- Do NOT change how tickets or resources are stored. Fix the READ path
+  (context building), not the WRITE path.
+
+================================================================================
+END OF PLAN
+================================================================================

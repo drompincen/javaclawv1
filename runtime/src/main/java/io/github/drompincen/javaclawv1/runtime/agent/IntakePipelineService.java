@@ -18,7 +18,6 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
@@ -28,13 +27,11 @@ import java.util.stream.Collectors;
 public class IntakePipelineService {
 
     private static final Logger log = LoggerFactory.getLogger(IntakePipelineService.class);
-    private static final long TRIAGE_TIMEOUT_MS = 60_000;
-    private static final long THREAD_AGENT_TIMEOUT_MS = 120_000;
-    private static final long PM_TIMEOUT_MS = 120_000;
-    private static final long PLAN_TIMEOUT_MS = 120_000;
-    private static final long OBJECTIVE_TIMEOUT_MS = 60_000;
-    private static final long RECONCILE_TIMEOUT_MS = 120_000;
-    private static final long RESOURCE_TIMEOUT_MS = 120_000;
+    private static final long TRIAGE_TIMEOUT_MS = 90_000;
+    private static final long GENERALIST_TIMEOUT_MS = 300_000;
+    private static final long OBJECTIVE_TIMEOUT_MS = 120_000;
+    private static final long RECONCILE_TIMEOUT_MS = 180_000;
+    private static final long RESOURCE_TIMEOUT_MS = 180_000;
     private static final long POLL_INTERVAL_MS = 200;
 
     private static final String TOOL_FORMAT =
@@ -154,88 +151,76 @@ public class IntakePipelineService {
             boolean routeToTickets = parseRoute(triageOutput, "TICKETS");
             boolean routeToPlan = parseRoute(triageOutput, "PLAN");
             boolean routeToResources = parseRoute(triageOutput, "RESOURCES");
+            // Content-based routing fallback: scan enrichedContent for signals the triage agent missed
+            Map<String, Boolean> contentSignals = detectContentSignals(enrichedContent);
+            if (!routeToPlan && Boolean.TRUE.equals(contentSignals.get("PLAN"))) {
+                log.info("{} Content heuristic override: PLAN=true", prefix);
+                routeToPlan = true;
+            }
+            if (!routeToResources && Boolean.TRUE.equals(contentSignals.get("RESOURCES"))) {
+                log.info("{} Content heuristic override: RESOURCES=true", prefix);
+                routeToResources = true;
+            }
+            if (!routeToTickets && Boolean.TRUE.equals(contentSignals.get("TICKETS"))) {
+                log.info("{} Content heuristic override: TICKETS=true", prefix);
+                routeToTickets = true;
+            }
+
             log.info("{} Routing: THREAD={}, TICKETS={}, PLAN={}, RESOURCES={}",
                     prefix, routeToThreads, routeToTickets, routeToPlan, routeToResources);
 
-            // ── Phase 2: Thread creation (always runs — content always produces threads) ──
-            log.info("{} Phase 2: Thread creation", prefix);
-            String threadSessionId = createAgentSession(projectId, "thread-agent", pipelineId);
-            seedUserMessage(threadSessionId, buildThreadAgentPrompt(enrichedContent, triageOutput, projectId));
-            agentLoop.startAsync(threadSessionId);
-            waitForCompletion(threadSessionId, THREAD_AGENT_TIMEOUT_MS);
+            // ── Phase 2: Generalist hydration (single pass) ──
+            log.info("{} Phase 2: Generalist hydration", prefix);
+            String hydrationSessionId = createAgentSession(projectId, "generalist", pipelineId);
+            seedUserMessage(hydrationSessionId, buildGeneralistHydrationPrompt(
+                    enrichedContent, triageOutput, projectId, filePaths,
+                    routeToThreads, routeToTickets, routeToPlan, routeToResources));
+            agentLoop.startAsync(hydrationSessionId);
+            waitForCompletion(hydrationSessionId, GENERALIST_TIMEOUT_MS);
 
             eventService.emit(sourceSessionId, EventType.THREAD_CREATED,
-                    Map.of("pipelineId", pipelineId, "threadSessionId", threadSessionId));
-            log.info("{} Phase 2 complete — threads created", prefix);
-
-            // ── Phase 3 & 4: PM Agent + Plan Agent (parallel, conditional on routing) ──
-            CompletableFuture<Void> pmFuture = CompletableFuture.completedFuture(null);
-            CompletableFuture<Void> planFuture = CompletableFuture.completedFuture(null);
-
-            if (routeToTickets) {
-                log.info("{} Phase 3: PM Agent (TICKETS route active)", prefix);
-                pmFuture = CompletableFuture.runAsync(() -> {
-                    try {
-                        String pmSessionId = createAgentSession(projectId, "pm", pipelineId);
-                        seedUserMessage(pmSessionId, buildPMAgentPrompt(enrichedContent, triageOutput, filePaths, projectId));
-                        agentLoop.startAsync(pmSessionId);
-                        waitForCompletion(pmSessionId, PM_TIMEOUT_MS);
-                        log.info("{} Phase 3 complete — PM agent finished", prefix);
-                    } catch (Exception e) {
-                        throw new RuntimeException("PM Agent failed: " + e.getMessage(), e);
-                    }
-                }, executor);
-            } else {
-                log.info("{} Phase 3: PM Agent — skipped (TICKETS route inactive)", prefix);
-            }
-
-            if (routeToPlan) {
-                log.info("{} Phase 4: Plan Agent (PLAN route active)", prefix);
-                planFuture = CompletableFuture.runAsync(() -> {
-                    try {
-                        String planSessionId = createAgentSession(projectId, "plan-agent", pipelineId);
-                        seedUserMessage(planSessionId, buildPlanAgentPrompt(enrichedContent, triageOutput, filePaths, projectId));
-                        agentLoop.startAsync(planSessionId);
-                        waitForCompletion(planSessionId, PLAN_TIMEOUT_MS);
-                        log.info("{} Phase 4 complete — Plan agent finished", prefix);
-                    } catch (Exception e) {
-                        throw new RuntimeException("Plan Agent failed: " + e.getMessage(), e);
-                    }
-                }, executor);
-            } else {
-                log.info("{} Phase 4: Plan Agent — skipped (PLAN route inactive)", prefix);
-            }
-
-            // Wait for both PM and Plan to finish before proceeding
-            CompletableFuture.allOf(pmFuture, planFuture).join();
+                    Map.of("pipelineId", pipelineId, "hydrationSessionId", hydrationSessionId));
+            log.info("{} Phase 2 complete — generalist hydration done", prefix);
 
             // ── Phase 5 & 6: Objective + Reconcile (conditional on tickets or plan) ──
             if (routeToTickets || routeToPlan) {
-                log.info("{} Phase 5: Objective Agent", prefix);
-                String objectiveSessionId = createAgentSession(projectId, "objective-agent", pipelineId);
-                seedUserMessage(objectiveSessionId, buildObjectiveAgentPrompt(projectId));
-                agentLoop.startAsync(objectiveSessionId);
-                waitForCompletion(objectiveSessionId, OBJECTIVE_TIMEOUT_MS);
-                log.info("{} Phase 5 complete — objectives synthesized", prefix);
+                try {
+                    log.info("{} Phase 5: Objective Agent", prefix);
+                    String objectiveSessionId = createAgentSession(projectId, "objective-agent", pipelineId);
+                    seedUserMessage(objectiveSessionId, buildObjectiveAgentPrompt(projectId));
+                    agentLoop.startAsync(objectiveSessionId);
+                    waitForCompletion(objectiveSessionId, OBJECTIVE_TIMEOUT_MS);
+                    log.info("{} Phase 5 complete — objectives synthesized", prefix);
+                } catch (Exception e) {
+                    log.warn("{} Phase 5 failed (non-fatal): {}", prefix, e.getMessage());
+                }
 
-                log.info("{} Phase 6: Reconcile Agent", prefix);
-                String reconcileSessionId = createAgentSession(projectId, "reconcile-agent", pipelineId);
-                seedUserMessage(reconcileSessionId, buildReconcileAgentPrompt(projectId));
-                agentLoop.startAsync(reconcileSessionId);
-                waitForCompletion(reconcileSessionId, RECONCILE_TIMEOUT_MS);
-                log.info("{} Phase 6 complete — reconciliation done, delta pack created", prefix);
+                try {
+                    log.info("{} Phase 6: Reconcile Agent", prefix);
+                    String reconcileSessionId = createAgentSession(projectId, "reconcile-agent", pipelineId);
+                    seedUserMessage(reconcileSessionId, buildReconcileAgentPrompt(projectId));
+                    agentLoop.startAsync(reconcileSessionId);
+                    waitForCompletion(reconcileSessionId, RECONCILE_TIMEOUT_MS);
+                    log.info("{} Phase 6 complete — reconciliation done, delta pack created", prefix);
+                } catch (Exception e) {
+                    log.warn("{} Phase 6 failed (non-fatal): {}", prefix, e.getMessage());
+                }
             } else {
                 log.info("{} Phases 5-6: Objective + Reconcile — skipped (single-source intake)", prefix);
             }
 
             // ── Phase 7: Resource Agent (conditional) ──
             if (routeToResources || routeToTickets) {
-                log.info("{} Phase 7: Resource Agent", prefix);
-                String resourceSessionId = createAgentSession(projectId, "resource-agent", pipelineId);
-                seedUserMessage(resourceSessionId, buildResourceAgentPrompt(projectId));
-                agentLoop.startAsync(resourceSessionId);
-                waitForCompletion(resourceSessionId, RESOURCE_TIMEOUT_MS);
-                log.info("{} Phase 7 complete — resource analysis done", prefix);
+                try {
+                    log.info("{} Phase 7: Resource Agent", prefix);
+                    String resourceSessionId = createAgentSession(projectId, "resource-agent", pipelineId);
+                    seedUserMessage(resourceSessionId, buildResourceAgentPrompt(projectId));
+                    agentLoop.startAsync(resourceSessionId);
+                    waitForCompletion(resourceSessionId, RESOURCE_TIMEOUT_MS);
+                    log.info("{} Phase 7 complete — resource analysis done", prefix);
+                } catch (Exception e) {
+                    log.warn("{} Phase 7 failed (non-fatal): {}", prefix, e.getMessage());
+                }
             } else {
                 log.info("{} Phase 7: Resource Agent — skipped (no TICKETS or RESOURCES route)", prefix);
             }
@@ -243,10 +228,11 @@ public class IntakePipelineService {
             // Persist summary to source session
             int threadCount = threadRepository.findByProjectIdsOrderByUpdatedAtDesc(projectId).size();
             String summary = String.format(
-                    "Pipeline complete. Triage classified content, %d thread(s) created.%s%s",
+                    "Pipeline complete. Triage classified content, generalist hydrated %d thread(s).%s%s%s",
                     threadCount,
-                    routeToTickets ? " PM agent processed ticket data." : "",
-                    routeToPlan ? " Plan agent processed plan data." : "");
+                    routeToTickets ? " Tickets created." : "",
+                    routeToPlan ? " Plan phases created." : "",
+                    routeToResources ? " Resources created." : "");
             MessageDocument summaryMsg = new MessageDocument();
             summaryMsg.setMessageId(UUID.randomUUID().toString());
             summaryMsg.setSessionId(sourceSessionId);
@@ -280,11 +266,46 @@ public class IntakePipelineService {
         }
     }
 
-    /** Parse triage agent's routing block for a specific route decision. */
+    /** Parse triage agent's routing block for a specific route decision.
+     *  Handles markdown formatting like **PLAN:** yes, `PLAN`: yes, _PLAN_: yes */
     private boolean parseRoute(String triageOutput, String routeName) {
-        Pattern p = Pattern.compile("^\\s*" + routeName + ":\\s*(yes|true)",
+        Pattern p = Pattern.compile(
+                "^[\\s*_`]*" + routeName + "[\\s*_`]*[:\\-=]\\s*[*_`]*(yes|true)[*_`]*",
                 Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
         return p.matcher(triageOutput).find();
+    }
+
+    /**
+     * Deterministic keyword scan to detect content signals the triage agent may have missed.
+     * Returns a map with PLAN, RESOURCES, TICKETS keys mapped to true/false.
+     */
+    private Map<String, Boolean> detectContentSignals(String content) {
+        if (content == null || content.isBlank()) {
+            return Map.of("PLAN", false, "RESOURCES", false, "TICKETS", false);
+        }
+        String lower = content.toLowerCase();
+
+        // PLAN: "objective" + ("outcome" or "committed" or "proposed"), or "sprint goal/objective"
+        boolean plan = (lower.contains("objective") && (lower.contains("outcome")
+                || lower.contains("committed") || lower.contains("proposed")))
+                || lower.contains("measurable signal")
+                || lower.contains("sprint goal") || lower.contains("sprint objective");
+
+        // RESOURCES: ("capacity" + "availability"), or "resource allocation", or ("engineer" + "skills")
+        boolean resources = (lower.contains("capacity") && lower.contains("availability"))
+                || lower.contains("resource allocation")
+                || (lower.contains("engineer") && lower.contains("skills"));
+
+        // TICKETS: 3+ Jira keys, or CSV/JSON headers with key+summary+status
+        boolean tickets = false;
+        java.util.regex.Matcher jiraMatcher = Pattern.compile("[A-Z]{2,}-\\d+").matcher(content);
+        int jiraCount = 0;
+        while (jiraMatcher.find()) { jiraCount++; if (jiraCount >= 3) { tickets = true; break; } }
+        if (!tickets) {
+            tickets = lower.contains("key") && lower.contains("summary") && lower.contains("status");
+        }
+
+        return Map.of("PLAN", plan, "RESOURCES", resources, "TICKETS", tickets);
     }
 
     // ── Session / message helpers ──
@@ -384,10 +405,13 @@ public class IntakePipelineService {
           .append("After organizing content into topics, you MUST output a routing block:\n\n")
           .append("### Routes\n")
           .append("THREAD: yes/no — topics, ideas, architecture discussions, meeting notes, designs\n")
-          .append("TICKETS: yes/no — Jira exports, task lists, bug reports, ticket dumps\n")
-          .append("PLAN: yes/no — Smartsheet plans, milestone schedules, phase definitions, timelines\n")
-          .append("RESOURCES: yes/no — team assignments, capacity data, allocation spreadsheets\n\n")
-          .append("Set each to \"yes\" ONLY if you identified that specific content type in the input.\n")
+          .append("TICKETS: yes/no — Jira exports, task lists, bug reports, ticket dumps, work items with keys like ABC-123\n")
+          .append("PLAN: yes/no — sprint objectives, OKRs, milestone schedules, phase definitions, timelines, ")
+          .append("content with 'Objective' + 'Outcome' or 'COMMITTED'/'PROPOSED' status\n")
+          .append("RESOURCES: yes/no — team member info with capacity/availability/skills, resource allocation, ")
+          .append("workload data, people with roles and assignments\n\n")
+          .append("A single piece of content can trigger MULTIPLE routes. Set each to \"yes\" if you identified ")
+          .append("that specific content type anywhere in the input.\n")
           .append("This routing block drives which downstream agents will process the content.\n")
           .append(TOOL_FORMAT)
           .append("### Tool: classify_content\n")
@@ -398,6 +422,118 @@ public class IntakePipelineService {
         return sb.toString();
     }
 
+    private String buildGeneralistHydrationPrompt(String rawContent, String triageOutput,
+                                                    String projectId, List<String> filePaths,
+                                                    boolean routeToThreads, boolean routeToTickets,
+                                                    boolean routeToPlan, boolean routeToResources) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("You are in **Intake Hydration Mode**. The triage agent has classified the following raw content. ")
+          .append("Your job is to create ALL appropriate domain objects in a SINGLE pass using tool calls.\n\n");
+
+        // Existing threads for context
+        List<ThreadDocument> existingThreads = threadRepository.findByProjectIdsOrderByUpdatedAtDesc(projectId);
+        if (!existingThreads.isEmpty()) {
+            sb.append("## Existing Threads for This Project\n");
+            sb.append(buildExistingThreadContext(existingThreads));
+            sb.append("\n\n");
+        }
+
+        // Project memories for context
+        List<MemoryDocument> memories = memoryRepository.findRelevantMemories(projectId);
+        if (!memories.isEmpty()) {
+            sb.append("## Project Memories (recent intakes)\n");
+            sb.append(buildMemoryContext(memories));
+            sb.append("\n\n");
+        }
+
+        // File path hints
+        if (filePaths != null && !filePaths.isEmpty()) {
+            sb.append("## Attached Files\n");
+            for (String fp : filePaths) {
+                sb.append("- ").append(fp).append("\n");
+            }
+            sb.append("\nUse `excel` tool to read these files if they contain structured data.\n\n");
+        }
+
+        // Routing summary — THREAD is always yes because generalist always creates threads
+        sb.append("## Triage Routing Decisions\n");
+        sb.append("- THREAD: yes (always create at least one thread per distinct topic)\n");
+        sb.append("- TICKETS: ").append(routeToTickets ? "yes" : "no").append("\n");
+        sb.append("- PLAN: ").append(routeToPlan ? "yes" : "no").append("\n");
+        sb.append("- RESOURCES: ").append(routeToResources ? "yes" : "no").append("\n\n");
+
+        sb.append("## Instructions\n")
+          .append("Do NOT assume any specific format — the content could be CSV, JSON, plain text, meeting notes, ")
+          .append("or any other format. Parse it as-is and extract structured data.\n\n")
+          .append("For the identified routes, create the appropriate domain objects:\n\n");
+
+        // Always create threads (content always produces threads)
+        sb.append("### Threads (MANDATORY — create FIRST, before any other objects)\n")
+          .append("You MUST call `create_thread` at least once. Group content by epic, theme, or topic.\n")
+          .append("For ticket/Jira data: create one thread per epic or functional area (e.g., \"Payment Processing\", \"Webhook Integration\").\n")
+          .append("For discussions: create one thread per distinct topic.\n")
+          .append("  args={\"projectId\": \"").append(projectId).append("\", \"title\": \"Topic Name\", ")
+          .append("\"content\": \"## Markdown summary of this topic/epic\", ")
+          .append("\"decisions\": [\"decision text\"], ")
+          .append("\"actions\": [{\"text\": \"action text\", \"assignee\": \"Person\"}]}\n")
+          .append("If a topic matches an existing thread's title, create_thread will append to it.\n\n");
+
+        if (routeToTickets) {
+            sb.append("### Tickets\n")
+              .append("Call `create_ticket` for each work item/task/bug:\n")
+              .append("  args={\"projectId\": \"").append(projectId).append("\", \"title\": \"J-101: Summary\", ")
+              .append("\"description\": \"Epic: X | Status: Y | Owner: Z\", \"priority\": \"HIGH\"}\n\n");
+        }
+
+        if (routeToPlan) {
+            sb.append("### Objectives (IMPORTANT — create for EACH sprint objective or OKR)\n")
+              .append("Call `create_objective` for EACH objective, goal, or OKR found in the content.\n")
+              .append("ALWAYS create new objective records even if similar objectives already exist in the project.\n")
+              .append("Each intake creates its own set of records — do NOT deduplicate.\n")
+              .append("  args={\"projectId\": \"").append(projectId).append("\", ")
+              .append("\"title\": \"Objective outcome description\", ")
+              .append("\"description\": \"Measurable signal / success criteria\", ")
+              .append("\"status\": \"COMMITTED\", ")
+              .append("\"week\": \"Sprint 42\"}\n")
+              .append("Status should be COMMITTED or PROPOSED based on the content.\n")
+              .append("If the content has 3 objectives, you MUST make 3 create_objective calls.\n\n");
+
+            sb.append("### Phases & Milestones\n")
+              .append("Call `create_phase` for each project phase:\n")
+              .append("  args={\"projectId\": \"").append(projectId).append("\", \"name\": \"Phase 1\", ")
+              .append("\"sortOrder\": 1, \"description\": \"...\"}\n")
+              .append("Call `create_milestone` for each milestone:\n")
+              .append("  args={\"projectId\": \"").append(projectId).append("\", \"name\": \"Milestone\", ")
+              .append("\"targetDate\": \"2026-03-15\", \"owner\": \"Bob\"}\n\n");
+        }
+
+        if (routeToResources) {
+            sb.append("### Resources (IMPORTANT — create for EACH team member mentioned by name)\n")
+              .append("Call `create_resource` for EVERY person mentioned in the content.\n")
+              .append("Look in: attendees lists, resource allocation sections, action items, team rosters.\n")
+              .append("Extract their full name, role, capacity, availability, and skills from context.\n")
+              .append("  args={\"projectId\": \"").append(projectId).append("\", \"name\": \"Joe Martinez\", ")
+              .append("\"role\": \"ENGINEER\", \"skills\": [\"Java\", \"Spring\"], ")
+              .append("\"capacity\": 100, \"availability\": 0.8}\n")
+              .append("Do NOT skip any named person. Do NOT invent names not in the content.\n")
+              .append("If 3 people are named, you MUST make 3 create_resource calls.\n\n");
+        }
+
+        sb.append(TOOL_FORMAT)
+          .append("IMPORTANT: Output ALL tool calls in a SINGLE response using <tool_call> blocks.\n")
+          .append("Do NOT create objects one at a time across multiple responses.\n")
+          .append("You MUST call the appropriate create_* tool for EACH item. Do NOT skip any.\n")
+          .append("CRITICAL: You MUST include create_thread calls. Threads are MANDATORY. ")
+          .append("If you only create tickets without threads, the pipeline will fail.\n\n")
+          .append("---\nTRIAGE OUTPUT (routing decisions already extracted above — ignore any Routes block below):\n")
+          .append(stripRoutingBlock(triageOutput)).append("\n\n")
+          .append("---\nORIGINAL RAW CONTENT:\n").append(rawContent);
+
+        return sb.toString();
+    }
+
+    /** @deprecated Use {@link #buildGeneralistHydrationPrompt} instead. Kept for reference during migration. */
+    @Deprecated
     private String buildThreadAgentPrompt(String rawContent, String triageOutput, String projectId) {
         StringBuilder sb = new StringBuilder();
         sb.append("You are in **Intake Pipeline Mode**. The triage agent has classified the following raw content ")
@@ -448,6 +584,8 @@ public class IntakePipelineService {
         return sb.toString();
     }
 
+    /** @deprecated Use {@link #buildGeneralistHydrationPrompt} instead. Kept for reference during migration. */
+    @Deprecated
     private String buildPMAgentPrompt(String rawContent, String triageOutput,
                                        List<String> filePaths, String projectId) {
         String fileSection = filePaths.isEmpty() ? ""
@@ -479,6 +617,8 @@ public class IntakePipelineService {
                 + "---\nORIGINAL RAW CONTENT:\n" + rawContent;
     }
 
+    /** @deprecated Use {@link #buildGeneralistHydrationPrompt} instead. Kept for reference during migration. */
+    @Deprecated
     private String buildPlanAgentPrompt(String rawContent, String triageOutput,
                                          List<String> filePaths, String projectId) {
         String fileSection = filePaths.isEmpty() ? ""
@@ -551,6 +691,15 @@ public class IntakePipelineService {
         return memories.stream()
                 .map(m -> "- [" + m.getKey() + "] " + truncate(m.getContent(), 120))
                 .collect(Collectors.joining("\n"));
+    }
+
+    /** Strip routing block (### Routes ... THREAD/TICKETS/PLAN/RESOURCES lines) from triage output
+     *  to prevent conflicting routing signals in the generalist prompt. */
+    private String stripRoutingBlock(String triageOutput) {
+        if (triageOutput == null) return "";
+        return triageOutput.replaceAll("(?im)^###\\s*Routes\\s*$", "")
+                .replaceAll("(?im)^[\\s*_`]*(THREAD|TICKETS|PLAN|RESOURCES)[\\s*_`]*[:\\-=].*$", "")
+                .replaceAll("(?m)^\\s*\n{2,}", "\n");
     }
 
     private String truncate(String s, int maxLen) {

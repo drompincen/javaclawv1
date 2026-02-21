@@ -76,12 +76,12 @@ The `sample-data/` folder contains internally consistent test data:
 
 | File | Content |
 |------|---------|
-| [meeting-notes-kyc.txt](sample-data/meeting-notes-kyc.txt) | KYC Architecture Review — 3 topics, 3 attendees |
-| [meeting-notes-onboarding.txt](sample-data/meeting-notes-onboarding.txt) | Client Onboarding Design — 2 topics |
+| [meeting-notes-payments.txt](sample-data/meeting-notes-payments.txt) | Payment Gateway Architecture Review — 3 topics, 3 attendees |
+| [meeting-notes-onboarding.txt](sample-data/meeting-notes-onboarding.txt) | Merchant Onboarding Design — 2 topics |
 | [jira-export.txt](sample-data/jira-export.txt) | 7 Jira tickets (Joe assigned 5/7) |
 | [team-roster.json](sample-data/team-roster.json) | 3 team members with skills + capacity |
 
-All data references the same fictional team (Joe, Alice, Bob) working on a KYC platform.
+All data references the same fictional team (Joe, Alice, Bob) working on a payment gateway.
 
 ## Scenario Tests
 

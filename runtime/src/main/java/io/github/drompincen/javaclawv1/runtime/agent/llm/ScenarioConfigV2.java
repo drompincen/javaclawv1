@@ -24,7 +24,8 @@ public record ScenarioConfigV2(
             StepExpectations expects,
             String pipelineContent,
             List<String> filePaths,
-            List<SeedAction> seedActions
+            List<SeedAction> seedActions,
+            List<String> uploadFiles
     ) {}
 
     public record SeedAction(String method, String url, Object body) {}

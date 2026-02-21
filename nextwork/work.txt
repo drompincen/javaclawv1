@@ -1,9 +1,0 @@
-I have the UI running while you run the tutorial script
-the UI is not showing that things are happening (agents blinking or tokens used)
-project dropdown is not showing new projects, but you should change all tutorial scripts to use the same project name
-I'm not able to remove resources or tickets
-The icon when there are items in the work spaces (counter) should be light yellow and black font when the count is >0
-checklist items show 2/6 but it should show all and their status and also ability to remove and mark done
-when changes done, run all tests
-run all scenario test in testMode
-

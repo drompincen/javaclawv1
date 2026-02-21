@@ -81,9 +81,9 @@ public class CreateThreadTool implements Tool {
         if (title == null || title.isBlank()) return ToolResult.failure("'title' is required");
 
         // Dedup: if thread with same title exists, append content to it
-        var existing = threadRepository.findByTitleIgnoreCaseAndProjectIdsContaining(title, projectId);
-        if (existing.isPresent()) {
-            ThreadDocument existingThread = existing.get();
+        var existingList = threadRepository.findByTitleIgnoreCaseAndProjectIdsContaining(title, projectId);
+        if (!existingList.isEmpty()) {
+            ThreadDocument existingThread = existingList.get(0);
             String newContent = input.path("content").asText(null);
 
             // Append new content to existing thread content

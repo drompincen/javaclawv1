@@ -1,4 +1,4 @@
-clean up the mongodb contents before running
+clean up the mongodb contents before running but do not delete the agents collection
 run the scenarios and check the results in both rest apis and mongodb
 remember that the server will be started by me using a real llm api behind the agents
 the server run on windws not wsl
