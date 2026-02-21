@@ -1,8 +1,9 @@
 package io.github.drompincen.javaclawv1.runtime.agent;
 
-import io.github.drompincen.javaclawv1.persistence.document.TicketDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.TicketRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.TicketDto;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -10,12 +11,11 @@ import org.springframework.stereotype.Service;
 import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -29,10 +29,10 @@ public class JiraImportService {
 
     private static final Logger log = LoggerFactory.getLogger(JiraImportService.class);
 
-    private final TicketRepository ticketRepository;
+    private final ThingService thingService;
 
-    public JiraImportService(TicketRepository ticketRepository) {
-        this.ticketRepository = ticketRepository;
+    public JiraImportService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     // -----------------------------------------------------------------------
@@ -150,8 +150,8 @@ public class JiraImportService {
                 if (cols.length == 0 || (cols.length == 1 && cols[0].isBlank())) {
                     continue;
                 }
-                TicketDocument ticket = buildTicket(cols, colMap, projectId);
-                ticketRepository.save(ticket);
+                Map<String, Object> payload = buildTicketPayload(cols, colMap);
+                thingService.createThing(projectId, ThingCategory.TICKET, payload);
                 imported++;
             } catch (Exception e) {
                 errors.add("Row " + (i + 1) + ": " + e.getMessage());
@@ -216,8 +216,8 @@ public class JiraImportService {
                             || (cols.length > 0 && cols[0].isBlank() && getCol(cols, colMap.get("title")).isBlank())) {
                         continue;
                     }
-                    TicketDocument ticket = buildTicket(cols, colMap, projectId);
-                    ticketRepository.save(ticket);
+                    Map<String, Object> payload = buildTicketPayload(cols, colMap);
+                    thingService.createThing(projectId, ThingCategory.TICKET, payload);
                     imported++;
                 } catch (Exception e) {
                     errors.add("Row " + (r + 1) + ": " + e.getMessage());
@@ -273,13 +273,11 @@ public class JiraImportService {
     }
 
     // -----------------------------------------------------------------------
-    // Ticket construction from parsed row data
+    // Ticket payload construction from parsed row data
     // -----------------------------------------------------------------------
 
-    private TicketDocument buildTicket(String[] cols, Map<String, Integer> colMap, String projectId) {
-        TicketDocument ticket = new TicketDocument();
-        ticket.setTicketId(UUID.randomUUID().toString());
-        ticket.setProjectId(projectId);
+    private Map<String, Object> buildTicketPayload(String[] cols, Map<String, Integer> colMap) {
+        Map<String, Object> payload = new LinkedHashMap<>();
 
         String title = getCol(cols, colMap.get("title"));
         if (title.isBlank()) {
@@ -291,31 +289,30 @@ public class JiraImportService {
         if (!key.isBlank()) {
             title = "[" + key + "] " + title;
         }
-        ticket.setTitle(title);
-
-        ticket.setDescription(getCol(cols, colMap.get("description")));
+        payload.put("title", title);
+        payload.put("description", getCol(cols, colMap.get("description")));
 
         // Map priority
         String prio = getCol(cols, colMap.get("priority")).toUpperCase();
-        ticket.setPriority(switch (prio) {
-            case "HIGHEST", "BLOCKER", "CRITICAL" -> TicketDto.TicketPriority.CRITICAL;
-            case "HIGH", "MAJOR" -> TicketDto.TicketPriority.HIGH;
-            case "LOW", "MINOR" -> TicketDto.TicketPriority.LOW;
-            case "LOWEST", "TRIVIAL" -> TicketDto.TicketPriority.LOW;
-            default -> TicketDto.TicketPriority.MEDIUM;
-        });
+        String priority = switch (prio) {
+            case "HIGHEST", "BLOCKER", "CRITICAL" -> TicketDto.TicketPriority.CRITICAL.name();
+            case "HIGH", "MAJOR" -> TicketDto.TicketPriority.HIGH.name();
+            case "LOW", "MINOR" -> TicketDto.TicketPriority.LOW.name();
+            case "LOWEST", "TRIVIAL" -> TicketDto.TicketPriority.LOW.name();
+            default -> TicketDto.TicketPriority.MEDIUM.name();
+        };
+        payload.put("priority", priority);
 
         // Map status
         String st = getCol(cols, colMap.get("status")).toUpperCase().replace(" ", "_");
-        ticket.setStatus(switch (st) {
-            case "IN_PROGRESS", "IN_REVIEW", "IN_DEVELOPMENT" -> TicketDto.TicketStatus.IN_PROGRESS;
-            case "DONE", "RESOLVED", "CLOSED", "RELEASED" -> TicketDto.TicketStatus.DONE;
-            default -> TicketDto.TicketStatus.TODO;
-        });
+        String status = switch (st) {
+            case "IN_PROGRESS", "IN_REVIEW", "IN_DEVELOPMENT" -> TicketDto.TicketStatus.IN_PROGRESS.name();
+            case "DONE", "RESOLVED", "CLOSED", "RELEASED" -> TicketDto.TicketStatus.DONE.name();
+            default -> TicketDto.TicketStatus.TODO.name();
+        };
+        payload.put("status", status);
 
-        ticket.setCreatedAt(Instant.now());
-        ticket.setUpdatedAt(Instant.now());
-        return ticket;
+        return payload;
     }
 
     private String getCol(String[] cols, int idx) {

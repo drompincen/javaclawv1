@@ -1,23 +1,22 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ObjectiveDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ObjectiveRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.ObjectiveStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Set;
+import java.util.*;
 
 public class UpdateObjectiveTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ObjectiveRepository objectiveRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "update_objective"; }
 
@@ -49,70 +48,73 @@ public class UpdateObjectiveTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setObjectiveRepository(ObjectiveRepository objectiveRepository) {
-        this.objectiveRepository = objectiveRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (objectiveRepository == null) {
-            return ToolResult.failure("Objective repository not available — ensure MongoDB is connected");
+        if (thingService == null) {
+            return ToolResult.failure("ThingService not available — ensure MongoDB is connected");
         }
 
         String objectiveId = input.path("objectiveId").asText(null);
         if (objectiveId == null || objectiveId.isBlank()) return ToolResult.failure("'objectiveId' is required");
 
-        ObjectiveDocument obj = objectiveRepository.findById(objectiveId).orElse(null);
+        ThingDocument obj = thingService.findById(objectiveId, ThingCategory.OBJECTIVE).orElse(null);
         if (obj == null) {
             return ToolResult.failure("Objective not found: " + objectiveId);
         }
 
+        Map<String, Object> updates = new LinkedHashMap<>();
         ArrayNode updatedFields = MAPPER.createArrayNode();
 
         String outcome = input.path("outcome").asText(null);
         if (outcome != null && !outcome.isBlank()) {
-            obj.setOutcome(outcome);
+            updates.put("outcome", outcome);
             updatedFields.add("outcome");
         }
 
         String signal = input.path("measurableSignal").asText(null);
         if (signal != null && !signal.isBlank()) {
-            obj.setMeasurableSignal(signal);
+            updates.put("measurableSignal", signal);
             updatedFields.add("measurableSignal");
         }
 
         if (input.has("risks") && input.get("risks").isArray()) {
             var newRisks = new ArrayList<String>();
             input.get("risks").forEach(r -> newRisks.add(r.asText()));
-            obj.setRisks(newRisks);
+            updates.put("risks", newRisks);
             updatedFields.add("risks");
         }
 
         if (input.has("ticketIds") && input.get("ticketIds").isArray()) {
-            var existing = obj.getTicketIds() != null ? new ArrayList<>(obj.getTicketIds()) : new ArrayList<String>();
+            @SuppressWarnings("unchecked")
+            List<String> existing = obj.getPayload().get("ticketIds") != null
+                    ? new ArrayList<>((List<String>) obj.getPayload().get("ticketIds"))
+                    : new ArrayList<>();
             input.get("ticketIds").forEach(t -> {
                 String tid = t.asText();
                 if (!existing.contains(tid)) existing.add(tid);
             });
-            obj.setTicketIds(existing);
+            updates.put("ticketIds", existing);
             updatedFields.add("ticketIds");
         }
 
         if (input.has("coveragePercent")) {
-            obj.setCoveragePercent(input.path("coveragePercent").asDouble());
+            updates.put("coveragePercent", input.path("coveragePercent").asDouble());
             updatedFields.add("coveragePercent");
         }
 
         String statusStr = input.path("status").asText(null);
         if (statusStr != null && !statusStr.isBlank()) {
             try {
-                obj.setStatus(ObjectiveStatus.valueOf(statusStr.toUpperCase()));
+                updates.put("status", ObjectiveStatus.valueOf(statusStr.toUpperCase()).name());
                 updatedFields.add("status");
             } catch (IllegalArgumentException ignored) {}
         }
 
-        obj.setUpdatedAt(Instant.now());
-        objectiveRepository.save(obj);
+        thingService.mergePayload(obj, updates);
 
         stream.progress(100, "Objective updated: " + objectiveId);
 

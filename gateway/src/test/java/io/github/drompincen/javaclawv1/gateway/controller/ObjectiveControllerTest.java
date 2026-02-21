@@ -1,54 +1,73 @@
 package io.github.drompincen.javaclawv1.gateway.controller;
 
-import io.github.drompincen.javaclawv1.persistence.document.ObjectiveDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ObjectiveRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.ObjectiveDto;
 import io.github.drompincen.javaclawv1.protocol.api.ObjectiveStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.http.ResponseEntity;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class ObjectiveControllerTest {
 
-    @Mock private ObjectiveRepository objectiveRepository;
+    @Mock private ThingService thingService;
 
     private ObjectiveController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new ObjectiveController(objectiveRepository);
+        controller = new ObjectiveController(thingService);
+        when(thingService.createThing(any(), eq(ThingCategory.OBJECTIVE), any()))
+                .thenAnswer(inv -> {
+                    ThingDocument thing = new ThingDocument();
+                    thing.setId(java.util.UUID.randomUUID().toString());
+                    thing.setProjectId(inv.getArgument(0));
+                    thing.setThingCategory(ThingCategory.OBJECTIVE);
+                    thing.setPayload(new LinkedHashMap<>(inv.getArgument(2)));
+                    thing.setCreateDate(Instant.now());
+                    thing.setUpdateDate(Instant.now());
+                    return thing;
+                });
     }
 
-    private ObjectiveDocument makeObjective(String id, String projectId) {
-        ObjectiveDocument doc = new ObjectiveDocument();
-        doc.setObjectiveId(id);
-        doc.setProjectId(projectId);
-        doc.setSprintName("Sprint 1");
-        doc.setOutcome("Deliver feature X");
-        doc.setStatus(ObjectiveStatus.PROPOSED);
-        doc.setCreatedAt(Instant.now());
-        doc.setUpdatedAt(Instant.now());
-        return doc;
+    private ThingDocument makeObjective(String id, String projectId) {
+        ThingDocument thing = new ThingDocument();
+        thing.setId(id);
+        thing.setProjectId(projectId);
+        thing.setThingCategory(ThingCategory.OBJECTIVE);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sprintName", "Sprint 1");
+        payload.put("outcome", "Deliver feature X");
+        payload.put("status", ObjectiveStatus.PROPOSED.name());
+        thing.setPayload(payload);
+        thing.setCreateDate(Instant.now());
+        thing.setUpdateDate(Instant.now());
+        return thing;
     }
 
     @Test
     void createSetsIdAndProjectIdAndDefaults() {
-        when(objectiveRepository.save(any(ObjectiveDocument.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        ObjectiveDocument body = new ObjectiveDocument();
-        body.setOutcome("Ship v2");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("outcome", "Ship v2");
 
         ResponseEntity<ObjectiveDto> response = controller.create("p1", body);
 
@@ -59,15 +78,13 @@ class ObjectiveControllerTest {
         assertThat(dto.projectId()).isEqualTo("p1");
         assertThat(dto.status()).isEqualTo(ObjectiveStatus.PROPOSED);
         assertThat(dto.createdAt()).isNotNull();
-        verify(objectiveRepository).save(any(ObjectiveDocument.class));
+        verify(thingService).createThing(eq("p1"), eq(ThingCategory.OBJECTIVE), any());
     }
 
     @Test
     void createPreservesExplicitStatus() {
-        when(objectiveRepository.save(any(ObjectiveDocument.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        ObjectiveDocument body = new ObjectiveDocument();
-        body.setStatus(ObjectiveStatus.COMMITTED);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", ObjectiveStatus.COMMITTED.name());
 
         ResponseEntity<ObjectiveDto> response = controller.create("p1", body);
 
@@ -76,9 +93,10 @@ class ObjectiveControllerTest {
 
     @Test
     void listByProjectReturnsAll() {
-        ObjectiveDocument o1 = makeObjective("o1", "p1");
-        ObjectiveDocument o2 = makeObjective("o2", "p1");
-        when(objectiveRepository.findByProjectId("p1")).thenReturn(List.of(o1, o2));
+        ThingDocument o1 = makeObjective("o1", "p1");
+        ThingDocument o2 = makeObjective("o2", "p1");
+        when(thingService.findByProjectAndCategory("p1", ThingCategory.OBJECTIVE))
+                .thenReturn(List.of(o1, o2));
 
         List<ObjectiveDto> result = controller.list("p1", null, null);
 
@@ -88,33 +106,37 @@ class ObjectiveControllerTest {
 
     @Test
     void listByStatusFilters() {
-        ObjectiveDocument o1 = makeObjective("o1", "p1");
-        o1.setStatus(ObjectiveStatus.COMMITTED);
-        when(objectiveRepository.findByProjectIdAndStatus("p1", ObjectiveStatus.COMMITTED))
+        ThingDocument o1 = makeObjective("o1", "p1");
+        o1.getPayload().put("status", ObjectiveStatus.COMMITTED.name());
+        when(thingService.findByProjectCategoryAndPayload("p1", ThingCategory.OBJECTIVE,
+                "status", ObjectiveStatus.COMMITTED.name()))
                 .thenReturn(List.of(o1));
 
         List<ObjectiveDto> result = controller.list("p1", ObjectiveStatus.COMMITTED, null);
 
         assertThat(result).hasSize(1);
-        verify(objectiveRepository).findByProjectIdAndStatus("p1", ObjectiveStatus.COMMITTED);
+        verify(thingService).findByProjectCategoryAndPayload("p1", ThingCategory.OBJECTIVE,
+                "status", "COMMITTED");
     }
 
     @Test
     void listBySprintNameFilters() {
-        ObjectiveDocument o1 = makeObjective("o1", "p1");
-        when(objectiveRepository.findByProjectIdAndSprintName("p1", "Sprint 1"))
+        ThingDocument o1 = makeObjective("o1", "p1");
+        when(thingService.findByProjectCategoryAndPayload("p1", ThingCategory.OBJECTIVE,
+                "sprintName", "Sprint 1"))
                 .thenReturn(List.of(o1));
 
         List<ObjectiveDto> result = controller.list("p1", null, "Sprint 1");
 
         assertThat(result).hasSize(1);
-        verify(objectiveRepository).findByProjectIdAndSprintName("p1", "Sprint 1");
+        verify(thingService).findByProjectCategoryAndPayload("p1", ThingCategory.OBJECTIVE,
+                "sprintName", "Sprint 1");
     }
 
     @Test
     void getReturnsObjectiveWhenFound() {
-        ObjectiveDocument doc = makeObjective("o1", "p1");
-        when(objectiveRepository.findById("o1")).thenReturn(Optional.of(doc));
+        ThingDocument doc = makeObjective("o1", "p1");
+        when(thingService.findById("o1", ThingCategory.OBJECTIVE)).thenReturn(Optional.of(doc));
 
         ResponseEntity<ObjectiveDto> response = controller.get("p1", "o1");
 
@@ -124,7 +146,7 @@ class ObjectiveControllerTest {
 
     @Test
     void getReturns404WhenNotFound() {
-        when(objectiveRepository.findById("bad")).thenReturn(Optional.empty());
+        when(thingService.findById("bad", ThingCategory.OBJECTIVE)).thenReturn(Optional.empty());
 
         ResponseEntity<ObjectiveDto> response = controller.get("p1", "bad");
 
@@ -133,13 +155,20 @@ class ObjectiveControllerTest {
 
     @Test
     void updateAppliesPartialChanges() {
-        ObjectiveDocument existing = makeObjective("o1", "p1");
-        when(objectiveRepository.findById("o1")).thenReturn(Optional.of(existing));
-        when(objectiveRepository.save(any(ObjectiveDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+        ThingDocument existing = makeObjective("o1", "p1");
+        when(thingService.findById("o1", ThingCategory.OBJECTIVE)).thenReturn(Optional.of(existing));
+        when(thingService.mergePayload(any(), any())).thenAnswer(inv -> {
+            ThingDocument thing = inv.getArgument(0);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> updates = inv.getArgument(1);
+            thing.getPayload().putAll(updates);
+            thing.setUpdateDate(Instant.now());
+            return thing;
+        });
 
-        ObjectiveDocument updates = new ObjectiveDocument();
-        updates.setOutcome("New outcome");
-        updates.setStatus(ObjectiveStatus.ACHIEVED);
+        Map<String, Object> updates = new LinkedHashMap<>();
+        updates.put("outcome", "New outcome");
+        updates.put("status", ObjectiveStatus.ACHIEVED.name());
 
         ResponseEntity<ObjectiveDto> response = controller.update("p1", "o1", updates);
 
@@ -147,31 +176,30 @@ class ObjectiveControllerTest {
         assertThat(response.getBody().outcome()).isEqualTo("New outcome");
         assertThat(response.getBody().status()).isEqualTo(ObjectiveStatus.ACHIEVED);
         assertThat(response.getBody().sprintName()).isEqualTo("Sprint 1"); // unchanged
-        verify(objectiveRepository).save(existing);
     }
 
     @Test
     void updateReturns404WhenNotFound() {
-        when(objectiveRepository.findById("bad")).thenReturn(Optional.empty());
+        when(thingService.findById("bad", ThingCategory.OBJECTIVE)).thenReturn(Optional.empty());
 
-        ResponseEntity<ObjectiveDto> response = controller.update("p1", "bad", new ObjectiveDocument());
+        ResponseEntity<ObjectiveDto> response = controller.update("p1", "bad", Map.of());
 
         assertThat(response.getStatusCode().value()).isEqualTo(404);
     }
 
     @Test
     void deleteRemovesObjective() {
-        when(objectiveRepository.existsById("o1")).thenReturn(true);
+        when(thingService.existsById("o1")).thenReturn(true);
 
         ResponseEntity<Void> response = controller.delete("p1", "o1");
 
         assertThat(response.getStatusCode().value()).isEqualTo(204);
-        verify(objectiveRepository).deleteById("o1");
+        verify(thingService).deleteById("o1");
     }
 
     @Test
     void deleteReturns404WhenNotFound() {
-        when(objectiveRepository.existsById("bad")).thenReturn(false);
+        when(thingService.existsById("bad")).thenReturn(false);
 
         ResponseEntity<Void> response = controller.delete("p1", "bad");
 

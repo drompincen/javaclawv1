@@ -1,9 +1,9 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.MilestoneDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.MilestoneRepository;
 import io.github.drompincen.javaclawv1.protocol.api.MilestoneStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,7 +16,7 @@ import java.util.*;
 public class UpdateMilestoneTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private MilestoneRepository milestoneRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "update_milestone"; }
 
@@ -44,60 +44,63 @@ public class UpdateMilestoneTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setMilestoneRepository(MilestoneRepository milestoneRepository) {
-        this.milestoneRepository = milestoneRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (milestoneRepository == null) return ToolResult.failure("Milestone repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
 
         String milestoneId = input.path("milestoneId").asText(null);
         if (milestoneId == null || milestoneId.isBlank()) return ToolResult.failure("'milestoneId' is required");
 
-        MilestoneDocument doc = milestoneRepository.findById(milestoneId).orElse(null);
+        var doc = thingService.findById(milestoneId, ThingCategory.MILESTONE).orElse(null);
         if (doc == null) return ToolResult.failure("Milestone not found: " + milestoneId);
 
+        Map<String, Object> updates = new LinkedHashMap<>();
         ArrayNode updatedFields = MAPPER.createArrayNode();
 
         String statusStr = input.path("status").asText(null);
         if (statusStr != null && !statusStr.isBlank()) {
             try {
-                doc.setStatus(MilestoneStatus.valueOf(statusStr.toUpperCase()));
+                updates.put("status", MilestoneStatus.valueOf(statusStr.toUpperCase()).name());
                 updatedFields.add("status");
             } catch (IllegalArgumentException ignored) {}
         }
 
         String targetDate = input.path("targetDate").asText(null);
         if (targetDate != null) {
-            doc.setTargetDate(Instant.parse(targetDate + (targetDate.contains("T") ? "" : "T00:00:00Z")));
+            updates.put("targetDate", Instant.parse(targetDate + (targetDate.contains("T") ? "" : "T00:00:00Z")).toString());
             updatedFields.add("targetDate");
         }
 
         String actualDate = input.path("actualDate").asText(null);
         if (actualDate != null) {
-            doc.setActualDate(Instant.parse(actualDate + (actualDate.contains("T") ? "" : "T00:00:00Z")));
+            updates.put("actualDate", Instant.parse(actualDate + (actualDate.contains("T") ? "" : "T00:00:00Z")).toString());
             updatedFields.add("actualDate");
         }
 
         String owner = input.path("owner").asText(null);
         if (owner != null && !owner.isBlank()) {
-            doc.setOwner(owner);
+            updates.put("owner", owner);
             updatedFields.add("owner");
         }
 
         if (input.has("ticketIds") && input.get("ticketIds").isArray()) {
-            var existing = doc.getTicketIds() != null ? new ArrayList<>(doc.getTicketIds()) : new ArrayList<String>();
+            List<String> existing = doc.getPayload().get("ticketIds") != null
+                    ? new ArrayList<>((List<String>) doc.getPayload().get("ticketIds"))
+                    : new ArrayList<>();
             input.get("ticketIds").forEach(t -> {
                 String tid = t.asText();
                 if (!existing.contains(tid)) existing.add(tid);
             });
-            doc.setTicketIds(existing);
+            updates.put("ticketIds", existing);
             updatedFields.add("ticketIds");
         }
 
-        doc.setUpdatedAt(Instant.now());
-        milestoneRepository.save(doc);
+        thingService.mergePayload(doc, updates);
         stream.progress(100, "Milestone updated: " + milestoneId);
 
         ObjectNode result = MAPPER.createObjectNode();

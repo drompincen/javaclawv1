@@ -1,55 +1,74 @@
 package io.github.drompincen.javaclawv1.gateway.controller;
 
-import io.github.drompincen.javaclawv1.persistence.document.PhaseDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.PhaseRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.PhaseDto;
 import io.github.drompincen.javaclawv1.protocol.api.PhaseStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.http.ResponseEntity;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class PhaseControllerTest {
 
-    @Mock private PhaseRepository phaseRepository;
+    @Mock private ThingService thingService;
 
     private PhaseController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new PhaseController(phaseRepository);
+        controller = new PhaseController(thingService);
+        when(thingService.createThing(any(), eq(ThingCategory.PHASE), any()))
+                .thenAnswer(inv -> {
+                    ThingDocument thing = new ThingDocument();
+                    thing.setId(java.util.UUID.randomUUID().toString());
+                    thing.setProjectId(inv.getArgument(0));
+                    thing.setThingCategory(ThingCategory.PHASE);
+                    thing.setPayload(new LinkedHashMap<>(inv.getArgument(2)));
+                    thing.setCreateDate(Instant.now());
+                    thing.setUpdateDate(Instant.now());
+                    return thing;
+                });
     }
 
-    private PhaseDocument makePhase(String id, String projectId) {
-        PhaseDocument doc = new PhaseDocument();
-        doc.setPhaseId(id);
-        doc.setProjectId(projectId);
-        doc.setName("Design Phase");
-        doc.setDescription("Initial design work");
-        doc.setStatus(PhaseStatus.NOT_STARTED);
-        doc.setSortOrder(1);
-        doc.setCreatedAt(Instant.now());
-        doc.setUpdatedAt(Instant.now());
-        return doc;
+    private ThingDocument makePhase(String id, String projectId) {
+        ThingDocument thing = new ThingDocument();
+        thing.setId(id);
+        thing.setProjectId(projectId);
+        thing.setThingCategory(ThingCategory.PHASE);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("name", "Design Phase");
+        payload.put("description", "Initial design work");
+        payload.put("status", PhaseStatus.NOT_STARTED.name());
+        payload.put("sortOrder", 1);
+        thing.setPayload(payload);
+        thing.setCreateDate(Instant.now());
+        thing.setUpdateDate(Instant.now());
+        return thing;
     }
 
     @Test
     void createSetsIdAndProjectIdAndDefaults() {
-        when(phaseRepository.save(any(PhaseDocument.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        PhaseDocument body = new PhaseDocument();
-        body.setName("Planning");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("name", "Planning");
 
         ResponseEntity<PhaseDto> response = controller.create("p1", body);
 
@@ -60,15 +79,13 @@ class PhaseControllerTest {
         assertThat(dto.projectId()).isEqualTo("p1");
         assertThat(dto.status()).isEqualTo(PhaseStatus.NOT_STARTED);
         assertThat(dto.createdAt()).isNotNull();
-        verify(phaseRepository).save(any(PhaseDocument.class));
+        verify(thingService).createThing(eq("p1"), eq(ThingCategory.PHASE), any());
     }
 
     @Test
     void createPreservesExplicitStatus() {
-        when(phaseRepository.save(any(PhaseDocument.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        PhaseDocument body = new PhaseDocument();
-        body.setStatus(PhaseStatus.IN_PROGRESS);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", PhaseStatus.IN_PROGRESS.name());
 
         ResponseEntity<PhaseDto> response = controller.create("p1", body);
 
@@ -77,33 +94,35 @@ class PhaseControllerTest {
 
     @Test
     void listByProjectReturnsSortedByOrder() {
-        PhaseDocument p1 = makePhase("ph1", "p1");
-        PhaseDocument p2 = makePhase("ph2", "p1");
-        when(phaseRepository.findByProjectIdOrderBySortOrder("p1")).thenReturn(List.of(p1, p2));
+        ThingDocument p1 = makePhase("ph1", "p1");
+        ThingDocument p2 = makePhase("ph2", "p1");
+        when(thingService.findByProjectAndCategorySorted("p1", ThingCategory.PHASE, "payload.sortOrder", true))
+                .thenReturn(List.of(p1, p2));
 
         List<PhaseDto> result = controller.list("p1", null);
 
         assertThat(result).hasSize(2);
-        verify(phaseRepository).findByProjectIdOrderBySortOrder("p1");
+        verify(thingService).findByProjectAndCategorySorted("p1", ThingCategory.PHASE, "payload.sortOrder", true);
     }
 
     @Test
     void listByStatusFilters() {
-        PhaseDocument p1 = makePhase("ph1", "p1");
-        p1.setStatus(PhaseStatus.IN_PROGRESS);
-        when(phaseRepository.findByProjectIdAndStatus("p1", PhaseStatus.IN_PROGRESS))
+        ThingDocument p1 = makePhase("ph1", "p1");
+        p1.getPayload().put("status", PhaseStatus.IN_PROGRESS.name());
+        when(thingService.findByProjectCategoryAndPayload("p1", ThingCategory.PHASE,
+                "status", "IN_PROGRESS"))
                 .thenReturn(List.of(p1));
 
         List<PhaseDto> result = controller.list("p1", PhaseStatus.IN_PROGRESS);
 
         assertThat(result).hasSize(1);
-        verify(phaseRepository).findByProjectIdAndStatus("p1", PhaseStatus.IN_PROGRESS);
+        verify(thingService).findByProjectCategoryAndPayload("p1", ThingCategory.PHASE, "status", "IN_PROGRESS");
     }
 
     @Test
     void getReturnsPhaseWhenFound() {
-        PhaseDocument doc = makePhase("ph1", "p1");
-        when(phaseRepository.findById("ph1")).thenReturn(Optional.of(doc));
+        ThingDocument doc = makePhase("ph1", "p1");
+        when(thingService.findById("ph1", ThingCategory.PHASE)).thenReturn(Optional.of(doc));
 
         ResponseEntity<PhaseDto> response = controller.get("p1", "ph1");
 
@@ -114,7 +133,7 @@ class PhaseControllerTest {
 
     @Test
     void getReturns404WhenNotFound() {
-        when(phaseRepository.findById("bad")).thenReturn(Optional.empty());
+        when(thingService.findById("bad", ThingCategory.PHASE)).thenReturn(Optional.empty());
 
         ResponseEntity<PhaseDto> response = controller.get("p1", "bad");
 
@@ -123,14 +142,21 @@ class PhaseControllerTest {
 
     @Test
     void updateAppliesPartialChanges() {
-        PhaseDocument existing = makePhase("ph1", "p1");
-        when(phaseRepository.findById("ph1")).thenReturn(Optional.of(existing));
-        when(phaseRepository.save(any(PhaseDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+        ThingDocument existing = makePhase("ph1", "p1");
+        when(thingService.findById("ph1", ThingCategory.PHASE)).thenReturn(Optional.of(existing));
+        when(thingService.mergePayload(any(), any())).thenAnswer(inv -> {
+            ThingDocument thing = inv.getArgument(0);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> updates = inv.getArgument(1);
+            thing.getPayload().putAll(updates);
+            thing.setUpdateDate(Instant.now());
+            return thing;
+        });
 
-        PhaseDocument updates = new PhaseDocument();
-        updates.setName("Updated Phase");
-        updates.setStatus(PhaseStatus.COMPLETED);
-        updates.setEntryCriteria(List.of("PRD approved"));
+        Map<String, Object> updates = new LinkedHashMap<>();
+        updates.put("name", "Updated Phase");
+        updates.put("status", PhaseStatus.COMPLETED.name());
+        updates.put("entryCriteria", List.of("PRD approved"));
 
         ResponseEntity<PhaseDto> response = controller.update("p1", "ph1", updates);
 
@@ -139,31 +165,30 @@ class PhaseControllerTest {
         assertThat(response.getBody().status()).isEqualTo(PhaseStatus.COMPLETED);
         assertThat(response.getBody().entryCriteria()).containsExactly("PRD approved");
         assertThat(response.getBody().description()).isEqualTo("Initial design work"); // unchanged
-        verify(phaseRepository).save(existing);
     }
 
     @Test
     void updateReturns404WhenNotFound() {
-        when(phaseRepository.findById("bad")).thenReturn(Optional.empty());
+        when(thingService.findById("bad", ThingCategory.PHASE)).thenReturn(Optional.empty());
 
-        ResponseEntity<PhaseDto> response = controller.update("p1", "bad", new PhaseDocument());
+        ResponseEntity<PhaseDto> response = controller.update("p1", "bad", Map.of());
 
         assertThat(response.getStatusCode().value()).isEqualTo(404);
     }
 
     @Test
     void deleteRemovesPhase() {
-        when(phaseRepository.existsById("ph1")).thenReturn(true);
+        when(thingService.existsById("ph1")).thenReturn(true);
 
         ResponseEntity<Void> response = controller.delete("p1", "ph1");
 
         assertThat(response.getStatusCode().value()).isEqualTo(204);
-        verify(phaseRepository).deleteById("ph1");
+        verify(thingService).deleteById("ph1");
     }
 
     @Test
     void deleteReturns404WhenNotFound() {
-        when(phaseRepository.existsById("bad")).thenReturn(false);
+        when(thingService.existsById("bad")).thenReturn(false);
 
         ResponseEntity<Void> response = controller.delete("p1", "bad");
 

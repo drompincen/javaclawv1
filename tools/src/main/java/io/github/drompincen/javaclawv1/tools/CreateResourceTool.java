@@ -1,23 +1,21 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ResourceDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.ResourceDto;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 public class CreateResourceTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ResourceRepository resourceRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "create_resource"; }
 
@@ -45,14 +43,14 @@ public class CreateResourceTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setResourceRepository(ResourceRepository resourceRepository) {
-        this.resourceRepository = resourceRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (resourceRepository == null) {
-            return ToolResult.failure("Resource repository not available — ensure MongoDB is connected");
+        if (thingService == null) {
+            return ToolResult.failure("ThingService not available — ensure MongoDB is connected");
         }
 
         String projectId = input.path("projectId").asText(null);
@@ -60,20 +58,18 @@ public class CreateResourceTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (name == null || name.isBlank()) return ToolResult.failure("'name' is required");
 
-        ResourceDocument doc = new ResourceDocument();
-        doc.setResourceId(UUID.randomUUID().toString());
-        doc.setProjectId(projectId);
-        doc.setName(name);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("name", name);
 
         String roleStr = input.path("role").asText(null);
         if (roleStr != null && !roleStr.isBlank()) {
             try {
-                doc.setRole(ResourceDto.ResourceRole.valueOf(roleStr.toUpperCase()));
+                payload.put("role", ResourceDto.ResourceRole.valueOf(roleStr.toUpperCase()).name());
             } catch (IllegalArgumentException e) {
-                doc.setRole(ResourceDto.ResourceRole.ENGINEER);
+                payload.put("role", ResourceDto.ResourceRole.ENGINEER.name());
             }
         } else {
-            doc.setRole(ResourceDto.ResourceRole.ENGINEER);
+            payload.put("role", ResourceDto.ResourceRole.ENGINEER.name());
         }
 
         JsonNode skillsNode = input.path("skills");
@@ -82,26 +78,23 @@ public class CreateResourceTool implements Tool {
             for (JsonNode s : skillsNode) {
                 skills.add(s.asText());
             }
-            doc.setSkills(skills);
+            payload.put("skills", skills);
         }
 
-        int capacity = input.path("capacity").asInt(100);
-        doc.setCapacity(capacity);
-
-        double availability = input.path("availability").asDouble(1.0);
-        doc.setAvailability(availability);
+        payload.put("capacity", input.path("capacity").asInt(100));
+        payload.put("availability", input.path("availability").asDouble(1.0));
 
         String email = input.path("email").asText(null);
         if (email != null && !email.isBlank()) {
-            doc.setEmail(email);
+            payload.put("email", email);
         }
 
-        resourceRepository.save(doc);
+        ThingDocument thing = thingService.createThing(projectId, ThingCategory.RESOURCE, payload);
 
         stream.progress(100, "Resource created: " + name);
 
         ObjectNode result = MAPPER.createObjectNode();
-        result.put("resourceId", doc.getResourceId());
+        result.put("resourceId", thing.getId());
         result.put("name", name);
         result.put("projectId", projectId);
         return ToolResult.success(result);

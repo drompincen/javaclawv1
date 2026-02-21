@@ -1,12 +1,9 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ResourceAssignmentDocument;
-import io.github.drompincen.javaclawv1.persistence.document.ResourceDocument;
-import io.github.drompincen.javaclawv1.persistence.document.TicketDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceAssignmentRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.TicketRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,9 +16,7 @@ import java.util.stream.Collectors;
 public class SuggestAssignmentsTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ResourceRepository resourceRepository;
-    private ResourceAssignmentRepository resourceAssignmentRepository;
-    private TicketRepository ticketRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "suggest_assignments"; }
     @Override public String description() { return "Suggest resource assignments for unassigned tickets based on skills, capacity, and priority."; }
@@ -39,21 +34,13 @@ public class SuggestAssignmentsTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.READ_ONLY); }
 
-    public void setResourceRepository(ResourceRepository resourceRepository) {
-        this.resourceRepository = resourceRepository;
-    }
-    public void setResourceAssignmentRepository(ResourceAssignmentRepository resourceAssignmentRepository) {
-        this.resourceAssignmentRepository = resourceAssignmentRepository;
-    }
-    public void setTicketRepository(TicketRepository ticketRepository) {
-        this.ticketRepository = ticketRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (resourceRepository == null) return ToolResult.failure("Resource repository not available");
-        if (resourceAssignmentRepository == null) return ToolResult.failure("Assignment repository not available");
-        if (ticketRepository == null) return ToolResult.failure("Ticket repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
 
         String projectId = input.path("projectId").asText(null);
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
@@ -61,64 +48,64 @@ public class SuggestAssignmentsTool implements Tool {
         String specificTicketId = input.path("ticketId").asText(null);
 
         // Load resources and compute current allocation
-        List<ResourceDocument> resources = resourceRepository.findByProjectId(projectId);
-        List<ResourceAssignmentDocument> allAssignments = resourceAssignmentRepository.findByProjectId(projectId);
+        List<ThingDocument> resources = thingService.findByProjectAndCategory(projectId, ThingCategory.RESOURCE);
+        List<ThingDocument> allAssignments = thingService.findByProjectAndCategory(projectId, ThingCategory.RESOURCE_ASSIGNMENT);
         Map<String, Double> currentAllocation = allAssignments.stream()
-                .collect(Collectors.groupingBy(ResourceAssignmentDocument::getResourceId,
-                        Collectors.summingDouble(ResourceAssignmentDocument::getPercentageAllocation)));
+                .collect(Collectors.groupingBy(
+                        a -> (String) a.getPayload().get("resourceId"),
+                        Collectors.summingDouble(a -> {
+                            Object alloc = a.getPayload().get("percentageAllocation");
+                            return alloc != null ? ((Number) alloc).doubleValue() : 0;
+                        })));
 
         // Find unassigned tickets
-        List<TicketDocument> tickets = ticketRepository.findByProjectId(projectId);
+        List<ThingDocument> tickets = thingService.findByProjectAndCategory(projectId, ThingCategory.TICKET);
         Set<String> assignedTicketIds = allAssignments.stream()
-                .map(ResourceAssignmentDocument::getTicketId)
+                .map(a -> (String) a.getPayload().get("ticketId"))
+                .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
-        List<TicketDocument> unassignedTickets;
+        List<ThingDocument> unassignedTickets;
         if (specificTicketId != null && !specificTicketId.isBlank()) {
             unassignedTickets = tickets.stream()
-                    .filter(t -> t.getTicketId().equals(specificTicketId))
+                    .filter(t -> t.getId().equals(specificTicketId))
                     .collect(Collectors.toList());
         } else {
             unassignedTickets = tickets.stream()
-                    .filter(t -> !assignedTicketIds.contains(t.getTicketId()))
+                    .filter(t -> !assignedTicketIds.contains(t.getId()))
                     .collect(Collectors.toList());
         }
 
         // Sort by priority (CRITICAL first)
-        unassignedTickets.sort((a, b) -> {
-            int pa = priorityScore(a);
-            int pb = priorityScore(b);
-            return Integer.compare(pb, pa);
-        });
+        unassignedTickets.sort((a, b) -> Integer.compare(priorityScore(b), priorityScore(a)));
 
         ArrayNode suggestionsArr = MAPPER.createArrayNode();
-        for (TicketDocument ticket : unassignedTickets) {
+        for (ThingDocument ticket : unassignedTickets) {
+            Map<String, Object> tp = ticket.getPayload();
             ObjectNode suggestion = MAPPER.createObjectNode();
-            suggestion.put("ticketId", ticket.getTicketId());
-            suggestion.put("ticketTitle", ticket.getTitle());
-            suggestion.put("ticketPriority", ticket.getPriority() != null ? ticket.getPriority().name() : "UNKNOWN");
+            suggestion.put("ticketId", ticket.getId());
+            suggestion.put("ticketTitle", (String) tp.get("title"));
+            suggestion.put("ticketPriority", tp.get("priority") != null ? tp.get("priority").toString() : "UNKNOWN");
 
-            // Score each resource
             List<ScoredResource> scored = new ArrayList<>();
-            for (ResourceDocument r : resources) {
-                double allocated = currentAllocation.getOrDefault(r.getResourceId(), 0.0);
-                double available = Math.max(0, r.getCapacity() - allocated);
-                if (available <= 0) continue; // Skip overloaded
+            for (ThingDocument r : resources) {
+                Map<String, Object> p = r.getPayload();
+                int capacity = p.get("capacity") != null ? ((Number) p.get("capacity")).intValue() : 0;
+                double allocated = currentAllocation.getOrDefault(r.getId(), 0.0);
+                double available = Math.max(0, capacity - allocated);
+                if (available <= 0) continue;
 
                 double score = 0;
-                // Capacity score: more available = higher score (max 50)
                 score += Math.min(50, available * 0.5);
-                // Role match score (max 20)
-                if (r.getRole() != null && ticket.getTitle() != null) {
-                    String titleLower = ticket.getTitle().toLowerCase();
-                    if (r.getRole().name().equals("ENGINEER") && (titleLower.contains("implement") || titleLower.contains("build") || titleLower.contains("develop"))) {
-                        score += 20;
-                    } else if (r.getRole().name().equals("QA") && (titleLower.contains("test") || titleLower.contains("qa"))) {
-                        score += 20;
-                    }
+                String role = p.get("role") != null ? p.get("role").toString() : "";
+                String title = tp.get("title") != null ? tp.get("title").toString() : "";
+                String titleLower = title.toLowerCase();
+                if (role.equals("ENGINEER") && (titleLower.contains("implement") || titleLower.contains("build") || titleLower.contains("develop"))) {
+                    score += 20;
+                } else if (role.equals("QA") && (titleLower.contains("test") || titleLower.contains("qa"))) {
+                    score += 20;
                 }
-                // Skill match not possible here without ticket skills, but availability matters
-                scored.add(new ScoredResource(r.getResourceId(), r.getName(), score, available));
+                scored.add(new ScoredResource(r.getId(), (String) p.get("name"), score, available));
             }
 
             scored.sort((a, b) -> Double.compare(b.score, a.score));
@@ -153,13 +140,15 @@ public class SuggestAssignmentsTool implements Tool {
         return ToolResult.success(result);
     }
 
-    private int priorityScore(TicketDocument t) {
-        if (t.getPriority() == null) return 0;
-        return switch (t.getPriority()) {
-            case CRITICAL -> 4;
-            case HIGH -> 3;
-            case MEDIUM -> 2;
-            case LOW -> 1;
+    private int priorityScore(ThingDocument t) {
+        Object priority = t.getPayload().get("priority");
+        if (priority == null) return 0;
+        return switch (priority.toString()) {
+            case "CRITICAL" -> 4;
+            case "HIGH" -> 3;
+            case "MEDIUM" -> 2;
+            case "LOW" -> 1;
+            default -> 0;
         };
     }
 

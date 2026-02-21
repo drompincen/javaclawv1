@@ -1,9 +1,9 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.MilestoneDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.MilestoneRepository;
 import io.github.drompincen.javaclawv1.protocol.api.MilestoneStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,7 +15,7 @@ import java.util.*;
 public class CreateMilestoneTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private MilestoneRepository milestoneRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "create_milestone"; }
 
@@ -42,13 +42,13 @@ public class CreateMilestoneTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setMilestoneRepository(MilestoneRepository milestoneRepository) {
-        this.milestoneRepository = milestoneRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (milestoneRepository == null) return ToolResult.failure("Milestone repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
 
         String projectId = input.path("projectId").asText(null);
         String name = input.path("name").asText(null);
@@ -59,43 +59,39 @@ public class CreateMilestoneTool implements Tool {
         if (targetDateStr == null || targetDateStr.isBlank()) return ToolResult.failure("'targetDate' is required");
 
         // Dedup: skip if milestone with same name already exists for this project
-        var existing = milestoneRepository.findFirstByProjectIdAndNameIgnoreCase(projectId, name);
+        var existing = thingService.findByProjectCategoryAndNameIgnoreCase(projectId, ThingCategory.MILESTONE, name);
         if (existing.isPresent()) {
             ObjectNode result = MAPPER.createObjectNode();
-            result.put("milestoneId", existing.get().getMilestoneId());
+            result.put("milestoneId", existing.get().getId());
             result.put("name", name);
             result.put("status", "already_exists");
             return ToolResult.success(result);
         }
 
-        MilestoneDocument doc = new MilestoneDocument();
-        doc.setMilestoneId(UUID.randomUUID().toString());
-        doc.setProjectId(projectId);
-        doc.setName(name);
-        doc.setDescription(input.path("description").asText(null));
-        doc.setTargetDate(Instant.parse(targetDateStr + (targetDateStr.contains("T") ? "" : "T00:00:00Z")));
-        doc.setStatus(MilestoneStatus.UPCOMING);
-        doc.setPhaseId(input.path("phaseId").asText(null));
-        doc.setOwner(input.path("owner").asText(null));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("name", name);
+        payload.put("description", input.path("description").asText(null));
+        payload.put("targetDate", Instant.parse(targetDateStr + (targetDateStr.contains("T") ? "" : "T00:00:00Z")).toString());
+        payload.put("status", MilestoneStatus.UPCOMING.name());
+        payload.put("phaseId", input.path("phaseId").asText(null));
+        payload.put("owner", input.path("owner").asText(null));
 
         if (input.has("objectiveIds") && input.get("objectiveIds").isArray()) {
             List<String> ids = new ArrayList<>();
             input.get("objectiveIds").forEach(n -> ids.add(n.asText()));
-            doc.setObjectiveIds(ids);
+            payload.put("objectiveIds", ids);
         } else {
-            doc.setObjectiveIds(List.of());
+            payload.put("objectiveIds", List.of());
         }
 
-        doc.setTicketIds(List.of());
-        doc.setDependencies(List.of());
-        doc.setCreatedAt(Instant.now());
-        doc.setUpdatedAt(Instant.now());
+        payload.put("ticketIds", List.of());
+        payload.put("dependencies", List.of());
 
-        milestoneRepository.save(doc);
+        var thing = thingService.createThing(projectId, ThingCategory.MILESTONE, payload);
         stream.progress(100, "Milestone created: " + name);
 
         ObjectNode result = MAPPER.createObjectNode();
-        result.put("milestoneId", doc.getMilestoneId());
+        result.put("milestoneId", thing.getId());
         result.put("name", name);
         return ToolResult.success(result);
     }

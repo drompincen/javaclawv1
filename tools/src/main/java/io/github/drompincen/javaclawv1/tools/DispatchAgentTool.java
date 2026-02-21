@@ -1,22 +1,21 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.IntakeDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.IntakeRepository;
 import io.github.drompincen.javaclawv1.protocol.api.IntakeSourceType;
 import io.github.drompincen.javaclawv1.protocol.api.IntakeStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.time.Instant;
 import java.util.*;
 
 public class DispatchAgentTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private IntakeRepository intakeRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "dispatch_agent"; }
 
@@ -45,14 +44,14 @@ public class DispatchAgentTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setIntakeRepository(IntakeRepository intakeRepository) {
-        this.intakeRepository = intakeRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (intakeRepository == null) {
-            return ToolResult.failure("Intake repository not available");
+        if (thingService == null) {
+            return ToolResult.failure("ThingService not available");
         }
 
         String agentId = input.path("agentId").asText(null);
@@ -73,31 +72,26 @@ public class DispatchAgentTool implements Tool {
         String summary = input.path("summary").asText("");
         int priority = input.path("priority").asInt(3);
 
-        IntakeDocument doc = new IntakeDocument();
-        doc.setIntakeId(UUID.randomUUID().toString());
-        doc.setProjectId(projectId);
-        doc.setSourceType(sourceType);
-        doc.setClassifiedAs(sourceType.name());
-        doc.setStatus(IntakeStatus.DISPATCHED);
-
-        IntakeDocument.DispatchTarget target = new IntakeDocument.DispatchTarget();
-        target.setAgentId(agentId);
-        target.setSessionId("pending-" + UUID.randomUUID().toString().substring(0, 8));
-        doc.setDispatchedTo(List.of(target));
+        Map<String, Object> dispatchTarget = new LinkedHashMap<>();
+        dispatchTarget.put("agentId", agentId);
+        dispatchTarget.put("sessionId", "pending-" + UUID.randomUUID().toString().substring(0, 8));
 
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("summary", summary);
         metadata.put("priority", priority);
-        doc.setExtractedMetadata(metadata);
 
-        doc.setCreatedAt(Instant.now());
-        doc.setUpdatedAt(Instant.now());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sourceType", sourceType.name());
+        payload.put("classifiedAs", sourceType.name());
+        payload.put("status", IntakeStatus.DISPATCHED.name());
+        payload.put("dispatchedTo", List.of(dispatchTarget));
+        payload.put("extractedMetadata", metadata);
 
-        intakeRepository.save(doc);
+        var thing = thingService.createThing(projectId, ThingCategory.INTAKE, payload);
         stream.progress(100, "Dispatched to " + agentId + " for project " + projectId);
 
         ObjectNode result = MAPPER.createObjectNode();
-        result.put("intakeId", doc.getIntakeId());
+        result.put("intakeId", thing.getId());
         result.put("dispatchedTo", agentId);
         result.put("status", "DISPATCHED");
         result.put("projectId", projectId);

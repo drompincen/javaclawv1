@@ -1,51 +1,59 @@
 package io.github.drompincen.javaclawv1.gateway.controller;
 
-import io.github.drompincen.javaclawv1.persistence.document.BlindspotDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.BlindspotRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.BlindspotCategory;
 import io.github.drompincen.javaclawv1.protocol.api.BlindspotDto;
+import io.github.drompincen.javaclawv1.protocol.api.BlindspotSeverity;
 import io.github.drompincen.javaclawv1.protocol.api.BlindspotStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/projects/{projectId}/blindspots")
 public class BlindspotController {
 
-    private final BlindspotRepository blindspotRepository;
+    private final ThingService thingService;
 
-    public BlindspotController(BlindspotRepository blindspotRepository) {
-        this.blindspotRepository = blindspotRepository;
+    public BlindspotController(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @PostMapping
     public ResponseEntity<BlindspotDto> create(@PathVariable String projectId,
-                                                @RequestBody BlindspotDocument body) {
-        body.setBlindspotId(UUID.randomUUID().toString());
-        body.setProjectId(projectId);
-        if (body.getStatus() == null) body.setStatus(BlindspotStatus.OPEN);
-        body.setCreatedAt(Instant.now());
-        body.setUpdatedAt(Instant.now());
-        blindspotRepository.save(body);
-        return ResponseEntity.ok(toDto(body));
+                                                @RequestBody Map<String, Object> body) {
+        Map<String, Object> payload = new LinkedHashMap<>(body);
+        if (!payload.containsKey("status") || payload.get("status") == null) {
+            payload.put("status", BlindspotStatus.OPEN.name());
+        } else {
+            payload.put("status", payload.get("status").toString());
+        }
+        if (payload.get("category") != null) payload.put("category", payload.get("category").toString());
+        if (payload.get("severity") != null) payload.put("severity", payload.get("severity").toString());
+        ThingDocument thing = thingService.createThing(projectId, ThingCategory.BLINDSPOT, payload);
+        return ResponseEntity.ok(toDto(thing));
     }
 
     @GetMapping
     public List<BlindspotDto> list(@PathVariable String projectId,
                                     @RequestParam(required = false) BlindspotStatus status,
                                     @RequestParam(required = false) BlindspotCategory category) {
-        List<BlindspotDocument> docs;
+        List<ThingDocument> docs;
         if (status != null) {
-            docs = blindspotRepository.findByProjectIdAndStatus(projectId, status);
+            docs = thingService.findByProjectCategoryAndPayload(projectId, ThingCategory.BLINDSPOT,
+                    "status", status.name());
         } else if (category != null) {
-            docs = blindspotRepository.findByProjectIdAndCategory(projectId, category);
+            docs = thingService.findByProjectCategoryAndPayload(projectId, ThingCategory.BLINDSPOT,
+                    "category", category.name());
         } else {
-            docs = blindspotRepository.findByProjectId(projectId);
+            docs = thingService.findByProjectAndCategory(projectId, ThingCategory.BLINDSPOT);
         }
         return docs.stream().map(this::toDto).collect(Collectors.toList());
     }
@@ -53,7 +61,7 @@ public class BlindspotController {
     @GetMapping("/{blindspotId}")
     public ResponseEntity<BlindspotDto> get(@PathVariable String projectId,
                                              @PathVariable String blindspotId) {
-        return blindspotRepository.findById(blindspotId)
+        return thingService.findById(blindspotId, ThingCategory.BLINDSPOT)
                 .map(d -> ResponseEntity.ok(toDto(d)))
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -61,35 +69,60 @@ public class BlindspotController {
     @PutMapping("/{blindspotId}")
     public ResponseEntity<BlindspotDto> update(@PathVariable String projectId,
                                                 @PathVariable String blindspotId,
-                                                @RequestBody BlindspotDocument updates) {
-        return blindspotRepository.findById(blindspotId).map(existing -> {
-            if (updates.getStatus() != null) existing.setStatus(updates.getStatus());
-            if (updates.getOwner() != null) existing.setOwner(updates.getOwner());
-            if (updates.getStatus() == BlindspotStatus.RESOLVED && existing.getResolvedAt() == null) {
-                existing.setResolvedAt(Instant.now());
+                                                @RequestBody Map<String, Object> updates) {
+        return thingService.findById(blindspotId, ThingCategory.BLINDSPOT).map(existing -> {
+            Map<String, Object> merged = new LinkedHashMap<>();
+            if (updates.get("status") != null) {
+                String newStatus = updates.get("status").toString();
+                merged.put("status", newStatus);
+                if (newStatus.equals(BlindspotStatus.RESOLVED.name())
+                        && existing.getPayload().get("resolvedAt") == null) {
+                    merged.put("resolvedAt", Instant.now().toString());
+                }
             }
-            existing.setUpdatedAt(Instant.now());
-            blindspotRepository.save(existing);
-            return ResponseEntity.ok(toDto(existing));
+            if (updates.get("owner") != null) merged.put("owner", updates.get("owner"));
+            ThingDocument updated = thingService.mergePayload(existing, merged);
+            return ResponseEntity.ok(toDto(updated));
         }).orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{blindspotId}")
     public ResponseEntity<Void> delete(@PathVariable String projectId,
                                         @PathVariable String blindspotId) {
-        return blindspotRepository.findById(blindspotId).map(doc -> {
-            blindspotRepository.delete(doc);
+        return thingService.findById(blindspotId, ThingCategory.BLINDSPOT).map(doc -> {
+            thingService.deleteById(doc.getId());
             return ResponseEntity.noContent().<Void>build();
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    private BlindspotDto toDto(BlindspotDocument doc) {
+    @SuppressWarnings("unchecked")
+    private BlindspotDto toDto(ThingDocument thing) {
+        Map<String, Object> p = thing.getPayload();
+        BlindspotCategory category = null;
+        if (p.get("category") != null) {
+            try { category = BlindspotCategory.valueOf(p.get("category").toString()); }
+            catch (IllegalArgumentException ignored) {}
+        }
+        BlindspotSeverity severity = null;
+        if (p.get("severity") != null) {
+            try { severity = BlindspotSeverity.valueOf(p.get("severity").toString()); }
+            catch (IllegalArgumentException ignored) {}
+        }
+        BlindspotStatus status = null;
+        if (p.get("status") != null) {
+            try { status = BlindspotStatus.valueOf(p.get("status").toString()); }
+            catch (IllegalArgumentException ignored) {}
+        }
+        Instant resolvedAt = p.get("resolvedAt") != null
+                ? Instant.parse(p.get("resolvedAt").toString()) : null;
+        List<Map<String, String>> sourceRefs = (List<Map<String, String>>) p.get("sourceRefs");
         return new BlindspotDto(
-                doc.getBlindspotId(), doc.getProjectId(), doc.getProjectName(),
-                doc.getTitle(), doc.getDescription(),
-                doc.getCategory(), doc.getSeverity(), doc.getStatus(),
-                doc.getOwner(), doc.getSourceRefs(), doc.getDeltaPackId(),
-                doc.getReconcileRunId(),
-                doc.getCreatedAt(), doc.getUpdatedAt(), doc.getResolvedAt());
+                thing.getId(), thing.getProjectId(),
+                thing.getProjectName(),
+                (String) p.get("title"), (String) p.get("description"),
+                category, severity, status,
+                (String) p.get("owner"), sourceRefs, (String) p.get("deltaPackId"),
+                (String) p.get("reconcileRunId"),
+                thing.getCreateDate(), thing.getUpdateDate(), resolvedAt);
     }
 }

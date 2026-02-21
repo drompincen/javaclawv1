@@ -1,12 +1,14 @@
 package io.github.drompincen.javaclawv1.runtime.agent;
 
-import io.github.drompincen.javaclawv1.persistence.document.ReminderDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ReminderRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.function.BiFunction;
 
 @Service
@@ -14,10 +16,10 @@ public class ReminderAgentService {
 
     private static final Logger log = LoggerFactory.getLogger(ReminderAgentService.class);
 
-    private final ReminderRepository reminderRepo;
+    private final ThingService thingService;
 
-    public ReminderAgentService(ReminderRepository reminderRepo) {
-        this.reminderRepo = reminderRepo;
+    public ReminderAgentService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     /**
@@ -40,41 +42,39 @@ public class ReminderAgentService {
             for (String line : response.split("\n")) {
                 line = line.trim();
                 if (line.startsWith("REMINDER:") || line.contains("| WHEN:")) {
-                    ReminderDocument doc = new ReminderDocument();
-                    doc.setReminderId(UUID.randomUUID().toString());
-                    doc.setSessionId(sessionId);
+                    Map<String, Object> payload = new LinkedHashMap<>();
+                    payload.put("sessionId", sessionId);
+                    payload.put("triggered", false);
+                    payload.put("recurring", false);
 
                     // Parse "REMINDER: what | WHEN: time | RECURRING: yes/no interval"
                     String[] parts = line.split("\\|");
-                    doc.setMessage(parts[0].replaceAll("(?i)^\\s*REMINDER:\\s*", "").trim());
-                    doc.setTriggerAt(null); // cannot parse natural-language times here
-                    doc.setRecurring(false);
+                    String message = parts[0].replaceAll("(?i)^\\s*REMINDER:\\s*", "").trim();
+                    payload.put("message", message);
 
                     for (String part : parts) {
                         part = part.trim();
-                        if (part.toUpperCase().startsWith("WHEN:")) {
-                            // triggerAt stays null; we log the raw value below
-                        } else if (part.toUpperCase().startsWith("RECURRING:")) {
+                        if (part.toUpperCase().startsWith("RECURRING:")) {
                             String val = part.substring(10).trim().toLowerCase();
-                            doc.setRecurring(val.startsWith("yes"));
+                            payload.put("recurring", val.startsWith("yes"));
                             if (val.contains("daily")) {
-                                doc.setIntervalSeconds(86_400L);
+                                payload.put("intervalSeconds", 86_400L);
                             } else if (val.contains("weekly")) {
-                                doc.setIntervalSeconds(604_800L);
+                                payload.put("intervalSeconds", 604_800L);
                             } else if (val.contains("hourly")) {
-                                doc.setIntervalSeconds(3_600L);
+                                payload.put("intervalSeconds", 3_600L);
                             }
                         }
                     }
 
-                    if (doc.getMessage() != null && !doc.getMessage().isBlank()) {
-                        reminderRepo.save(doc);
+                    if (message != null && !message.isBlank()) {
+                        ThingDocument thing = thingService.createThing(null, ThingCategory.REMINDER, payload);
                         savedCount++;
 
                         String whenRaw = extractWhenPart(parts);
                         log.info("[Reminder] created id={} msg={} when={}",
-                                doc.getReminderId().substring(0, 8),
-                                truncate(doc.getMessage(), 50),
+                                thing.getId().substring(0, 8),
+                                truncate(message, 50),
                                 whenRaw);
                     }
                 }
@@ -86,15 +86,14 @@ public class ReminderAgentService {
         }
 
         // Fallback: basic reminder without LLM
-        ReminderDocument doc = new ReminderDocument();
-        doc.setReminderId(UUID.randomUUID().toString());
-        doc.setSessionId(sessionId);
-        doc.setMessage(userMessage);
-        doc.setTriggerAt(null);
-        doc.setRecurring(false);
-        reminderRepo.save(doc);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sessionId", sessionId);
+        payload.put("message", userMessage);
+        payload.put("triggered", false);
+        payload.put("recurring", false);
+        ThingDocument thing = thingService.createThing(null, ThingCategory.REMINDER, payload);
 
-        log.info("[Reminder] created (mock) id={}", doc.getReminderId().substring(0, 8));
+        log.info("[Reminder] created (mock) id={}", thing.getId().substring(0, 8));
 
         return "Reminder saved: **" + truncate(userMessage, 200) + "**\n\n"
                 + "I've stored this reminder but can't parse specific timing without an LLM. "
@@ -110,9 +109,6 @@ public class ReminderAgentService {
         return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
     }
 
-    /**
-     * Extracts the raw WHEN: value from the parsed parts array, or "unspecified" if absent.
-     */
     private String extractWhenPart(String[] parts) {
         for (String part : parts) {
             part = part.trim();

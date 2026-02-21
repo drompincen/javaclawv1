@@ -2,8 +2,10 @@ package io.github.drompincen.javaclawv1.gateway.controller;
 
 import io.github.drompincen.javaclawv1.persistence.document.*;
 import io.github.drompincen.javaclawv1.persistence.repository.*;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.runtime.agent.graph.AgentState;
 import io.github.drompincen.javaclawv1.runtime.agent.llm.LlmService;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -19,41 +21,17 @@ public class AskController {
     private static final Logger log = LoggerFactory.getLogger(AskController.class);
 
     private final ThreadRepository threadRepository;
-    private final ObjectiveRepository objectiveRepository;
-    private final TicketRepository ticketRepository;
-    private final BlindspotRepository blindspotRepository;
-    private final ResourceRepository resourceRepository;
     private final MemoryRepository memoryRepository;
-    private final ResourceAssignmentRepository resourceAssignmentRepository;
-    private final ChecklistRepository checklistRepository;
-    private final PhaseRepository phaseRepository;
-    private final MilestoneRepository milestoneRepository;
-    private final DeltaPackRepository deltaPackRepository;
+    private final ThingService thingService;
     private final LlmService llmService;
 
     public AskController(ThreadRepository threadRepository,
-                         ObjectiveRepository objectiveRepository,
-                         TicketRepository ticketRepository,
-                         BlindspotRepository blindspotRepository,
-                         ResourceRepository resourceRepository,
                          MemoryRepository memoryRepository,
-                         ResourceAssignmentRepository resourceAssignmentRepository,
-                         ChecklistRepository checklistRepository,
-                         PhaseRepository phaseRepository,
-                         MilestoneRepository milestoneRepository,
-                         DeltaPackRepository deltaPackRepository,
+                         ThingService thingService,
                          LlmService llmService) {
         this.threadRepository = threadRepository;
-        this.objectiveRepository = objectiveRepository;
-        this.ticketRepository = ticketRepository;
-        this.blindspotRepository = blindspotRepository;
-        this.resourceRepository = resourceRepository;
         this.memoryRepository = memoryRepository;
-        this.resourceAssignmentRepository = resourceAssignmentRepository;
-        this.checklistRepository = checklistRepository;
-        this.phaseRepository = phaseRepository;
-        this.milestoneRepository = milestoneRepository;
-        this.deltaPackRepository = deltaPackRepository;
+        this.thingService = thingService;
         this.llmService = llmService;
     }
 
@@ -112,6 +90,7 @@ public class AskController {
         ));
     }
 
+    @SuppressWarnings("unchecked")
     private String buildProjectContext(String projectId) {
         StringBuilder ctx = new StringBuilder();
 
@@ -141,121 +120,142 @@ public class AskController {
             }
         }
 
+        // Load all things for the project in one call
+        Map<ThingCategory, List<ThingDocument>> thingsByCategory = thingService.findByProjectGrouped(projectId);
+
         // Objectives
-        List<ObjectiveDocument> objectives = objectiveRepository.findByProjectId(projectId);
+        List<ThingDocument> objectives = thingsByCategory.getOrDefault(ThingCategory.OBJECTIVE, List.of());
         ctx.append("\n## OBJECTIVES (").append(objectives.size()).append(")\n");
-        for (ObjectiveDocument o : objectives) {
-            ctx.append("- **").append(safe(o.getSprintName())).append("**: ").append(safe(o.getOutcome()));
-            if (o.getStatus() != null) ctx.append(" [").append(o.getStatus()).append("]");
-            if (o.getCoveragePercent() != null) ctx.append(" coverage=").append(o.getCoveragePercent()).append("%");
+        for (ThingDocument o : objectives) {
+            Map<String, Object> op = o.getPayload();
+            ctx.append("- **").append(safe(op.get("sprintName"))).append("**: ").append(safe(op.get("outcome")));
+            if (op.get("status") != null) ctx.append(" [").append(op.get("status")).append("]");
+            if (op.get("coveragePercent") != null) ctx.append(" coverage=").append(op.get("coveragePercent")).append("%");
             ctx.append("\n");
-            if (o.getRisks() != null && !o.getRisks().isEmpty()) {
-                ctx.append("  Risks: ").append(String.join(", ", o.getRisks())).append("\n");
+            List<String> risks = (List<String>) op.get("risks");
+            if (risks != null && !risks.isEmpty()) {
+                ctx.append("  Risks: ").append(String.join(", ", risks)).append("\n");
             }
-            if (o.getStartDate() != null) ctx.append("  Start: ").append(o.getStartDate()).append("\n");
-            if (o.getEndDate() != null) ctx.append("  End: ").append(o.getEndDate()).append("\n");
+            if (op.get("startDate") != null) ctx.append("  Start: ").append(op.get("startDate")).append("\n");
+            if (op.get("endDate") != null) ctx.append("  End: ").append(op.get("endDate")).append("\n");
         }
 
         // Pre-compute assignment data for tickets and resources
-        List<ResourceAssignmentDocument> assignments = resourceAssignmentRepository.findByProjectId(projectId);
-        List<ResourceDocument> resources = resourceRepository.findByProjectId(projectId);
-        if (resources.isEmpty()) {
-            resources = resourceRepository.findAll();
+        List<ThingDocument> assignmentThings = thingsByCategory.getOrDefault(ThingCategory.RESOURCE_ASSIGNMENT, List.of());
+        List<ThingDocument> resourceThings = thingsByCategory.getOrDefault(ThingCategory.RESOURCE, List.of());
+        if (resourceThings.isEmpty()) {
+            resourceThings = thingService.findByCategory(ThingCategory.RESOURCE);
         }
-        Map<String, String> resourceIdToName = resources.stream()
-                .collect(Collectors.toMap(ResourceDocument::getResourceId, ResourceDocument::getName, (a, b) -> a));
+        Map<String, String> resourceIdToName = resourceThings.stream()
+                .collect(Collectors.toMap(ThingDocument::getId,
+                        r -> safe(r.getPayload().get("name")), (a, b) -> a));
 
-        // Build ticketId → assignee name from resource_assignments
         Map<String, String> ticketAssigneeFromAssignments = new HashMap<>();
-        // Build resourceId → list of ticketIds from resource_assignments
         Map<String, List<String>> resourceTicketMap = new HashMap<>();
-        for (ResourceAssignmentDocument a : assignments) {
-            String name = resourceIdToName.getOrDefault(a.getResourceId(), a.getResourceId());
-            ticketAssigneeFromAssignments.put(a.getTicketId(), name);
-            resourceTicketMap.computeIfAbsent(a.getResourceId(), k -> new ArrayList<>()).add(a.getTicketId());
+        for (ThingDocument a : assignmentThings) {
+            Map<String, Object> ap = a.getPayload();
+            String resId = (String) ap.get("resourceId");
+            String ticketId = (String) ap.get("ticketId");
+            if (resId != null && ticketId != null) {
+                String name = resourceIdToName.getOrDefault(resId, resId);
+                ticketAssigneeFromAssignments.put(ticketId, name);
+                resourceTicketMap.computeIfAbsent(resId, k -> new ArrayList<>()).add(ticketId);
+            }
         }
 
-        // Tickets — resolve assignee from 3 sources, never omit
-        List<TicketDocument> tickets = ticketRepository.findByProjectId(projectId);
-        Map<String, TicketDocument> ticketById = tickets.stream()
-                .collect(Collectors.toMap(TicketDocument::getTicketId, t -> t, (a, b) -> a));
+        // Tickets
+        List<ThingDocument> tickets = thingsByCategory.getOrDefault(ThingCategory.TICKET, List.of());
+        Map<String, ThingDocument> ticketById = tickets.stream()
+                .collect(Collectors.toMap(ThingDocument::getId, t -> t, (a, b) -> a));
 
         List<String> assignedTicketIds = new ArrayList<>();
         List<String> unassignedTicketIds = new ArrayList<>();
 
         ctx.append("\n## TICKETS (").append(tickets.size()).append(")\n");
-        for (TicketDocument t : tickets) {
-            // Resolve assignee: owner > assignedResourceId > resource_assignments
+        for (ThingDocument t : tickets) {
+            Map<String, Object> tp = t.getPayload();
             String assignee = null;
-            if (t.getOwner() != null && !t.getOwner().isBlank()) {
-                assignee = t.getOwner();
-            } else if (t.getAssignedResourceId() != null && !t.getAssignedResourceId().isBlank()) {
-                assignee = resourceIdToName.getOrDefault(t.getAssignedResourceId(), t.getAssignedResourceId());
+            String owner = (String) tp.get("owner");
+            if (owner != null && !owner.isBlank()) {
+                assignee = owner;
             } else {
-                assignee = ticketAssigneeFromAssignments.get(t.getTicketId());
+                String assignedResId = (String) tp.get("assignedResourceId");
+                if (assignedResId != null && !assignedResId.isBlank()) {
+                    assignee = resourceIdToName.getOrDefault(assignedResId, assignedResId);
+                } else {
+                    assignee = ticketAssigneeFromAssignments.get(t.getId());
+                }
             }
 
             if (assignee != null) {
-                assignedTicketIds.add(safe(t.getTitle()));
+                assignedTicketIds.add(safe(tp.get("title")));
             } else {
-                unassignedTicketIds.add(safe(t.getTitle()));
+                unassignedTicketIds.add(safe(tp.get("title")));
             }
 
-            ctx.append("- **").append(safe(t.getTitle())).append("**");
-            if (t.getStatus() != null) ctx.append(" [").append(t.getStatus()).append("]");
-            if (t.getPriority() != null) ctx.append(" priority=").append(t.getPriority());
-            if (t.getStoryPoints() != null) ctx.append(" sp=").append(t.getStoryPoints());
+            ctx.append("- **").append(safe(tp.get("title"))).append("**");
+            if (tp.get("status") != null) ctx.append(" [").append(tp.get("status")).append("]");
+            if (tp.get("priority") != null) ctx.append(" priority=").append(tp.get("priority"));
+            if (tp.get("storyPoints") != null) ctx.append(" sp=").append(tp.get("storyPoints"));
             ctx.append(" assignee=").append(assignee != null ? assignee : "UNASSIGNED");
-            if (t.getExternalRef() != null) ctx.append(" externalRef=").append(t.getExternalRef());
+            if (tp.get("externalRef") != null) ctx.append(" externalRef=").append(tp.get("externalRef"));
             ctx.append("\n");
-            if (t.getLinkedThreadIds() != null && !t.getLinkedThreadIds().isEmpty()) {
-                ctx.append("  linkedThreads: ").append(String.join(", ", t.getLinkedThreadIds())).append("\n");
+            List<String> linkedThreadIds = (List<String>) tp.get("linkedThreadIds");
+            if (linkedThreadIds != null && !linkedThreadIds.isEmpty()) {
+                ctx.append("  linkedThreads: ").append(String.join(", ", linkedThreadIds)).append("\n");
             }
-            if (t.getBlockedBy() != null && !t.getBlockedBy().isEmpty()) {
-                ctx.append("  blockedBy: ").append(String.join(", ", t.getBlockedBy())).append("\n");
+            List<String> blockedBy = (List<String>) tp.get("blockedBy");
+            if (blockedBy != null && !blockedBy.isEmpty()) {
+                ctx.append("  blockedBy: ").append(String.join(", ", blockedBy)).append("\n");
             }
-            if (t.getObjectiveIds() != null && !t.getObjectiveIds().isEmpty()) {
-                ctx.append("  objectiveIds: ").append(String.join(", ", t.getObjectiveIds())).append("\n");
+            List<String> objectiveIds = (List<String>) tp.get("objectiveIds");
+            if (objectiveIds != null && !objectiveIds.isEmpty()) {
+                ctx.append("  objectiveIds: ").append(String.join(", ", objectiveIds)).append("\n");
             }
         }
 
         // Blindspots
-        List<BlindspotDocument> blindspots = blindspotRepository.findByProjectId(projectId);
+        List<ThingDocument> blindspots = thingsByCategory.getOrDefault(ThingCategory.BLINDSPOT, List.of());
         ctx.append("\n## BLINDSPOTS (").append(blindspots.size()).append(")\n");
-        for (BlindspotDocument b : blindspots) {
-            ctx.append("- **").append(safe(b.getTitle())).append("**");
-            if (b.getSeverity() != null) ctx.append(" [").append(b.getSeverity()).append("]");
-            if (b.getCategory() != null) ctx.append(" ").append(b.getCategory());
+        for (ThingDocument b : blindspots) {
+            Map<String, Object> bp = b.getPayload();
+            ctx.append("- **").append(safe(bp.get("title"))).append("**");
+            if (bp.get("severity") != null) ctx.append(" [").append(bp.get("severity")).append("]");
+            if (bp.get("category") != null) ctx.append(" ").append(bp.get("category"));
             ctx.append("\n");
-            if (b.getDescription() != null) {
-                ctx.append("  ").append(truncate(b.getDescription(), 200)).append("\n");
+            if (bp.get("description") != null) {
+                ctx.append("  ").append(truncate(bp.get("description").toString(), 200)).append("\n");
             }
         }
 
-        // Resources — enhanced with assignment info and computed capacity
-        ctx.append("\n## RESOURCES (").append(resources.size()).append(")\n");
-        for (ResourceDocument r : resources) {
-            double effectiveHours = r.getCapacity() * r.getAvailability();
-            ctx.append("- **").append(safe(r.getName())).append("**");
-            if (r.getRole() != null) ctx.append(" role=").append(r.getRole());
-            ctx.append(" capacity=").append(r.getCapacity());
-            ctx.append(" availability=").append(r.getAvailability());
+        // Resources
+        ctx.append("\n## RESOURCES (").append(resourceThings.size()).append(")\n");
+        for (ThingDocument r : resourceThings) {
+            Map<String, Object> rp = r.getPayload();
+            int capacity = rp.get("capacity") != null ? ((Number) rp.get("capacity")).intValue() : 0;
+            double availability = rp.get("availability") != null ? ((Number) rp.get("availability")).doubleValue() : 1.0;
+            double effectiveHours = capacity * availability;
+            ctx.append("- **").append(safe(rp.get("name"))).append("**");
+            if (rp.get("role") != null) ctx.append(" role=").append(rp.get("role"));
+            ctx.append(" capacity=").append(capacity);
+            ctx.append(" availability=").append(availability);
             ctx.append(" effectiveHours=").append(String.format("%.0f", effectiveHours));
             ctx.append("\n");
 
-            // Show assigned tickets with SP
-            List<String> ticketIds = resourceTicketMap.getOrDefault(r.getResourceId(), List.of());
+            List<String> ticketIdsForResource = resourceTicketMap.getOrDefault(r.getId(), List.of());
             int allocatedSP = 0;
-            if (!ticketIds.isEmpty()) {
+            if (!ticketIdsForResource.isEmpty()) {
                 List<String> ticketLabels = new ArrayList<>();
-                for (String tid : ticketIds) {
-                    TicketDocument td = ticketById.get(tid);
+                for (String tid : ticketIdsForResource) {
+                    ThingDocument td = ticketById.get(tid);
                     if (td != null) {
-                        String label = safe(td.getTitle());
-                        if (td.getPriority() != null) label += " (" + td.getPriority() + ")";
-                        if (td.getStoryPoints() != null) {
-                            label += " " + td.getStoryPoints() + "SP";
-                            allocatedSP += td.getStoryPoints();
+                        Map<String, Object> tdp = td.getPayload();
+                        String label = safe(tdp.get("title"));
+                        if (tdp.get("priority") != null) label += " (" + tdp.get("priority") + ")";
+                        if (tdp.get("storyPoints") != null) {
+                            int sp = ((Number) tdp.get("storyPoints")).intValue();
+                            label += " " + sp + "SP";
+                            allocatedSP += sp;
                         }
                         ticketLabels.add(label);
                     } else {
@@ -263,19 +263,19 @@ public class AskController {
                     }
                 }
                 ctx.append("  Assigned: ").append(String.join(", ", ticketLabels));
-                ctx.append(" — ").append(ticketIds.size()).append(ticketIds.size() == 1 ? " ticket" : " tickets");
+                ctx.append(" — ").append(ticketIdsForResource.size()).append(ticketIdsForResource.size() == 1 ? " ticket" : " tickets");
                 ctx.append(", allocatedSP=").append(allocatedSP);
                 ctx.append("\n");
             } else {
-                // Also count SP from tickets assigned via owner field
                 int ownerSP = 0;
                 int ownerTickets = 0;
-                for (TicketDocument t : tickets) {
-                    String assignee = null;
-                    if (t.getOwner() != null && !t.getOwner().isBlank()) assignee = t.getOwner();
-                    if (assignee != null && assignee.equalsIgnoreCase(r.getName())) {
+                String resName = safe(rp.get("name"));
+                for (ThingDocument t : tickets) {
+                    Map<String, Object> tp = t.getPayload();
+                    String ticketOwner = (String) tp.get("owner");
+                    if (ticketOwner != null && ticketOwner.equalsIgnoreCase(resName)) {
                         ownerTickets++;
-                        if (t.getStoryPoints() != null) ownerSP += t.getStoryPoints();
+                        if (tp.get("storyPoints") != null) ownerSP += ((Number) tp.get("storyPoints")).intValue();
                     }
                 }
                 if (ownerTickets > 0) {
@@ -303,30 +303,34 @@ public class AskController {
         }
         ctx.append("\n");
 
-        // Resource capacity summary — compute effective capacity and allocated SP per resource
+        // Resource capacity summary
         ctx.append("\n## RESOURCE CAPACITY SUMMARY\n");
-        for (ResourceDocument r : resources) {
-            double effectiveHours = r.getCapacity() * r.getAvailability();
-            List<String> rTicketIds = resourceTicketMap.getOrDefault(r.getResourceId(), List.of());
+        for (ThingDocument r : resourceThings) {
+            Map<String, Object> rp = r.getPayload();
+            int capacity = rp.get("capacity") != null ? ((Number) rp.get("capacity")).intValue() : 0;
+            double availability = rp.get("availability") != null ? ((Number) rp.get("availability")).doubleValue() : 1.0;
+            double effectiveHours = capacity * availability;
+            List<String> rTicketIds = resourceTicketMap.getOrDefault(r.getId(), List.of());
             int allocSP = 0;
             int ticketCount = 0;
             for (String tid : rTicketIds) {
-                TicketDocument td = ticketById.get(tid);
+                ThingDocument td = ticketById.get(tid);
                 if (td != null) {
                     ticketCount++;
-                    if (td.getStoryPoints() != null) allocSP += td.getStoryPoints();
+                    if (td.getPayload().get("storyPoints") != null) allocSP += ((Number) td.getPayload().get("storyPoints")).intValue();
                 }
             }
-            // Also count tickets via owner field if no resource_assignments
             if (rTicketIds.isEmpty()) {
-                for (TicketDocument t : tickets) {
-                    if (t.getOwner() != null && t.getOwner().equalsIgnoreCase(r.getName())) {
+                String resName = safe(rp.get("name"));
+                for (ThingDocument t : tickets) {
+                    Map<String, Object> tp = t.getPayload();
+                    if (tp.get("owner") != null && tp.get("owner").toString().equalsIgnoreCase(resName)) {
                         ticketCount++;
-                        if (t.getStoryPoints() != null) allocSP += t.getStoryPoints();
+                        if (tp.get("storyPoints") != null) allocSP += ((Number) tp.get("storyPoints")).intValue();
                     }
                 }
             }
-            ctx.append("- **").append(safe(r.getName())).append("**: ");
+            ctx.append("- **").append(safe(rp.get("name"))).append("**: ");
             ctx.append("effectiveHours=").append(String.format("%.0f", effectiveHours));
             ctx.append(", tickets=").append(ticketCount);
             ctx.append(", allocatedSP=").append(allocSP);
@@ -335,63 +339,71 @@ public class AskController {
         }
 
         // Checklists
-        List<ChecklistDocument> checklists = checklistRepository.findByProjectId(projectId);
+        List<ThingDocument> checklists = thingsByCategory.getOrDefault(ThingCategory.CHECKLIST, List.of());
         ctx.append("\n## CHECKLISTS (").append(checklists.size()).append(")\n");
-        for (ChecklistDocument c : checklists) {
-            ctx.append("- **").append(safe(c.getName())).append("**");
-            if (c.getStatus() != null) ctx.append(" [").append(c.getStatus()).append("]");
-            int totalItems = c.getItems() != null ? c.getItems().size() : 0;
-            long checkedItems = c.getItems() != null
-                    ? c.getItems().stream().filter(ChecklistDocument.ChecklistItem::isChecked).count()
+        for (ThingDocument c : checklists) {
+            Map<String, Object> cp = c.getPayload();
+            ctx.append("- **").append(safe(cp.get("name"))).append("**");
+            if (cp.get("status") != null) ctx.append(" [").append(cp.get("status")).append("]");
+            List<Map<String, Object>> items = (List<Map<String, Object>>) cp.get("items");
+            int totalItems = items != null ? items.size() : 0;
+            long checkedItems = items != null
+                    ? items.stream().filter(i -> Boolean.TRUE.equals(i.get("checked"))).count()
                     : 0;
             ctx.append(" items=").append(totalItems).append(" checked=").append(checkedItems);
-            if (c.getPhaseId() != null) ctx.append(" phaseId=").append(c.getPhaseId());
+            if (cp.get("phaseId") != null) ctx.append(" phaseId=").append(cp.get("phaseId"));
             ctx.append("\n");
         }
 
         // Phases
-        List<PhaseDocument> phases = phaseRepository.findByProjectIdOrderBySortOrder(projectId);
+        List<ThingDocument> phases = thingsByCategory.getOrDefault(ThingCategory.PHASE, List.of());
         ctx.append("\n## PHASES (").append(phases.size()).append(")\n");
-        for (PhaseDocument p : phases) {
-            ctx.append("- **").append(safe(p.getName())).append("**");
-            if (p.getStatus() != null) ctx.append(" [").append(p.getStatus()).append("]");
-            ctx.append(" sortOrder=").append(p.getSortOrder());
-            if (p.getStartDate() != null) ctx.append(" start=").append(p.getStartDate());
-            if (p.getEndDate() != null) ctx.append(" end=").append(p.getEndDate());
+        for (ThingDocument p : phases) {
+            Map<String, Object> pp = p.getPayload();
+            ctx.append("- **").append(safe(pp.get("name"))).append("**");
+            if (pp.get("status") != null) ctx.append(" [").append(pp.get("status")).append("]");
+            if (pp.get("sortOrder") != null) ctx.append(" sortOrder=").append(pp.get("sortOrder"));
+            if (pp.get("startDate") != null) ctx.append(" start=").append(pp.get("startDate"));
+            if (pp.get("endDate") != null) ctx.append(" end=").append(pp.get("endDate"));
             ctx.append("\n");
-            if (p.getEntryCriteria() != null && !p.getEntryCriteria().isEmpty()) {
-                ctx.append("  entryCriteria: ").append(p.getEntryCriteria().size()).append(" items\n");
+            List<String> entryCriteria = (List<String>) pp.get("entryCriteria");
+            if (entryCriteria != null && !entryCriteria.isEmpty()) {
+                ctx.append("  entryCriteria: ").append(entryCriteria.size()).append(" items\n");
             }
-            if (p.getExitCriteria() != null && !p.getExitCriteria().isEmpty()) {
-                ctx.append("  exitCriteria: ").append(p.getExitCriteria().size()).append(" items\n");
+            List<String> exitCriteria = (List<String>) pp.get("exitCriteria");
+            if (exitCriteria != null && !exitCriteria.isEmpty()) {
+                ctx.append("  exitCriteria: ").append(exitCriteria.size()).append(" items\n");
             }
         }
 
         // Milestones
-        List<MilestoneDocument> milestones = milestoneRepository.findByProjectIdOrderByTargetDateAsc(projectId);
+        List<ThingDocument> milestones = thingsByCategory.getOrDefault(ThingCategory.MILESTONE, List.of());
         ctx.append("\n## MILESTONES (").append(milestones.size()).append(")\n");
-        for (MilestoneDocument m : milestones) {
-            ctx.append("- **").append(safe(m.getName())).append("**");
-            if (m.getStatus() != null) ctx.append(" [").append(m.getStatus()).append("]");
-            if (m.getTargetDate() != null) ctx.append(" targetDate=").append(m.getTargetDate());
-            if (m.getActualDate() != null) ctx.append(" actualDate=").append(m.getActualDate());
-            if (m.getOwner() != null) ctx.append(" owner=").append(m.getOwner());
-            if (m.getPhaseId() != null) ctx.append(" phaseId=").append(m.getPhaseId());
+        for (ThingDocument m : milestones) {
+            Map<String, Object> mp = m.getPayload();
+            ctx.append("- **").append(safe(mp.get("name"))).append("**");
+            if (mp.get("status") != null) ctx.append(" [").append(mp.get("status")).append("]");
+            if (mp.get("targetDate") != null) ctx.append(" targetDate=").append(mp.get("targetDate"));
+            if (mp.get("actualDate") != null) ctx.append(" actualDate=").append(mp.get("actualDate"));
+            if (mp.get("owner") != null) ctx.append(" owner=").append(mp.get("owner"));
+            if (mp.get("phaseId") != null) ctx.append(" phaseId=").append(mp.get("phaseId"));
             ctx.append("\n");
         }
 
         // Delta Packs
-        List<DeltaPackDocument> deltaPacks = deltaPackRepository.findByProjectIdOrderByCreatedAtDesc(projectId);
+        List<ThingDocument> deltaPacks = thingsByCategory.getOrDefault(ThingCategory.DELTA_PACK, List.of());
         ctx.append("\n## DELTA PACKS (").append(deltaPacks.size()).append(")\n");
-        for (DeltaPackDocument d : deltaPacks) {
-            ctx.append("- **").append(safe(d.getDeltaPackId())).append("**");
-            if (d.getStatus() != null) ctx.append(" [").append(d.getStatus()).append("]");
-            int deltaCount = d.getDeltas() != null ? d.getDeltas().size() : 0;
+        for (ThingDocument d : deltaPacks) {
+            Map<String, Object> dp = d.getPayload();
+            ctx.append("- **").append(safe(d.getId())).append("**");
+            if (dp.get("status") != null) ctx.append(" [").append(dp.get("status")).append("]");
+            List<Map<String, Object>> deltas = (List<Map<String, Object>>) dp.get("deltas");
+            int deltaCount = deltas != null ? deltas.size() : 0;
             ctx.append(" deltas=").append(deltaCount);
-            if (d.getCreatedAt() != null) ctx.append(" createdAt=").append(d.getCreatedAt());
+            if (d.getCreateDate() != null) ctx.append(" createdAt=").append(d.getCreateDate());
             ctx.append("\n");
-            if (d.getSummary() != null && !d.getSummary().isEmpty()) {
-                ctx.append("  summary: ").append(truncate(d.getSummary().toString(), 200)).append("\n");
+            if (dp.get("summary") != null) {
+                ctx.append("  summary: ").append(truncate(dp.get("summary").toString(), 200)).append("\n");
             }
         }
 
@@ -411,10 +423,10 @@ public class AskController {
 
         threadRepository.findByProjectIdsOrderByUpdatedAtDesc(projectId).forEach(t ->
                 sources.add(Map.of("type", "thread", "id", safe(t.getThreadId()), "title", safe(t.getTitle()))));
-        objectiveRepository.findByProjectId(projectId).forEach(o ->
-                sources.add(Map.of("type", "objective", "id", safe(o.getObjectiveId()), "title", safe(o.getOutcome()))));
-        blindspotRepository.findByProjectId(projectId).forEach(b ->
-                sources.add(Map.of("type", "blindspot", "id", safe(b.getBlindspotId()), "title", safe(b.getTitle()))));
+        thingService.findByProjectAndCategory(projectId, ThingCategory.OBJECTIVE).forEach(o ->
+                sources.add(Map.of("type", "objective", "id", safe(o.getId()), "title", safe(o.getPayload().get("outcome")))));
+        thingService.findByProjectAndCategory(projectId, ThingCategory.BLINDSPOT).forEach(b ->
+                sources.add(Map.of("type", "blindspot", "id", safe(b.getId()), "title", safe(b.getPayload().get("title")))));
 
         return sources;
     }
