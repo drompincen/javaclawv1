@@ -32,6 +32,7 @@ public class TicketDocument {
     private List<String> evidenceLinks;
     private String externalRef;
     private String owner;
+    private Integer storyPoints;
     private Instant lastExternalSync;
     private Instant createdAt;
     private Instant updatedAt;
@@ -85,6 +86,9 @@ public class TicketDocument {
 
     public String getOwner() { return owner; }
     public void setOwner(String owner) { this.owner = owner; }
+
+    public Integer getStoryPoints() { return storyPoints; }
+    public void setStoryPoints(Integer storyPoints) { this.storyPoints = storyPoints; }
 
     public Instant getLastExternalSync() { return lastExternalSync; }
     public void setLastExternalSync(Instant lastExternalSync) { this.lastExternalSync = lastExternalSync; }

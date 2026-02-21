@@ -4,10 +4,12 @@ import io.github.drompincen.javaclawv1.persistence.document.LogDocument;
 import io.github.drompincen.javaclawv1.persistence.document.LlmInteractionDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.LogRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.LlmInteractionRepository;
+import io.github.drompincen.javaclawv1.persistence.repository.MessageRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -17,10 +19,13 @@ public class LogController {
 
     private final LogRepository logRepository;
     private final LlmInteractionRepository llmInteractionRepository;
+    private final MessageRepository messageRepository;
 
-    public LogController(LogRepository logRepository, LlmInteractionRepository llmInteractionRepository) {
+    public LogController(LogRepository logRepository, LlmInteractionRepository llmInteractionRepository,
+                         MessageRepository messageRepository) {
         this.logRepository = logRepository;
         this.llmInteractionRepository = llmInteractionRepository;
+        this.messageRepository = messageRepository;
     }
 
     @GetMapping
@@ -58,12 +63,15 @@ public class LogController {
         long totalDuration = recent.stream().mapToLong(LlmInteractionDocument::getDurationMs).sum();
         long errors = recent.stream().filter(d -> !d.isSuccess()).count();
 
-        return ResponseEntity.ok(Map.of(
-                "totalInteractions", totalInteractions,
-                "recentTokens", totalTokens,
-                "recentDurationMs", totalDuration,
-                "recentErrors", errors,
-                "avgDurationMs", recent.isEmpty() ? 0 : totalDuration / recent.size()
-        ));
+        long totalMessages = messageRepository.count();
+
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("totalInteractions", totalInteractions);
+        metrics.put("recentTokens", totalTokens);
+        metrics.put("recentDurationMs", totalDuration);
+        metrics.put("recentErrors", errors);
+        metrics.put("avgDurationMs", recent.isEmpty() ? 0 : totalDuration / recent.size());
+        metrics.put("totalMessages", totalMessages);
+        return ResponseEntity.ok(metrics);
     }
 }

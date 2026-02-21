@@ -7,72 +7,20 @@
       "description": "Context command — sets project context"
     },
     {
-      "userQuery": "Intake the following content with the attached Excel file (story2_alignment_test.xlsx):\n\nConfluence pages:\n- KYC Evidence Design: Define evidence service API, storage model, and validation rules. Owner: Alice. Date: 2026-02-10. Decisions: use S3 for storage, REST API with versioning. Open questions: retention policy.\n- Onboarding Flow: Client onboarding steps including identity verification and document upload. Owner: Alice. Date: 2026-02-11. Decisions: 3-step wizard. Action items: build upload component (Bob), integrate KYC check (Alice).\n\nJira Export (also in Excel Jira_Export sheet):\n- J-101: Build Evidence API | Epic: Evidence Service | Status: In Progress | Owner: Alice | Priority: High\n- J-102: UI for onboarding | Epic: Onboarding | Status: Todo | Owner: Bob | Priority: Medium\n- J-103: Validation rules | Epic: Evidence Service | Status: Todo | Owner: Alice | Priority: High\n- J-104: Refactor intake | Epic: (none) | Status: Todo | Owner: Charlie | Priority: Low\n\nSmartsheet Plan (also in Excel Smartsheet_Plan sheet):\n- Phase 1: Evidence Service | Milestone: Evidence Service Ready | Owner: Bob | Target: 2026-03-15\n- Phase 2: Onboarding | Milestone: Onboarding Complete | Owner: Alice | Target: 2026-03-20",
+      "userQuery": "Intake the following content with the attached Excel file (story2_alignment_test.xlsx):\n\nConfluence pages:\n- Payment Processing Design: Define evidence service API, storage model, and validation rules. Owner: Alice. Date: 2026-02-10. Decisions: use S3 for storage, REST API with versioning. Open questions: retention policy.\n- Onboarding Flow: Client onboarding steps including identity verification and document upload. Owner: Alice. Date: 2026-02-11. Decisions: 3-step wizard. Action items: build upload component (Bob), integrate payment verification (Alice).\n\nJira Export (also in Excel Jira_Export sheet):\n- J-101: Build Evidence API | Epic: Evidence Service | Status: In Progress | Owner: Alice | Priority: High\n- J-102: UI for onboarding | Epic: Onboarding | Status: Todo | Owner: Bob | Priority: Medium\n- J-103: Validation rules | Epic: Evidence Service | Status: Todo | Owner: Alice | Priority: High\n- J-104: Refactor intake | Epic: (none) | Status: Todo | Owner: Charlie | Priority: Low\n\nSmartsheet Plan (also in Excel Smartsheet_Plan sheet):\n- Phase 1: Evidence Service | Milestone: Evidence Service Ready | Owner: Bob | Target: 2026-03-15\n- Phase 2: Onboarding | Milestone: Onboarding Complete | Owner: Alice | Target: 2026-03-20",
       "description": "Full multi-source intake — triggers 7-phase pipeline",
       "agentResponses": [
         {
           "agentName": "intake-triage",
-          "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** Use S3 for storage, REST API with versioning\n**Open Questions:** Retention policy\n**Action Items:** None identified\n**Key Content:** KYC evidence service API, storage model, validation rules. Owner: Alice. Date: 2026-02-10.\n\n### Topic: Onboarding Flow\n**Type:** action_item\n**Decisions:** 3-step wizard\n**Open Questions:** None\n**Action Items:** Build upload component (Bob), Integrate KYC check (Alice)\n**Key Content:** Client onboarding steps including identity verification and document upload.\n\nContent types detected: CONFLUENCE_EXPORT, JIRA_DUMP, SMARTSHEET_EXPORT"
+          "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** Use S3 for storage, REST API with versioning\n**Open Questions:** Retention policy\n**Action Items:** None identified\n**Key Content:** payment processing service API, storage model, validation rules. Owner: Alice. Date: 2026-02-10.\n\n### Topic: Onboarding Flow\n**Type:** action_item\n**Decisions:** 3-step wizard\n**Open Questions:** None\n**Action Items:** Build upload component (Bob), Integrate payment verification (Alice)\n**Key Content:** Client onboarding steps including identity verification and document upload.\n\nContent types detected: CONFLUENCE_EXPORT, JIRA_DUMP, SMARTSHEET_EXPORT"
         },
         {
-          "agentName": "thread-agent",
-          "responseFallback": "Creating threads from classified topics.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"Evidence Service Design\", \"content\": \"## Evidence Service Design\\n\\nDefine evidence service API, storage model, and validation rules.\\n\\n**Decisions:**\\n- Use S3 for storage\\n- REST API with versioning\\n\\n**Open Questions:**\\n- Retention policy\\n\\n**Owner:** Alice\\n**Date:** 2026-02-10\", \"decisions\": [\"Use S3 for storage\", \"REST API with versioning\"], \"actions\": []}}\n</tool_call>"
+          "agentName": "generalist",
+          "responseFallback": "Creating all domain objects from classified content.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"Evidence Service Design\", \"content\": \"## Evidence Service Design\\n\\nDefine evidence service API, storage model, and validation rules.\\n\\n**Decisions:**\\n- Use S3 for storage\\n- REST API with versioning\\n\\n**Open Questions:**\\n- Retention policy\\n\\n**Owner:** Alice\\n**Date:** 2026-02-10\", \"decisions\": [\"Use S3 for storage\", \"REST API with versioning\"], \"actions\": []}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"Onboarding Flow\", \"content\": \"## Onboarding Flow\\n\\nClient onboarding steps including identity verification and document upload.\\n\\n**Decisions:**\\n- 3-step wizard\\n\\n**Action Items:**\\n- Build upload component (Bob)\\n- Integrate payment verification (Alice)\", \"decisions\": [\"3-step wizard\"], \"actions\": [{\"text\": \"Build upload component\", \"assignee\": \"Bob\"}, {\"text\": \"Integrate payment verification\", \"assignee\": \"Alice\"}]}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"J-101: Build Evidence API\", \"description\": \"Epic: Evidence Service | Status: In Progress | Owner: Alice | Priority: High\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"J-102: UI for onboarding\", \"description\": \"Epic: Onboarding | Status: Todo | Owner: Bob | Priority: Medium\", \"priority\": \"MEDIUM\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"J-103: Validation rules\", \"description\": \"Epic: Evidence Service | Status: Todo | Owner: Alice | Priority: High\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"J-104: Refactor intake\", \"description\": \"Epic: (none) — ORPHANED WORK: no epic assigned | Status: Todo | Owner: Charlie | Priority: Low\", \"priority\": \"LOW\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"story2-alignment-test\", \"name\": \"Phase 1: Evidence Service\", \"sortOrder\": 1, \"description\": \"Evidence service development phase\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_milestone\", \"args\": {\"projectId\": \"story2-alignment-test\", \"name\": \"Evidence Service Ready\", \"targetDate\": \"2026-03-15\", \"owner\": \"Bob\", \"description\": \"Phase 1 milestone — Evidence service delivery\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"story2-alignment-test\", \"name\": \"Phase 2: Onboarding\", \"sortOrder\": 2, \"description\": \"Onboarding flow development phase\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_milestone\", \"args\": {\"projectId\": \"story2-alignment-test\", \"name\": \"Onboarding Complete\", \"targetDate\": \"2026-03-20\", \"owner\": \"Alice\", \"description\": \"Phase 2 milestone — Onboarding flow delivery\"}}\n</tool_call>"
         },
         {
-          "agentName": "thread-agent",
-          "responseFallback": "<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"Onboarding Flow\", \"content\": \"## Onboarding Flow\\n\\nClient onboarding steps including identity verification and document upload.\\n\\n**Decisions:**\\n- 3-step wizard\\n\\n**Action Items:**\\n- Build upload component (Bob)\\n- Integrate KYC check (Alice)\", \"decisions\": [\"3-step wizard\"], \"actions\": [{\"text\": \"Build upload component\", \"assignee\": \"Bob\"}, {\"text\": \"Integrate KYC check\", \"assignee\": \"Alice\"}]}}\n</tool_call>"
-        },
-        {
-          "agentName": "thread-agent",
-          "responseFallback": "Created 2 threads: 'Evidence Service Design' and 'Onboarding Flow'."
-        },
-        {
-          "agentName": "pm",
-          "responseFallback": "Processing Jira export data. Reading Excel file for Jira_Export sheet.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"read\", \"file_path\": \"story2_alignment_test.xlsx\", \"sheet_name\": \"Jira_Export\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "pm",
-          "responseFallback": "Jira data loaded. Creating tickets grouped by epic.\n\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"J-101: Build Evidence API\", \"description\": \"Epic: Evidence Service | Status: In Progress | Owner: Alice | Priority: High\", \"priority\": \"HIGH\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "pm",
-          "responseFallback": "<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"J-102: UI for onboarding\", \"description\": \"Epic: Onboarding | Status: Todo | Owner: Bob | Priority: Medium\", \"priority\": \"MEDIUM\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "pm",
-          "responseFallback": "<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"J-103: Validation rules\", \"description\": \"Epic: Evidence Service | Status: Todo | Owner: Alice | Priority: High\", \"priority\": \"HIGH\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "pm",
-          "responseFallback": "<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"story2-alignment-test\", \"title\": \"J-104: Refactor intake\", \"description\": \"Epic: (none) — ORPHANED WORK: no epic assigned | Status: Todo | Owner: Charlie | Priority: Low\", \"priority\": \"LOW\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "pm",
-          "responseFallback": "Created 4 tickets. Grouped by epic:\n- Evidence Service: J-101, J-103\n- Onboarding: J-102\n- No Epic (orphaned): J-104"
-        },
-        {
-          "agentName": "plan-agent",
-          "responseFallback": "Processing Smartsheet plan data.\n\n<tool_call>\n{\"name\": \"excel\", \"args\": {\"operation\": \"read\", \"file_path\": \"story2_alignment_test.xlsx\", \"sheet_name\": \"Smartsheet_Plan\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "plan-agent",
-          "responseFallback": "Plan data loaded. Creating phases and milestones.\n\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"story2-alignment-test\", \"name\": \"Phase 1: Evidence Service\", \"sortOrder\": 1, \"description\": \"Evidence service development phase\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "plan-agent",
-          "responseFallback": "<tool_call>\n{\"name\": \"create_milestone\", \"args\": {\"projectId\": \"story2-alignment-test\", \"name\": \"Evidence Service Ready\", \"targetDate\": \"2026-03-15\", \"owner\": \"Bob\", \"description\": \"Phase 1 milestone — Evidence service delivery\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "plan-agent",
-          "responseFallback": "<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"story2-alignment-test\", \"name\": \"Phase 2: Onboarding\", \"sortOrder\": 2, \"description\": \"Onboarding flow development phase\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "plan-agent",
-          "responseFallback": "<tool_call>\n{\"name\": \"create_milestone\", \"args\": {\"projectId\": \"story2-alignment-test\", \"name\": \"Onboarding Complete\", \"targetDate\": \"2026-03-20\", \"owner\": \"Alice\", \"description\": \"Phase 2 milestone — Onboarding flow delivery\"}}\n</tool_call>"
-        },
-        {
-          "agentName": "plan-agent",
-          "responseFallback": "Created 2 phases and 2 milestones:\n- Phase 1: Evidence Service → Milestone: Evidence Service Ready (Bob, 2026-03-15)\n- Phase 2: Onboarding → Milestone: Onboarding Complete (Alice, 2026-03-20)"
+          "agentName": "generalist",
+          "responseFallback": "Created all domain objects:\n- 2 threads: Evidence Service Design, Onboarding Flow\n- 4 tickets: J-101, J-102, J-103, J-104\n- 2 phases: Evidence Service, Onboarding\n- 2 milestones: Evidence Service Ready (2026-03-15), Onboarding Complete (2026-03-20)"
         },
         {
           "agentName": "objective-agent",

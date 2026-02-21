@@ -1,0 +1,69 @@
+{
+  "meeting": "Sprint 42 Planning — Payment Gateway",
+  "date": "2026-02-18",
+  "attendees": ["Alice Chen", "Bob Taylor", "Joe Martinez", "Sarah (PM)"],
+  "objectives": [
+    {
+      "title": "Complete Payment Processing Engine refactor",
+      "outcome": "All 3 handlers migrated to strategy pattern",
+      "measurableSignal": "PAY-201, PAY-202, PAY-203 all closed",
+      "risks": ["Joe is assigned to all 3 — if he gets pulled into webhook work this slips"],
+      "linkedTickets": ["PAY-201", "PAY-202", "PAY-203"],
+      "status": "COMMITTED"
+    },
+    {
+      "title": "Webhook Integration queue prototype validated",
+      "outcome": "RabbitMQ integration spike complete, load test passing at 500 msg/s",
+      "measurableSignal": "Spike ticket closed, consumer ticket at least 50% complete",
+      "risks": ["Dependency on Stripe sandbox access — Bob needs credentials by Wednesday"],
+      "linkedTickets": ["PAY-204", "PAY-205"],
+      "status": "COMMITTED"
+    },
+    {
+      "title": "Merchant Onboarding wizard design approved",
+      "outcome": "Wireframes reviewed by UX team, S3 upload API draft ready",
+      "measurableSignal": "Wireframe review meeting scheduled, API spec PR open",
+      "risks": ["UX team has limited availability — may push to Sprint 43"],
+      "linkedTickets": ["PAY-206", "PAY-207"],
+      "status": "PROPOSED"
+    }
+  ],
+  "resources": [
+    {
+      "name": "Joe Martinez",
+      "role": "ENGINEER",
+      "capacity": 100,
+      "availability": 0.8,
+      "skills": ["Java", "Spring Boot", "MongoDB", "React"],
+      "assignedSP": 22,
+      "assignedTickets": 5,
+      "loadStatus": "OVERLOADED"
+    },
+    {
+      "name": "Alice Chen",
+      "role": "ENGINEER",
+      "capacity": 100,
+      "availability": 1.0,
+      "skills": ["Java", "AWS", "S3", "PostgreSQL"],
+      "assignedSP": 5,
+      "assignedTickets": 1,
+      "loadStatus": "AVAILABLE"
+    },
+    {
+      "name": "Bob Taylor",
+      "role": "ENGINEER",
+      "capacity": 100,
+      "availability": 0.6,
+      "skills": ["RabbitMQ", "Docker", "Kubernetes", "Terraform"],
+      "assignedSP": 5,
+      "assignedTickets": 1,
+      "loadStatus": "REASONABLE"
+    }
+  ],
+  "actionItems": [
+    "Sarah to get Stripe sandbox creds for Bob by Wednesday",
+    "Alice to pick up PAY-206 wireframe review to unblock Joe",
+    "Joe to focus on PAY-201 first (highest risk)",
+    "Bob to timebox RabbitMQ spike to 3 days"
+  ]
+}

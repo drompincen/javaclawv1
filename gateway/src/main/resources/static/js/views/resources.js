@@ -2,11 +2,23 @@ import * as api from '../api.js';
 import { getState, setSelected } from '../state.js';
 import { renderTable } from '../components/table.js';
 import { toast } from '../components/toast.js';
+import { initSplitter } from '../components/splitter.js';
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+function parseAssignee(ticket) {
+  if (ticket.owner) return ticket.owner;
+  if (!ticket.description) return '';
+  const m = ticket.description.match(/(?:Assignee|Owner|Assigned to)\s*:\s*(.+)/i);
+  return m ? m[1].trim() : '';
+}
 
 let currentMode = 'all';
+let selectedResourceId = null;
 
 export async function render() {
   currentMode = 'all';
+  selectedResourceId = null;
   const pid = getState().currentProjectId;
   document.getElementById('centerTitle').textContent = 'RESOURCES';
   document.getElementById('centerSub').textContent =
@@ -27,6 +39,7 @@ export async function render() {
         </div>
       </div>
       <div class="cardB" id="resourceTableContainer"></div>
+      <div id="readingPane" style="display:none"></div>
     </div>
     <div style="height:10px"></div>
     <div class="card">
@@ -38,6 +51,8 @@ export async function render() {
         </div>
       </div>
     </div>`;
+
+  initSplitter(body.querySelector('.card'));
 
   let allResources = [];
   try {
@@ -51,6 +66,17 @@ export async function render() {
     return projectOnly && pid
       ? allResources.filter(r => r.projectId === pid)
       : allResources;
+  }
+
+  function selectResource(r) {
+    if (selectedResourceId === r.resourceId) {
+      selectedResourceId = null;
+      document.getElementById('readingPane').style.display = 'none';
+    } else {
+      selectedResourceId = r.resourceId;
+      setSelected({ type: 'resource', id: r.resourceId, data: r });
+      renderReadingPane(r, pid);
+    }
   }
 
   function renderAll(resources) {
@@ -67,26 +93,52 @@ export async function render() {
       document.getElementById('resourceTableContainer'),
       ['name', 'role', 'capacity', 'availability', 'email', 'project'],
       rows,
-      (row) => setSelected({ type: 'resource', id: row._raw.resourceId, data: row._raw })
+      (row) => selectResource(row._raw)
     );
 
-    // Post-process availability cells to add FREE/BUSY pills
+    // Post-process table rows: availability pills + delete buttons
     const tableEl = document.getElementById('resourceTableContainer').querySelector('table');
     if (tableEl) {
+      const thead = tableEl.querySelector('thead tr');
+      if (thead) { const th = document.createElement('th'); th.textContent = ''; thead.appendChild(th); }
       const bodyRows = tableEl.querySelectorAll('tbody tr');
       bodyRows.forEach((tr, i) => {
+        // FREE/BUSY pill
         const cells = tr.querySelectorAll('td');
         const availCell = cells[3];
-        if (!availCell) return;
-        const val = resources[i]?.availability;
-        if (val != null) {
-          const pill = document.createElement('span');
-          pill.className = 'pill ' + (val >= 0.5 ? 'good' : 'bad');
-          pill.textContent = val >= 0.5 ? 'FREE' : 'BUSY';
-          pill.style.marginLeft = '6px';
-          pill.style.fontSize = '10px';
-          availCell.appendChild(pill);
+        if (availCell) {
+          const val = resources[i]?.availability;
+          if (val != null) {
+            const pill = document.createElement('span');
+            pill.className = 'pill ' + (val >= 0.5 ? 'good' : 'bad');
+            pill.textContent = val >= 0.5 ? 'FREE' : 'BUSY';
+            pill.style.marginLeft = '6px';
+            pill.style.fontSize = '10px';
+            availCell.appendChild(pill);
+          }
         }
+        // Delete button
+        const td = document.createElement('td');
+        if (!resources[i]) { tr.appendChild(td); return; }
+        const btn = document.createElement('button');
+        btn.className = 'btn danger';
+        btn.style.cssText = 'padding:2px 6px;font-size:11px;';
+        btn.textContent = '\u00d7';
+        btn.title = 'Delete resource';
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('Delete resource "' + (resources[i].name || '') + '"?')) return;
+          try {
+            await api.resources.delete(resources[i].resourceId);
+            const idx = allResources.findIndex(r => r.resourceId === resources[i].resourceId);
+            if (idx >= 0) allResources.splice(idx, 1);
+            toast('resource deleted');
+            document.dispatchEvent(new CustomEvent('jc:data-changed'));
+            renderView(currentMode);
+          } catch (err) { toast('delete failed: ' + err.message); }
+        });
+        td.appendChild(btn);
+        tr.appendChild(td);
       });
     }
   }
@@ -121,7 +173,7 @@ export async function render() {
         <div class="progress-track" style="margin-top:6px">
           <div class="progress-fill" style="width:${util}%;background:${barColor}"></div>
         </div>`;
-      el.addEventListener('click', () => setSelected({ type: 'resource', id: r.resourceId, data: r }));
+      el.addEventListener('click', () => selectResource(r));
       timeline.appendChild(el);
     });
 
@@ -160,7 +212,7 @@ export async function render() {
         <div class="progress-track" style="margin-top:6px">
           <div class="progress-fill" style="width:${util}%;background:${barColor}"></div>
         </div>`;
-      el.addEventListener('click', () => setSelected({ type: 'resource', id: r.resourceId, data: r }));
+      el.addEventListener('click', () => selectResource(r));
       timeline.appendChild(el);
     });
 
@@ -218,6 +270,7 @@ export async function render() {
       }
       ta.value = '';
       toast(`added ${missing.length} resource(s)`);
+      document.dispatchEvent(new CustomEvent('jc:data-changed'));
       renderView(currentMode);
     } catch (e) {
       toast('add failed: ' + e.message);
@@ -225,4 +278,71 @@ export async function render() {
   });
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+async function renderReadingPane(d, pid) {
+  const pane = document.getElementById('readingPane');
+  pane.style.display = 'block';
+
+  const util = d.availability != null ? Math.round(d.availability * 100) : null;
+  const barColor = util != null ? (util >= 70 ? 'var(--good)' : util >= 30 ? 'var(--warn)' : 'var(--bad)') : '';
+
+  let html = `<div class="reading-pane-divider">Resource Detail</div>`;
+  html += `<div class="reading-pane">`;
+  html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">`;
+  html += `<b style="font-size:14px">${esc(d.name || 'Unknown')}</b>`;
+  html += `<span class="pill">${esc(d.role || '')}</span>`;
+  html += `</div>`;
+
+  html += `<div class="hr"></div>`;
+  html += `<div class="tiny">capacity: ${d.capacity != null ? d.capacity : '\u2013'}</div>`;
+  html += `<div class="tiny">availability: ${d.availability != null ? d.availability : '\u2013'}</div>`;
+  if (util != null) {
+    html += `<div class="progress-track" style="margin-top:6px"><div class="progress-fill" style="width:${util}%;background:${barColor}"></div></div>`;
+  }
+  html += `<div class="tiny">email: ${esc(d.email || '-')}</div>`;
+  if ((d.skills || []).length > 0) {
+    html += `<div class="tiny">skills: ${d.skills.join(', ')}</div>`;
+  }
+  html += `<div class="tiny">project: ${esc(d.projectId || '-')}</div>`;
+
+  // Assigned tickets section
+  html += `<div class="hr"></div>`;
+  html += `<div class="sectionLabel">Assigned Tickets</div>`;
+  html += `<div id="rpAssignedTickets"><div class="tiny">Loading...</div></div>`;
+
+  html += `<div class="hr"></div>`;
+  html += `<div class="row"><button class="btn danger" id="rpDelResource">Delete</button></div>`;
+  html += `</div>`;
+  pane.innerHTML = html;
+
+  // Fetch and display assigned tickets
+  const ticketContainer = document.getElementById('rpAssignedTickets');
+  if (pid && ticketContainer) {
+    try {
+      const tickets = await api.tickets.list(pid);
+      const assigned = tickets.filter(t =>
+        parseAssignee(t).toLowerCase() === (d.name || '').toLowerCase()
+      );
+      if (assigned.length > 0) {
+        ticketContainer.innerHTML = assigned.map(t =>
+          `<div class="tiny" style="padding:2px 0">\u2022 ${esc(t.title || 'Untitled')} <span class="pill" style="font-size:10px">${esc(t.status || '')}</span></div>`
+        ).join('');
+      } else {
+        ticketContainer.innerHTML = '<div class="tiny">No tickets assigned.</div>';
+      }
+    } catch {
+      ticketContainer.innerHTML = '<div class="tiny">Could not load tickets.</div>';
+    }
+  } else {
+    if (ticketContainer) ticketContainer.innerHTML = '<div class="tiny">Select a project to see tickets.</div>';
+  }
+
+  pane.querySelector('#rpDelResource')?.addEventListener('click', async () => {
+    if (!confirm('Delete this resource?')) return;
+    try {
+      await api.resources.delete(d.resourceId);
+      toast('resource deleted');
+      document.dispatchEvent(new CustomEvent('jc:data-changed'));
+      render();
+    } catch (e) { toast('delete failed: ' + e.message); }
+  });
+}

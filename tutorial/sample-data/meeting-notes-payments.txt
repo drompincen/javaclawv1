@@ -1,0 +1,44 @@
+Payment Gateway Architecture Review — 2026-02-18, 10:00 AM
+
+Attendees: Joe Martinez, Alice Chen, Bob Taylor
+
+---
+
+Topic 1: Payment Processing Engine Refactor
+
+Joe presented the current Payment Processing architecture. The monolithic handler
+processes all payment methods (card, bank transfer, digital wallet) in a single
+class with 1,200 lines. We agreed to split into a strategy pattern with one handler
+per payment method. Joe will own the refactor — target completion by end of Sprint 42.
+
+Alice raised concerns about backward compatibility with the existing REST API.
+We decided to version the endpoint: /api/v2/payments while keeping /api/v1/payments
+for 90 days.
+
+Action: Joe to create Jira tickets for each payment handler (card, bank transfer, wallet).
+
+---
+
+Topic 2: Webhook Integration
+
+Bob walked through the payment provider webhook API (Stripe). Rate limits are
+100 req/min on the sandbox, 1,000 req/min in production. We need a queue-based
+approach to avoid missing events during high-volume settlement windows.
+
+Decision: Use RabbitMQ with a retry/backoff consumer. Bob will prototype this week.
+
+Action: Bob to spike the queue integration and share results by Friday.
+Action: Alice to review the data security implications of storing webhook payloads.
+
+---
+
+Topic 3: PCI Compliance Readiness
+
+Alice reminded the team that the PCI Compliance audit is in 3 weeks.
+Checklist items still open: penetration test results, runbook documentation, rollback
+procedure, and monitoring dashboards.
+
+Decision: Each team member owns 2 checklist items. Joe: penetration test + runbook.
+Alice: monitoring dashboards + alerting. Bob: rollback procedure + incident response.
+
+Action: All items must be complete 1 week before audit date.

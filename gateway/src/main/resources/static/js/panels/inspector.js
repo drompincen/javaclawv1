@@ -1,5 +1,5 @@
 import * as api from '../api.js';
-import { getState, onChange } from '../state.js';
+import { getState, onChange, setSelected } from '../state.js';
 import { toast } from '../components/toast.js';
 
 export function initInspector() {
@@ -21,6 +21,7 @@ export function renderInspector() {
   const d = sel.data;
   switch (sel.type) {
     case 'thread': {
+      const tpid = getState().currentProjectId;
       const decisions = d.decisions || [];
       const actions = d.actions || [];
       box.innerHTML = `
@@ -32,8 +33,13 @@ export function renderInspector() {
         ${decisions.length > 0 ? `<div class="hr"></div><div class="tiny"><b>Decisions:</b></div>${decisions.map(dec => `<div class="tiny">\u2714 ${esc(dec.text)}${dec.decidedBy ? ' (' + esc(dec.decidedBy) + ')' : ''}</div>`).join('')}` : ''}
         ${actions.length > 0 ? `<div class="hr"></div><div class="tiny"><b>Action Items:</b></div>${actions.map(a => `<div class="tiny">\u25B6 ${esc(a.text)}${a.assignee ? ' \u2192 ' + esc(a.assignee) : ''} <span class="pill">${a.status || 'OPEN'}</span></div>`).join('')}` : ''}
         <div class="hr"></div>
+        <div class="row"><button class="btn danger" id="delThread">Delete</button></div>
+        <div class="hr"></div>
         <div class="tiny" id="threadMessages"><i>Loading messages...</i></div>`;
-      // Async load thread messages
+      box.querySelector('#delThread')?.addEventListener('click', async () => {
+        if (!confirm('Delete this thread?')) return;
+        try { await api.threads.delete(tpid, d.threadId || sel.id); toast('thread deleted'); setSelected(null); } catch (e) { toast('delete failed: ' + e.message); }
+      });
       loadThreadMessages(d.threadId || sel.id);
       break;
     }
@@ -71,6 +77,7 @@ export function renderInspector() {
               if (!confirm('Delete this objective?')) return;
               await api.objectives.delete(pid, objId);
               toast('objective deleted');
+              setSelected(null);
             }
           } catch (e) {
             toast('action failed: ' + e.message);
@@ -80,7 +87,8 @@ export function renderInspector() {
       break;
     }
 
-    case 'ticket':
+    case 'ticket': {
+      const tkpid = getState().currentProjectId;
       box.innerHTML = `
         <div><b>Ticket</b>: ${esc(d.title)}</div>
         <div class="hr"></div>
@@ -89,10 +97,17 @@ export function renderInspector() {
         <div class="tiny">priority: ${esc(d.priority)}</div>
         <div class="tiny">assignee: ${esc(d.assignee)}</div>
         <div class="tiny">externalRef: ${esc(d.externalRef)}</div>
-        ${(d.blockedBy || []).length > 0 ? `<div class="tiny">blockedBy: ${d.blockedBy.join(', ')}</div>` : ''}`;
+        ${(d.blockedBy || []).length > 0 ? `<div class="tiny">blockedBy: ${d.blockedBy.join(', ')}</div>` : ''}
+        <div class="hr"></div>
+        <div class="row"><button class="btn danger" id="delTicket">Delete</button></div>`;
+      box.querySelector('#delTicket')?.addEventListener('click', async () => {
+        if (!confirm('Delete this ticket?')) return;
+        try { await api.tickets.delete(tkpid, d.ticketId || sel.id); toast('ticket deleted'); setSelected(null); } catch (e) { toast('delete failed: ' + e.message); }
+      });
       break;
+    }
 
-    case 'resource':
+    case 'resource': {
       box.innerHTML = `
         <div><b>Resource</b>: ${esc(d.name)}</div>
         <div class="hr"></div>
@@ -100,20 +115,35 @@ export function renderInspector() {
         <div class="tiny">capacity: ${d.capacity != null ? d.capacity : '\u2013'}</div>
         <div class="tiny">availability: ${d.availability != null ? d.availability : '\u2013'}</div>
         <div class="tiny">email: ${esc(d.email)}</div>
-        ${(d.skills || []).length > 0 ? `<div class="tiny">skills: ${d.skills.join(', ')}</div>` : ''}`;
+        ${(d.skills || []).length > 0 ? `<div class="tiny">skills: ${d.skills.join(', ')}</div>` : ''}
+        <div class="hr"></div>
+        <div class="row"><button class="btn danger" id="delResource">Delete</button></div>`;
+      box.querySelector('#delResource')?.addEventListener('click', async () => {
+        if (!confirm('Delete this resource?')) return;
+        try { await api.resources.delete(d.resourceId || sel.id); toast('resource deleted'); setSelected(null); } catch (e) { toast('delete failed: ' + e.message); }
+      });
       break;
+    }
 
-    case 'phase':
+    case 'phase': {
+      const phpid = getState().currentProjectId;
       box.innerHTML = `
         <div><b>Phase</b>: ${esc(d.name)}</div>
         <div class="tiny">${esc(d.description)}</div>
         <div class="hr"></div>
         <div class="tiny"><b>Entry</b>: ${(d.entryCriteria || []).join(', ') || '\u2013'}</div>
         <div class="tiny"><b>Exit</b>: ${(d.exitCriteria || []).join(', ') || '\u2013'}</div>
-        <div class="tiny">status: ${d.status || '\u2013'} \u2022 sortOrder: ${d.sortOrder || 0}</div>`;
+        <div class="tiny">status: ${d.status || '\u2013'} \u2022 sortOrder: ${d.sortOrder || 0}</div>
+        <div class="hr"></div>
+        <div class="row"><button class="btn danger" id="delPhase">Delete</button></div>`;
+      box.querySelector('#delPhase')?.addEventListener('click', async () => {
+        if (!confirm('Delete this phase?')) return;
+        try { await api.phases.delete(phpid, d.phaseId || sel.id); toast('phase deleted'); setSelected(null); } catch (e) { toast('delete failed: ' + e.message); }
+      });
       break;
+    }
 
-    case 'reminder':
+    case 'reminder': {
       box.innerHTML = `
         <div><b>Reminder</b></div>
         <div class="tiny">${esc(d.message)}</div>
@@ -121,17 +151,31 @@ export function renderInspector() {
         <div class="tiny">triggerAt: ${d.triggerAt || '\u2013'}</div>
         <div class="tiny">type: ${d.type || '\u2013'}</div>
         <div class="tiny">recurring: ${d.recurring ? 'Yes' : 'No'}</div>
-        <div class="tiny">triggered: ${d.triggered ? 'Yes' : 'No'}</div>`;
+        <div class="tiny">triggered: ${d.triggered ? 'Yes' : 'No'}</div>
+        <div class="hr"></div>
+        <div class="row"><button class="btn danger" id="delReminder">Delete</button></div>`;
+      box.querySelector('#delReminder')?.addEventListener('click', async () => {
+        if (!confirm('Delete this reminder?')) return;
+        try { await api.reminders.delete(d.reminderId || sel.id); toast('reminder deleted'); setSelected(null); } catch (e) { toast('delete failed: ' + e.message); }
+      });
       break;
+    }
 
     case 'checklist': {
+      const chkpid = getState().currentProjectId;
       const items = d.items || [];
       box.innerHTML = `
         <div><b>Checklist</b></div>
         <div class="tiny">${esc(d.name)} \u2022 status: ${d.status || '\u2013'}</div>
         <div class="hr"></div>
         ${items.map(i => `<div class="tiny">${i.checked ? '\u2611' : '\u2610'} ${esc(i.text)}${i.assignee ? ' (' + esc(i.assignee) + ')' : ''}</div>`).join('')}
-        ${items.length === 0 ? '<div class="tiny">No items.</div>' : ''}`;
+        ${items.length === 0 ? '<div class="tiny">No items.</div>' : ''}
+        <div class="hr"></div>
+        <div class="row"><button class="btn danger" id="delChecklist">Delete</button></div>`;
+      box.querySelector('#delChecklist')?.addEventListener('click', async () => {
+        if (!confirm('Delete this checklist?')) return;
+        try { await api.checklists.delete(chkpid, d.checklistId || sel.id); toast('checklist deleted'); setSelected(null); } catch (e) { toast('delete failed: ' + e.message); }
+      });
       break;
     }
 
@@ -147,15 +191,23 @@ export function renderInspector() {
       break;
     }
 
-    case 'blindspot':
+    case 'blindspot': {
+      const bspid = getState().currentProjectId;
       box.innerHTML = `
         <div><b>Blindspot</b>: ${esc(d.title)}</div>
         <div class="tiny">severity: ${d.severity || '\u2013'} \u2022 category: ${d.category || '\u2013'} \u2022 status: ${d.status || '\u2013'}</div>
         <div class="hr"></div>
         ${d.description ? `<div class="tiny">${esc(d.description)}</div>` : ''}
         ${d.owner ? `<div class="tiny">owner: ${esc(d.owner)}</div>` : ''}
-        ${d.resolvedAt ? `<div class="tiny">resolved: ${d.resolvedAt}</div>` : ''}`;
+        ${d.resolvedAt ? `<div class="tiny">resolved: ${d.resolvedAt}</div>` : ''}
+        <div class="hr"></div>
+        <div class="row"><button class="btn danger" id="delBlindspot">Delete</button></div>`;
+      box.querySelector('#delBlindspot')?.addEventListener('click', async () => {
+        if (!confirm('Delete this blindspot?')) return;
+        try { await api.blindspots.delete(bspid, d.blindspotId || sel.id); toast('blindspot deleted'); setSelected(null); } catch (e) { toast('delete failed: ' + e.message); }
+      });
       break;
+    }
 
     case 'reconciliation': {
       const conflicts = d.conflicts || [];
@@ -170,16 +222,45 @@ export function renderInspector() {
       break;
     }
 
-    case 'link':
+    case 'link': {
+      const lpid = getState().currentProjectId;
       box.innerHTML = `
         <div><b>Link</b></div>
         <div class="tiny">${esc(d.title)}</div>
         <div class="hr"></div>
         <div class="tiny">url: <a href="${esc(d.url)}" target="_blank" style="color:var(--accent)">${esc(d.url)}</a></div>
         <div class="tiny">category: ${esc(d.category)}</div>
+        <div class="tiny">description: ${esc(d.description || '')}</div>
         <div class="tiny">pinned: ${d.pinned ? 'Yes' : 'No'}</div>
-        <div class="tiny">tags: ${(d.tags || []).join(', ') || '\u2013'}</div>`;
+        <div class="tiny">tags: ${(d.tags || []).join(', ') || '\u2013'}</div>
+        <div class="hr"></div>
+        <div class="row" id="linkActions">
+          <button class="btn" data-action="edit">Edit</button>
+          <button class="btn danger" data-action="delete">Delete</button>
+          <button class="btn" data-action="pin">${d.pinned ? 'Unpin' : 'Pin'}</button>
+        </div>`;
+      box.querySelectorAll('#linkActions button').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const action = btn.dataset.action;
+          try {
+            if (action === 'edit') {
+              document.dispatchEvent(new CustomEvent('linkhub:edit', { detail: d }));
+            } else if (action === 'delete') {
+              if (!confirm('Delete this link?')) return;
+              await api.links.delete(lpid, d.linkId || sel.id);
+              toast('link deleted');
+              setSelected(null);
+            } else if (action === 'pin') {
+              await api.links.update(lpid, d.linkId || sel.id, { ...d, pinned: !d.pinned });
+              toast(d.pinned ? 'link unpinned' : 'link pinned');
+            }
+          } catch (e) {
+            toast('action failed: ' + e.message);
+          }
+        });
+      });
       break;
+    }
 
     default:
       box.innerHTML = `<div class="tiny">No inspector for type: ${esc(sel.type)}</div>`;

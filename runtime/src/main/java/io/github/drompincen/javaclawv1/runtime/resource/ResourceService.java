@@ -1,9 +1,8 @@
 package io.github.drompincen.javaclawv1.runtime.resource;
 
-import io.github.drompincen.javaclawv1.persistence.document.ResourceAssignmentDocument;
-import io.github.drompincen.javaclawv1.persistence.document.ResourceDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceAssignmentRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -12,45 +11,43 @@ import java.util.stream.Collectors;
 @Service
 public class ResourceService {
 
-    private final ResourceRepository resourceRepository;
-    private final ResourceAssignmentRepository assignmentRepository;
+    private final ThingService thingService;
 
-    public ResourceService(ResourceRepository resourceRepository,
-                           ResourceAssignmentRepository assignmentRepository) {
-        this.resourceRepository = resourceRepository;
-        this.assignmentRepository = assignmentRepository;
+    public ResourceService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
-    public ResourceDocument create(ResourceDocument resource) {
-        resource.setResourceId(UUID.randomUUID().toString());
-        return resourceRepository.save(resource);
+    public ThingDocument create(Map<String, Object> resourcePayload, String projectId) {
+        return thingService.createThing(projectId, ThingCategory.RESOURCE, resourcePayload);
     }
 
-    public List<ResourceDocument> findAll() {
-        return resourceRepository.findAll();
+    public List<ThingDocument> findAll() {
+        return thingService.findByCategory(ThingCategory.RESOURCE);
     }
 
-    public Optional<ResourceDocument> findById(String resourceId) {
-        return resourceRepository.findById(resourceId);
+    public Optional<ThingDocument> findById(String resourceId) {
+        return thingService.findById(resourceId, ThingCategory.RESOURCE);
     }
 
-    public ResourceAssignmentDocument assignToTicket(String resourceId, String ticketId, double percentAllocation) {
-        ResourceAssignmentDocument assignment = new ResourceAssignmentDocument();
-        assignment.setAssignmentId(UUID.randomUUID().toString());
-        assignment.setResourceId(resourceId);
-        assignment.setTicketId(ticketId);
-        assignment.setPercentageAllocation(percentAllocation);
-        return assignmentRepository.save(assignment);
+    public ThingDocument assignToTicket(String resourceId, String ticketId, double percentAllocation) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("resourceId", resourceId);
+        payload.put("ticketId", ticketId);
+        payload.put("percentageAllocation", percentAllocation);
+        return thingService.createThing(null, ThingCategory.RESOURCE_ASSIGNMENT, payload);
     }
 
     public Map<String, Double> getWorkloads() {
-        return assignmentRepository.findAll().stream()
+        return thingService.findByCategory(ThingCategory.RESOURCE_ASSIGNMENT).stream()
                 .collect(Collectors.groupingBy(
-                        ResourceAssignmentDocument::getResourceId,
-                        Collectors.summingDouble(ResourceAssignmentDocument::getPercentageAllocation)));
+                        a -> (String) a.getPayload().get("resourceId"),
+                        Collectors.summingDouble(a -> {
+                            Object alloc = a.getPayload().get("percentageAllocation");
+                            return alloc != null ? ((Number) alloc).doubleValue() : 0;
+                        })));
     }
 
-    public List<ResourceAssignmentDocument> getAssignmentsForResource(String resourceId) {
-        return assignmentRepository.findByResourceId(resourceId);
+    public List<ThingDocument> getAssignmentsForResource(String resourceId) {
+        return thingService.findByPayloadField(ThingCategory.RESOURCE_ASSIGNMENT, "resourceId", resourceId);
     }
 }

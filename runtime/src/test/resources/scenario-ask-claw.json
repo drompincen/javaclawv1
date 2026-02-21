@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
   "projectName": "Ask Claw Test",
-  "description": "E2E: Seed project data into all collections, then POST /api/ask and verify the generalist LLM receives full project context",
+  "description": "E2E: Seed project data into all collections, then POST /api/ask and verify the generalist LLM receives full grounded project context with explicit assignee fields",
   "defaults": {
     "maxWaitMs": 30000
   },
   "steps": [
     {
-      "name": "Seed threads, objectives, tickets, blindspots, resources, and memories",
+      "name": "Seed threads, objectives, tickets, blindspots, resources, checklists, phases, milestones, and memories",
       "type": "seed",
       "seedActions": [
         {
@@ -23,9 +23,9 @@
           "method": "POST",
           "url": "/api/projects/{{projectId}}/threads",
           "body": {
-            "title": "KYC Onboarding Flow",
+            "title": "Merchant Onboarding Flow",
             "content": "Client onboarding steps including identity verification and document upload. 3-step wizard decided.",
-            "summary": "KYC onboarding wizard design"
+            "summary": "Merchant onboarding wizard design"
           }
         },
         {
@@ -47,7 +47,7 @@
           "url": "/api/projects/{{projectId}}/objectives",
           "body": {
             "sprintName": "Sprint 7",
-            "outcome": "Complete KYC Onboarding Flow",
+            "outcome": "Complete Merchant Onboarding Flow",
             "measurableSignal": "Onboarding wizard passes UAT",
             "status": "PROPOSED",
             "risks": ["Dependency on Evidence API", "Bob unavailable next week"],
@@ -61,8 +61,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-201: Build Evidence API",
-            "description": "Epic: Evidence Service | Implement REST endpoints for evidence CRUD | Owner: Alice",
-            "priority": "HIGH"
+            "description": "Epic: Evidence Service | Implement REST endpoints for evidence CRUD",
+            "priority": "HIGH",
+            "owner": "Alice"
           }
         },
         {
@@ -70,8 +71,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-202: Evidence validation rules",
-            "description": "Epic: Evidence Service | Implement field-level validation for evidence documents | Owner: Alice",
-            "priority": "HIGH"
+            "description": "Epic: Evidence Service | Implement field-level validation for evidence documents",
+            "priority": "HIGH",
+            "owner": "Alice"
           }
         },
         {
@@ -79,7 +81,7 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-203: Onboarding wizard UI",
-            "description": "Epic: Onboarding | Build 3-step wizard React components | Owner: Bob",
+            "description": "Epic: Onboarding | Build 3-step wizard React components | Assignee: Bob",
             "priority": "MEDIUM"
           }
         },
@@ -87,8 +89,8 @@
           "method": "POST",
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
-            "title": "J-204: Integrate KYC check",
-            "description": "Epic: Onboarding | Wire up identity verification service call | Owner: Charlie",
+            "title": "J-204: Integrate payment verification",
+            "description": "Epic: Onboarding | Wire up identity verification service call | Assignee: Charlie",
             "priority": "HIGH"
           }
         },
@@ -149,11 +151,47 @@
         },
         {
           "method": "POST",
+          "url": "/api/projects/{{projectId}}/checklists",
+          "body": {
+            "name": "Evidence API Readiness",
+            "status": "IN_PROGRESS",
+            "items": [
+              {"itemId": "c1", "text": "API endpoints defined", "checked": true},
+              {"itemId": "c2", "text": "Auth middleware added", "checked": false},
+              {"itemId": "c3", "text": "Integration tests written", "checked": false}
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/phases",
+          "body": {
+            "name": "Development",
+            "status": "ACTIVE",
+            "sortOrder": 1,
+            "startDate": "2026-02-10T00:00:00Z",
+            "endDate": "2026-02-28T00:00:00Z",
+            "entryCriteria": ["Design approved", "Tickets created"],
+            "exitCriteria": ["All tests pass", "Code reviewed"]
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/milestones",
+          "body": {
+            "name": "Evidence Service Go-Live",
+            "status": "ON_TRACK",
+            "targetDate": "2026-02-28T00:00:00Z",
+            "owner": "Bob"
+          }
+        },
+        {
+          "method": "POST",
           "url": "/api/memories",
           "body": {
             "scope": "PROJECT",
             "key": "sprint-7-goal",
-            "content": "Sprint 7 goal: ship Evidence Service MVP and KYC onboarding flow. Key risk is Alice being overloaded across both epics.",
+            "content": "Sprint 7 goal: ship Evidence Service MVP and Merchant onboarding flow. Key risk is Alice being overloaded across both epics.",
             "projectId": "{{projectId}}",
             "tags": ["sprint", "goal", "risk"]
           }
@@ -191,6 +229,21 @@
             "collection": "blindspots",
             "filter": {"projectId": "{{projectId}}"},
             "assert": {"countGte": 2}
+          },
+          {
+            "collection": "checklists",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "phases",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "milestones",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
           }
         ]
       }
@@ -201,7 +254,7 @@
       "agentResponses": [
         {
           "agentName": "generalist",
-          "responseFallback": "## Sprint 7 Status Report\n\n**Overall: NEEDS ATTENTION**\n\n### Objectives\n1. **Deliver Evidence Service MVP** — COMMITTED, 50% coverage\n   - 2 tickets assigned to Alice (J-201, J-202)\n   - Risk: Alice is overloaded (30% availability)\n   - Blindspot: Missing test strategy for Evidence API (CRITICAL)\n\n2. **Complete KYC Onboarding Flow** — PROPOSED, 25% coverage\n   - J-203 assigned to Bob, J-204 to Charlie\n   - Risk: Dependency on Evidence API, Bob unavailable next week\n\n### Key Risks\n- Alice at 30% availability with 2 HIGH priority tickets\n- Owner mismatch: Alice owns Evidence tickets but Bob owns milestone\n- No integration test plan for Evidence Service\n- Onboarding depends on Evidence API being ready first\n\n### Resources\n- **Alice**: OVERLOADED (30% avail, 2 HIGH tickets)\n- **Bob**: HEALTHY (80% avail, 1 MEDIUM ticket)\n- **Charlie**: OK (60% avail, 1 HIGH ticket)\n\n### Recommendation\nConsider moving J-202 (validation rules) to Charlie who has bandwidth. Prioritize creating the Evidence API test strategy immediately."
+          "responseFallback": "## Sprint 7 Status Report\n\n**Overall: NEEDS ATTENTION**\n\n### Objectives\n1. **Deliver Evidence Service MVP** — COMMITTED, 50% coverage\n   - 2 tickets assigned to Alice (J-201, J-202)\n   - Risk: Alice is overloaded (30% availability)\n   - Blindspot: Missing test strategy for Evidence API (CRITICAL)\n\n2. **Complete Merchant Onboarding Flow** — PROPOSED, 25% coverage\n   - J-203 UNASSIGNED, J-204 UNASSIGNED\n   - Risk: Dependency on Evidence API, Bob unavailable next week\n\n### Assignment Summary\n- Assigned: 2 tickets (J-201, J-202 to Alice)\n- Unassigned: 2 tickets (J-203, J-204)\n\n### Key Risks\n- Alice at 30% availability with 2 HIGH priority tickets\n- Owner mismatch: Alice owns Evidence tickets but Bob owns milestone\n- No integration test plan for Evidence Service\n- 2 tickets have NO assignee\n\n### Recommendation\nAssign J-203 to Bob (80% available) and J-204 to Charlie (60% available). Prioritize creating the Evidence API test strategy immediately."
         }
       ],
       "seedActions": [
@@ -229,7 +282,7 @@
             "filter": {"agentId": "generalist"},
             "assert": {
               "anyMatchField": "prompt",
-              "anyMatchPattern": "KYC Onboarding Flow"
+              "anyMatchPattern": "Merchant Onboarding Flow"
             }
           },
           {
@@ -253,7 +306,7 @@
             "filter": {"agentId": "generalist"},
             "assert": {
               "anyMatchField": "prompt",
-              "anyMatchPattern": "Complete KYC Onboarding Flow"
+              "anyMatchPattern": "Complete Merchant Onboarding Flow"
             }
           },
           {
@@ -334,6 +387,78 @@
             "assert": {
               "anyMatchField": "prompt",
               "anyMatchPattern": "how is this sprint"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=UNASSIGNED"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=Alice"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "ASSIGNMENT SUMMARY"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "CHECKLISTS"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Evidence API Readiness"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "PHASES"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Development.*ACTIVE"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "MILESTONES"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Evidence Service Go-Live"
             }
           }
         ],

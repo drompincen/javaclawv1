@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Generalist Intake Hydration Test",
+  "description": "Tests the new generalist hydration pipeline: triage classifies mixed content (threads + tickets + resources), then generalist creates all domain objects in a single pass",
+  "defaults": {
+    "maxWaitMs": 90000
+  },
+  "steps": [
+    {
+      "name": "Mixed content intake — threads, tickets, and resources",
+      "type": "pipeline",
+      "pipelineContent": "Team Onboarding Sprint Planning\nDate: 2026-02-18\nAttendees: Alice (PM), Bob (Engineer), Carol (Designer)\n\n1. Authentication Service\n- Decision: Use OAuth2 with PKCE flow\n- Bob to implement login endpoint by Feb 25\n- Need to decide on session store: Redis vs JWT\n\n2. Ticket Backlog\n- AUTH-101: Implement OAuth2 login endpoint | Priority: High | Owner: Bob | Status: To Do\n- AUTH-102: Design login page mockups | Priority: Medium | Owner: Carol | Status: In Progress\n- AUTH-103: Set up Redis session store | Priority: High | Owner: Bob | Status: To Do\n\n3. Team Capacity\n- Alice: PM, available 80%, skills: project management, stakeholder comms\n- Bob: Engineer, available 100%, skills: Java, Spring Security, OAuth2\n- Carol: Designer, available 60%, skills: Figma, UI/UX, accessibility",
+      "agentResponses": [
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Classifying content.\n\n<tool_call>\n{\"name\": \"classify_content\", \"args\": {\"content\": \"Team Onboarding Sprint Planning — mixed content: meeting notes, ticket backlog, team roster\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Content classified as **MEETING_NOTES** with embedded ticket data and team roster (confidence: 0.92)\n\n### Topic: Authentication Service Architecture\n**Type:** architecture_decision\n**Decisions:** OAuth2 with PKCE flow\n**Open Questions:** Redis vs JWT for session store\n**Action Items:** Bob to implement login endpoint by Feb 25\n**Key Content:** Authentication service design decisions and implementation plan.\n\n### Topic: Ticket Backlog\n**Type:** action_item\n**Key Content:** 3 tickets: AUTH-101 (OAuth2 login), AUTH-102 (login page design), AUTH-103 (Redis session store)\n\n### Topic: Team Capacity\n**Type:** discussion\n**Key Content:** 3 team members with roles, availability, and skills.\n\n### Routes\nTHREAD: yes\nTICKETS: yes\nPLAN: no\nRESOURCES: yes"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Creating all domain objects from the intake.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Authentication Service Architecture\", \"content\": \"## Authentication Service\\n\\nDesign decisions for the auth service.\\n\\n**Decisions:**\\n- Use OAuth2 with PKCE flow\\n\\n**Open Questions:**\\n- Redis vs JWT for session store?\\n\\n**Action Items:**\\n- Bob to implement login endpoint by Feb 25\", \"decisions\": [\"OAuth2 with PKCE flow\"], \"actions\": [{\"text\": \"Implement login endpoint by Feb 25\", \"assignee\": \"Bob\"}]}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"AUTH-101: Implement OAuth2 login endpoint\", \"description\": \"Owner: Bob | Status: To Do\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"AUTH-102: Design login page mockups\", \"description\": \"Owner: Carol | Status: In Progress\", \"priority\": \"MEDIUM\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"AUTH-103: Set up Redis session store\", \"description\": \"Owner: Bob | Status: To Do\", \"priority\": \"HIGH\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_resource\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Alice\", \"role\": \"PM\", \"skills\": [\"project management\", \"stakeholder comms\"], \"capacity\": 100, \"availability\": 0.8}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_resource\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Bob\", \"role\": \"ENGINEER\", \"skills\": [\"Java\", \"Spring Security\", \"OAuth2\"], \"capacity\": 100, \"availability\": 1.0}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_resource\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Carol\", \"role\": \"DESIGNER\", \"skills\": [\"Figma\", \"UI/UX\", \"accessibility\"], \"capacity\": 100, \"availability\": 0.6}}\n</tool_call>"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Created all domain objects:\n- 1 thread: Authentication Service Architecture\n- 3 tickets: AUTH-101, AUTH-102, AUTH-103\n- 3 resources: Alice (PM), Bob (Engineer), Carol (Designer)"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "memories",
+            "filter": {"projectId": "{{projectId}}", "tags": "intake"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "Authentication"}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 3}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "AUTH-101"}
+          },
+          {
+            "collection": "resources",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 3}
+          },
+          {
+            "collection": "resources",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "name", "anyMatchPattern": "Bob"}
+          }
+        ]
+      }
+    }
+  ]
+}

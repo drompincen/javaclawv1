@@ -1,0 +1,8 @@
+Key,Epic,Summary,Assignee,Status,Priority,SP
+PAY-201,Payment Processing,Refactor card payment handler,Joe Martinez,In Progress,HIGH,5
+PAY-202,Payment Processing,Refactor bank transfer handler,Joe Martinez,TODO,HIGH,3
+PAY-203,Payment Processing,Refactor digital wallet handler,Joe Martinez,TODO,HIGH,3
+PAY-204,Webhook Integration,Spike RabbitMQ queue integration,Bob Taylor,In Progress,MEDIUM,5
+PAY-205,Webhook Integration,Implement retry/backoff consumer,Joe Martinez,TODO,HIGH,8
+PAY-206,Merchant Onboarding,Single-page wizard wireframes,Joe Martinez,TODO,MEDIUM,3
+PAY-207,Merchant Onboarding,Presigned S3 upload endpoint,Alice Chen,In Progress,HIGH,5

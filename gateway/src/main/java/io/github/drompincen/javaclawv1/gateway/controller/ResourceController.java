@@ -1,68 +1,69 @@
 package io.github.drompincen.javaclawv1.gateway.controller;
 
-import io.github.drompincen.javaclawv1.persistence.document.ResourceDocument;
-import io.github.drompincen.javaclawv1.persistence.document.ResourceAssignmentDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceAssignmentRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.ResourceDto;
 import io.github.drompincen.javaclawv1.protocol.api.ResourceAssignmentDto;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/resources")
 public class ResourceController {
 
-    private final ResourceRepository resourceRepository;
-    private final ResourceAssignmentRepository assignmentRepository;
+    private final ThingService thingService;
 
-    public ResourceController(ResourceRepository resourceRepository,
-                              ResourceAssignmentRepository assignmentRepository) {
-        this.resourceRepository = resourceRepository;
-        this.assignmentRepository = assignmentRepository;
+    public ResourceController(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @PostMapping
-    public ResponseEntity<ResourceDto> create(@RequestBody ResourceDocument doc) {
-        if (doc.getResourceId() == null) doc.setResourceId(UUID.randomUUID().toString());
-        resourceRepository.save(doc);
-        return ResponseEntity.ok(toDto(doc));
+    public ResponseEntity<ResourceDto> create(@RequestBody Map<String, Object> body) {
+        String projectId = (String) body.get("projectId");
+        Map<String, Object> payload = new LinkedHashMap<>(body);
+        payload.remove("projectId");
+        ThingDocument thing = thingService.createThing(projectId, ThingCategory.RESOURCE, payload);
+        return ResponseEntity.ok(toDto(thing));
     }
 
     @GetMapping
     public List<ResourceDto> list() {
-        return resourceRepository.findAll().stream()
+        return thingService.findByCategory(ThingCategory.RESOURCE).stream()
                 .map(this::toDto).collect(Collectors.toList());
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<ResourceDto> get(@PathVariable String id) {
-        return resourceRepository.findById(id)
+        return thingService.findById(id, ThingCategory.RESOURCE)
                 .map(d -> ResponseEntity.ok(toDto(d)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ResourceDto> update(@PathVariable String id, @RequestBody ResourceDocument updates) {
-        return resourceRepository.findById(id).map(existing -> {
-            if (updates.getName() != null) existing.setName(updates.getName());
-            if (updates.getEmail() != null) existing.setEmail(updates.getEmail());
-            if (updates.getRole() != null) existing.setRole(updates.getRole());
-            if (updates.getSkills() != null) existing.setSkills(updates.getSkills());
-            if (updates.getAvailability() > 0) existing.setAvailability(updates.getAvailability());
-            resourceRepository.save(existing);
-            return ResponseEntity.ok(toDto(existing));
+    public ResponseEntity<ResourceDto> update(@PathVariable String id, @RequestBody Map<String, Object> updates) {
+        return thingService.findById(id, ThingCategory.RESOURCE).map(existing -> {
+            Map<String, Object> merged = new LinkedHashMap<>();
+            if (updates.get("name") != null) merged.put("name", updates.get("name"));
+            if (updates.get("email") != null) merged.put("email", updates.get("email"));
+            if (updates.get("role") != null) merged.put("role", updates.get("role"));
+            if (updates.get("skills") != null) merged.put("skills", updates.get("skills"));
+            if (updates.get("availability") != null) {
+                double avail = ((Number) updates.get("availability")).doubleValue();
+                if (avail > 0) merged.put("availability", avail);
+            }
+            ThingDocument updated = thingService.mergePayload(existing, merged);
+            return ResponseEntity.ok(toDto(updated));
         }).orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
-        if (resourceRepository.existsById(id)) {
-            resourceRepository.deleteById(id);
+        if (thingService.existsById(id)) {
+            thingService.deleteById(id);
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.notFound().build();
@@ -70,17 +71,39 @@ public class ResourceController {
 
     @GetMapping("/{id}/assignments")
     public List<ResourceAssignmentDto> assignments(@PathVariable String id) {
-        return assignmentRepository.findByResourceId(id).stream()
+        return thingService.findByPayloadField(ThingCategory.RESOURCE_ASSIGNMENT, "resourceId", id).stream()
                 .map(this::toAssignmentDto).collect(Collectors.toList());
     }
 
-    private ResourceDto toDto(ResourceDocument doc) {
-        return new ResourceDto(doc.getResourceId(), doc.getProjectId(), doc.getName(), doc.getEmail(),
-                doc.getRole(), doc.getSkills(), doc.getCapacity(), doc.getAvailability());
+    private ResourceDto toDto(ThingDocument thing) {
+        Map<String, Object> p = thing.getPayload();
+        ResourceDto.ResourceRole role = null;
+        if (p.get("role") != null) {
+            try { role = ResourceDto.ResourceRole.valueOf(p.get("role").toString()); }
+            catch (IllegalArgumentException ignored) {}
+        }
+        @SuppressWarnings("unchecked")
+        List<String> skills = (List<String>) p.get("skills");
+        return new ResourceDto(
+                thing.getId(),
+                thing.getProjectId(),
+                (String) p.get("name"),
+                (String) p.get("email"),
+                role,
+                skills,
+                p.get("capacity") != null ? ((Number) p.get("capacity")).intValue() : 0,
+                p.get("availability") != null ? ((Number) p.get("availability")).doubleValue() : 1.0
+        );
     }
 
-    private ResourceAssignmentDto toAssignmentDto(ResourceAssignmentDocument doc) {
-        return new ResourceAssignmentDto(doc.getAssignmentId(), doc.getResourceId(),
-                doc.getTicketId(), doc.getProjectId(), doc.getPercentageAllocation());
+    private ResourceAssignmentDto toAssignmentDto(ThingDocument thing) {
+        Map<String, Object> p = thing.getPayload();
+        return new ResourceAssignmentDto(
+                thing.getId(),
+                (String) p.get("resourceId"),
+                (String) p.get("ticketId"),
+                thing.getProjectId(),
+                p.get("percentageAllocation") != null ? ((Number) p.get("percentageAllocation")).doubleValue() : 0
+        );
     }
 }

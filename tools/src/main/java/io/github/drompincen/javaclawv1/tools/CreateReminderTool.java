@@ -1,22 +1,22 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ReminderDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ReminderRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.ReminderDto;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.time.Instant;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 public class CreateReminderTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ReminderRepository reminderRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "create_reminder"; }
 
@@ -51,14 +51,14 @@ public class CreateReminderTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setReminderRepository(ReminderRepository reminderRepository) {
-        this.reminderRepository = reminderRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (reminderRepository == null) {
-            return ToolResult.failure("Reminder repository not available — ensure MongoDB is connected");
+        if (thingService == null) {
+            return ToolResult.failure("ThingService not available — ensure MongoDB is connected");
         }
 
         String projectId = input.path("projectId").asText(null);
@@ -74,43 +74,42 @@ public class CreateReminderTool implements Tool {
             type = ReminderDto.ReminderType.TIME_BASED;
         }
 
-        ReminderDocument doc = new ReminderDocument();
-        doc.setReminderId(UUID.randomUUID().toString());
-        doc.setProjectId(projectId);
-        doc.setMessage(message);
-        doc.setType(type);
-        doc.setTriggered(false);
-        doc.setRecurring(input.path("recurring").asBoolean(false));
-        doc.setSessionId(ctx.sessionId());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("message", message);
+        payload.put("type", type.name());
+        payload.put("triggered", false);
+        payload.put("recurring", input.path("recurring").asBoolean(false));
+        payload.put("sessionId", ctx.sessionId());
 
         String sourceThreadId = input.path("sourceThreadId").asText(null);
         if (sourceThreadId != null && !sourceThreadId.isBlank()) {
-            doc.setSourceThreadId(sourceThreadId);
+            payload.put("sourceThreadId", sourceThreadId);
         }
 
         String triggerAtStr = input.path("triggerAt").asText(null);
         if (triggerAtStr != null && !triggerAtStr.isBlank()) {
             try {
-                doc.setTriggerAt(Instant.parse(triggerAtStr));
+                Instant triggerAt = Instant.parse(triggerAtStr);
+                payload.put("triggerAt", triggerAt.toString());
             } catch (Exception e) {
                 return ToolResult.failure("Invalid triggerAt format. Use ISO-8601 (e.g., 2026-03-01T10:00:00Z)");
             }
         }
 
-        if (doc.isRecurring() && input.has("intervalSeconds")) {
-            doc.setIntervalSeconds(input.path("intervalSeconds").asLong());
+        if (input.path("recurring").asBoolean(false) && input.has("intervalSeconds")) {
+            payload.put("intervalSeconds", input.path("intervalSeconds").asLong());
         }
 
         String condition = input.path("condition").asText(null);
         if (condition != null && !condition.isBlank()) {
-            doc.setCondition(condition);
+            payload.put("condition", condition);
         }
 
-        reminderRepository.save(doc);
+        ThingDocument thing = thingService.createThing(projectId, ThingCategory.REMINDER, payload);
         stream.progress(100, "Reminder created: " + message);
 
         ObjectNode result = MAPPER.createObjectNode();
-        result.put("reminderId", doc.getReminderId());
+        result.put("reminderId", thing.getId());
         result.put("status", "created");
         result.put("projectId", projectId);
         return ToolResult.success(result);

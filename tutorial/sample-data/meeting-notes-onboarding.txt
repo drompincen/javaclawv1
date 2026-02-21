@@ -1,16 +1,16 @@
-Client Onboarding Design Session — 2026-02-17, 2:00 PM
+Merchant Onboarding Design Session — 2026-02-17, 2:00 PM
 
 Attendees: Joe Martinez, Alice Chen
 
 ---
 
-Topic 1: Onboarding Flow Redesign
+Topic 1: Merchant Onboarding Flow Redesign
 
 The current onboarding takes 14 steps across 3 screens. Analytics show 40% drop-off
 at the document upload step. Joe proposed consolidating to a single-page wizard with
 progressive disclosure.
 
-Decision: Reduce to 7 steps. Combine identity verification and document upload into
+Decision: Reduce to 7 steps. Combine business verification and document upload into
 one step. Add a progress bar and estimated time remaining.
 
 Action: Joe to create wireframes by Wednesday.

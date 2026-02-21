@@ -2,8 +2,9 @@ package io.github.drompincen.javaclawv1.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.github.drompincen.javaclawv1.persistence.document.ReminderDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ReminderRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolContext;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolResult;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolStream;
@@ -17,12 +18,16 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,7 +36,7 @@ class CreateReminderToolTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Mock private ReminderRepository reminderRepository;
+    @Mock private ThingService thingService;
     @Mock private ToolStream stream;
 
     private CreateReminderTool tool;
@@ -40,9 +45,19 @@ class CreateReminderToolTest {
     @BeforeEach
     void setUp() {
         tool = new CreateReminderTool();
-        tool.setReminderRepository(reminderRepository);
+        tool.setThingService(thingService);
         ctx = new ToolContext("session-1", Path.of("."), Map.of());
-        when(reminderRepository.save(any(ReminderDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(thingService.createThing(any(), eq(ThingCategory.REMINDER), any()))
+                .thenAnswer(inv -> {
+                    ThingDocument thing = new ThingDocument();
+                    thing.setId(UUID.randomUUID().toString());
+                    thing.setProjectId(inv.getArgument(0));
+                    thing.setThingCategory(ThingCategory.REMINDER);
+                    thing.setPayload(inv.getArgument(2));
+                    thing.setCreateDate(Instant.now());
+                    thing.setUpdateDate(Instant.now());
+                    return thing;
+                });
     }
 
     @Test
@@ -51,12 +66,12 @@ class CreateReminderToolTest {
     }
 
     @Test
-    void failsWithoutRepository() {
+    void failsWithoutThingService() {
         CreateReminderTool unwired = new CreateReminderTool();
         ObjectNode input = MAPPER.createObjectNode().put("projectId", "p1").put("message", "test");
         ToolResult result = unwired.execute(ctx, input, stream);
         assertThat(result.success()).isFalse();
-        assertThat(result.error()).contains("repository not available");
+        assertThat(result.error()).contains("not available");
     }
 
     @Test
@@ -88,13 +103,13 @@ class CreateReminderToolTest {
         assertThat(result.output().get("status").asText()).isEqualTo("created");
         assertThat(result.output().get("reminderId").asText()).isNotBlank();
 
-        ArgumentCaptor<ReminderDocument> captor = ArgumentCaptor.forClass(ReminderDocument.class);
-        verify(reminderRepository).save(captor.capture());
-        ReminderDocument saved = captor.getValue();
-        assertThat(saved.getProjectId()).isEqualTo("proj-1");
-        assertThat(saved.getMessage()).isEqualTo("Review sprint goals");
-        assertThat(saved.getTriggerAt()).isNotNull();
-        assertThat(saved.isTriggered()).isFalse();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.REMINDER), payloadCaptor.capture());
+        Map<String, Object> payload = payloadCaptor.getValue();
+        assertThat(payload.get("message")).isEqualTo("Review sprint goals");
+        assertThat(payload.get("triggerAt")).isNotNull();
+        assertThat(payload.get("triggered")).isEqualTo(false);
     }
 
     @Test
@@ -109,10 +124,12 @@ class CreateReminderToolTest {
 
         assertThat(result.success()).isTrue();
 
-        ArgumentCaptor<ReminderDocument> captor = ArgumentCaptor.forClass(ReminderDocument.class);
-        verify(reminderRepository).save(captor.capture());
-        assertThat(captor.getValue().isRecurring()).isTrue();
-        assertThat(captor.getValue().getIntervalSeconds()).isEqualTo(86400L);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.REMINDER), payloadCaptor.capture());
+        Map<String, Object> payload = payloadCaptor.getValue();
+        assertThat(payload.get("recurring")).isEqualTo(true);
+        assertThat(payload.get("intervalSeconds")).isEqualTo(86400L);
     }
 
     @Test
@@ -126,9 +143,10 @@ class CreateReminderToolTest {
 
         assertThat(result.success()).isTrue();
 
-        ArgumentCaptor<ReminderDocument> captor = ArgumentCaptor.forClass(ReminderDocument.class);
-        verify(reminderRepository).save(captor.capture());
-        assertThat(captor.getValue().getSourceThreadId()).isEqualTo("thread-xyz");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.REMINDER), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue().get("sourceThreadId")).isEqualTo("thread-xyz");
     }
 
     @Test

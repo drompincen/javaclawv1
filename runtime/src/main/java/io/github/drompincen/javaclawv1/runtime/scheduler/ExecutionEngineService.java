@@ -1,9 +1,11 @@
 package io.github.drompincen.javaclawv1.runtime.scheduler;
 
 import io.github.drompincen.javaclawv1.persistence.document.FutureExecutionDocument;
+import io.github.drompincen.javaclawv1.persistence.document.MessageDocument;
 import io.github.drompincen.javaclawv1.persistence.document.PastExecutionDocument;
 import io.github.drompincen.javaclawv1.persistence.document.SessionDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.FutureExecutionRepository;
+import io.github.drompincen.javaclawv1.persistence.repository.MessageRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.PastExecutionRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.SessionRepository;
 import io.github.drompincen.javaclawv1.protocol.api.ExecStatus;
@@ -28,6 +30,7 @@ public class ExecutionEngineService {
     private final FutureExecutionRepository futureExecutionRepository;
     private final PastExecutionRepository pastExecutionRepository;
     private final SessionRepository sessionRepository;
+    private final MessageRepository messageRepository;
     private final AgentLoop agentLoop;
     private final LeaseHeartbeatService leaseHeartbeatService;
     private final String instanceId = UUID.randomUUID().toString().substring(0, 8);
@@ -35,11 +38,13 @@ public class ExecutionEngineService {
     public ExecutionEngineService(FutureExecutionRepository futureExecutionRepository,
                                   PastExecutionRepository pastExecutionRepository,
                                   SessionRepository sessionRepository,
+                                  MessageRepository messageRepository,
                                   AgentLoop agentLoop,
                                   LeaseHeartbeatService leaseHeartbeatService) {
         this.futureExecutionRepository = futureExecutionRepository;
         this.pastExecutionRepository = pastExecutionRepository;
         this.sessionRepository = sessionRepository;
+        this.messageRepository = messageRepository;
         this.agentLoop = agentLoop;
         this.leaseHeartbeatService = leaseHeartbeatService;
     }
@@ -119,6 +124,9 @@ public class ExecutionEngineService {
                 session.setMetadata(metadata);
 
                 sessionRepository.save(session);
+
+                // Seed user message so the LLM has at least one message
+                seedScheduledPrompt(sessionId, exec.getAgentId(), exec.getProjectId());
 
                 // Run agent loop
                 agentLoop.startAsync(sessionId);
@@ -222,6 +230,30 @@ public class ExecutionEngineService {
             futureExecutionRepository.save(exec);
             log.warn("Execution {} exhausted retries ({} attempts)", exec.getExecutionId(), exec.getMaxAttempts());
         }
+    }
+
+    private void seedScheduledPrompt(String sessionId, String agentId, String projectId) {
+        String projectClause = projectId != null ? " for project " + projectId : "";
+        String prompt = switch (agentId) {
+            case "objective-agent" -> "Run scheduled objective analysis" + projectClause
+                    + ". Call compute_coverage to analyze tickets and objectives, then summarize findings.";
+            case "reconcile-agent" -> "Run scheduled reconciliation" + projectClause
+                    + ". Read tickets, objectives, and phases, then cross-reference and create a delta pack for any discrepancies found.";
+            case "resource-agent" -> "Run scheduled resource analysis" + projectClause
+                    + ". Read resources and tickets, compute capacity report, and flag any overloaded team members.";
+            case "checklist-agent" -> "Run scheduled checklist review" + projectClause
+                    + ". Read checklists and report on progress for any open items.";
+            default -> "Run your scheduled task" + projectClause + ". Use available tools to analyze project data and report findings.";
+        };
+
+        MessageDocument msg = new MessageDocument();
+        msg.setMessageId(UUID.randomUUID().toString());
+        msg.setSessionId(sessionId);
+        msg.setSeq(1);
+        msg.setRole("user");
+        msg.setContent(prompt);
+        msg.setTimestamp(Instant.now());
+        messageRepository.save(msg);
     }
 
     private void recoverStaleLeases() {

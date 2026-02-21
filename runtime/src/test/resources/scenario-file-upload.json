@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 2,
+  "projectName": "File Upload Scenario",
+  "description": "Tests file upload via multipart POST, verifies uploads collection, then pipeline processes uploaded CSV with mock agents",
+  "defaults": {
+    "maxWaitMs": 60000
+  },
+  "steps": [
+    {
+      "name": "Upload CSV file",
+      "type": "upload",
+      "uploadFiles": ["testdata/jira-tickets.csv"],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "uploads",
+            "filter": {"projectId": "{{projectId}}", "status": "INBOX"},
+            "assert": {"countEq": 1}
+          },
+          {
+            "collection": "uploads",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "jira-tickets\\.csv"}
+          },
+          {
+            "collection": "uploads",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "source", "anyMatchPattern": "file_upload"}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Pipeline with uploaded file",
+      "type": "pipeline",
+      "pipelineContent": "Process the uploaded CSV file containing Jira ticket data. Create threads per epic and tickets for each row.",
+      "agentResponses": [
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Classifying uploaded content.\n\n<tool_call>\n{\"name\": \"classify_content\", \"args\": {\"content\": \"CSV file with 3 Jira tickets across Upload Epic, one orphaned\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "intake-triage",
+          "responseFallback": "Content classified as **JIRA_EXPORT** (confidence: 0.92)\n\n### Topic: Upload Epic — Build & Extract\n**Type:** ticket_batch\n**Key Content:** 2 tickets (J-301, J-302) under Upload Epic — upload endpoint and file extraction.\n\n### Topic: Orphaned Work — CSV parser\n**Type:** ticket_batch\n**Key Content:** 1 ticket (J-303) with no epic — CSV parser improvements.\n\n### Routes\nTHREAD: yes\nTICKETS: yes\nPLAN: no\nRESOURCES: no"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Creating threads and tickets from classified content.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Upload Epic — Build & Extract\", \"content\": \"## Upload Epic\\n\\n2 tickets for building the upload endpoint and file content extraction.\\n\\n- J-301: Build upload endpoint (Alice, HIGH, 5 SP)\\n- J-302: File content extraction (Bob, MEDIUM, 3 SP)\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Orphaned Work — CSV Parser\", \"content\": \"## Orphaned Work\\n\\n1 ticket with no epic assignment.\\n\\n- J-303: CSV parser improvements (Charlie, LOW, 2 SP)\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-301: Build upload endpoint\", \"description\": \"Epic: Upload Epic | Assignee: Alice | Status: In Progress | Priority: HIGH | SP: 5\", \"priority\": \"HIGH\", \"status\": \"IN_PROGRESS\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-302: File content extraction\", \"description\": \"Epic: Upload Epic | Assignee: Bob | Status: Todo | Priority: MEDIUM | SP: 3\", \"priority\": \"MEDIUM\", \"status\": \"TODO\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_ticket\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"J-303: CSV parser improvements\", \"description\": \"No epic | Assignee: Charlie | Status: Todo | Priority: LOW | SP: 2\", \"priority\": \"LOW\", \"status\": \"TODO\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "generalist",
+          "responseFallback": "Created 2 threads and 3 tickets:\n- Threads: Upload Epic — Build & Extract, Orphaned Work — CSV Parser\n- Tickets: J-301 (HIGH), J-302 (MEDIUM), J-303 (LOW, orphaned)"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "memories",
+            "filter": {"projectId": "{{projectId}}", "tags": "intake"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countEq": 3}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "J-301"}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "J-302"}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"anyMatchField": "title", "anyMatchPattern": "J-303"}
+          }
+        ]
+      }
+    }
+  ]
+}

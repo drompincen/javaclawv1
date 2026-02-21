@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 2,
+  "projectName": "All Agents Seeded Test",
+  "description": "Seed rich project data, then run objective, checklist, and plan agents sequentially",
+  "defaults": {
+    "maxWaitMs": 60000
+  },
+  "steps": [
+    {
+      "name": "Seed project data: threads, tickets, resources, memories",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Payment Architecture Decisions",
+            "content": "Architecture: Use Kafka for event sourcing, PostgreSQL for persistence. Microservices pattern with API Gateway. OAuth2 for auth. Target: 3-week sprint to deliver MVP."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Onboarding Flow Design",
+            "content": "Onboarding: Multi-step wizard with document upload (ID scan, proof of address). Integration with Onfido for identity verification. Email notifications at each step. Target: deliver alongside Payment Gateway MVP."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-001: Build Kafka event producer",
+            "description": "Implement Kafka producer for payment state change events.\nAssignee: Alice",
+            "priority": "HIGH",
+            "owner": "Alice"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-002: Design onboarding wizard UI",
+            "description": "Create React components for multi-step onboarding wizard.\nAssignee: Bob",
+            "priority": "HIGH",
+            "owner": "Bob"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-003: Integrate Onfido API",
+            "description": "Connect identity verification service for document checks.\nAssignee: Alice",
+            "priority": "MEDIUM",
+            "owner": "Alice"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "T-004: Write API documentation",
+            "description": "Swagger/OpenAPI docs for all payment and onboarding endpoints.",
+            "priority": "LOW"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Alice",
+            "role": "ENGINEER",
+            "skills": ["Java", "Kafka", "Spring"],
+            "capacity": 100,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Bob",
+            "role": "ENGINEER",
+            "skills": ["React", "TypeScript", "CSS"],
+            "capacity": 100,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/memories",
+          "body": {
+            "scope": "PROJECT",
+            "projectId": "{{projectId}}",
+            "content": "Sprint 1 goal: deliver Payment Gateway MVP with event sourcing and onboarding wizard.",
+            "tags": ["sprint", "goals"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Derive sprint objectives",
+      "userQuery": "Based on the project threads and tickets, create sprint objectives for the current sprint.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"objective-agent\", \"subTask\": \"create sprint objectives from threads and tickets\"}"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Reading project data to derive objectives.\n\n<tool_call>\n{\"name\": \"read_threads\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"read_tickets\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Creating sprint objectives based on project data.\n\n<tool_call>\n{\"name\": \"create_objective\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Deliver Payment event sourcing pipeline\", \"description\": \"Build Kafka producer and consumer for payment state changes. Covers T-001.\", \"week\": \"W1\", \"status\": \"PROPOSED\"}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_objective\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Complete onboarding wizard UI\", \"description\": \"Multi-step React wizard with document upload. Covers T-002.\", \"week\": \"W1\", \"status\": \"PROPOSED\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "objective-agent",
+          "responseFallback": "Created 2 sprint objectives covering the main workstreams."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"2 sprint objectives created covering payment and onboarding workstreams.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "objectives",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Create checklists",
+      "userQuery": "Create a release checklist for the Payment Gateway MVP delivery.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"checklist-agent\", \"subTask\": \"create release checklist for Payment Gateway MVP\"}"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "Creating a release checklist.\n\n<tool_call>\n{\"name\": \"create_checklist\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Payment Gateway MVP Release Checklist\", \"items\": [{\"text\": \"Kafka producer deployed and tested\"}, {\"text\": \"Onboarding wizard UI reviewed\"}, {\"text\": \"Onfido integration tested in staging\"}, {\"text\": \"API documentation published\"}]}}\n</tool_call>"
+        },
+        {
+          "agentName": "checklist-agent",
+          "responseFallback": "Release checklist created with 4 items."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"Release checklist created with 4 items covering all major deliverables.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "checklists",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 1}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Create project plan phases",
+      "userQuery": "Create a project plan with phases for the payment gateway delivery.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"plan-agent\", \"subTask\": \"create project plan phases for payment gateway\"}"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Creating project plan phases.\n\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Design & Architecture\", \"description\": \"Finalize architecture decisions and API contracts\", \"sortOrder\": 1, \"entryCriteria\": [\"Requirements gathered\"], \"exitCriteria\": [\"Architecture doc approved\", \"API contracts defined\"]}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Implementation\", \"description\": \"Build payment pipeline, onboarding wizard, and integrations\", \"sortOrder\": 2, \"entryCriteria\": [\"Architecture approved\"], \"exitCriteria\": [\"All tickets completed\", \"Unit tests passing\"]}}\n</tool_call>\n<tool_call>\n{\"name\": \"create_phase\", \"args\": {\"projectId\": \"{{projectId}}\", \"name\": \"Testing & Release\", \"description\": \"Integration testing, staging deployment, and release\", \"sortOrder\": 3, \"entryCriteria\": [\"Implementation complete\"], \"exitCriteria\": [\"Release checklist complete\", \"Production deployed\"]}}\n</tool_call>"
+        },
+        {
+          "agentName": "plan-agent",
+          "responseFallback": "Created 3 project phases: Design, Implementation, and Testing & Release."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"3 project phases created covering design through release.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "phases",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 3}
+          }
+        ]
+      }
+    }
+  ]
+}

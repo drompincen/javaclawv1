@@ -1,23 +1,23 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.BlindspotDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.BlindspotRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.BlindspotCategory;
 import io.github.drompincen.javaclawv1.protocol.api.BlindspotSeverity;
 import io.github.drompincen.javaclawv1.protocol.api.BlindspotStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.time.Instant;
 import java.util.*;
 
 public class CreateBlindspotTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private BlindspotRepository blindspotRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "create_blindspot"; }
 
@@ -47,13 +47,13 @@ public class CreateBlindspotTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setBlindspotRepository(BlindspotRepository blindspotRepository) {
-        this.blindspotRepository = blindspotRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (blindspotRepository == null) return ToolResult.failure("Blindspot repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
 
         String projectId = input.path("projectId").asText(null);
         String title = input.path("title").asText(null);
@@ -74,25 +74,26 @@ public class CreateBlindspotTool implements Tool {
             severity = BlindspotSeverity.MEDIUM;
         }
 
-        BlindspotDocument doc = new BlindspotDocument();
-        doc.setBlindspotId(UUID.randomUUID().toString());
-        doc.setProjectId(projectId);
-        doc.setProjectName(input.path("projectName").asText(null));
-        doc.setTitle(title);
-        doc.setDescription(input.path("description").asText(null));
-        doc.setCategory(category);
-        doc.setSeverity(severity);
-        doc.setStatus(BlindspotStatus.OPEN);
-        doc.setOwner(input.path("owner").asText(null));
-        doc.setDeltaPackId(input.path("deltaPackId").asText(null));
-        doc.setCreatedAt(Instant.now());
-        doc.setUpdatedAt(Instant.now());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("title", title);
+        payload.put("description", input.path("description").asText(null));
+        payload.put("category", category.name());
+        payload.put("severity", severity.name());
+        payload.put("status", BlindspotStatus.OPEN.name());
+        payload.put("owner", input.path("owner").asText(null));
+        payload.put("deltaPackId", input.path("deltaPackId").asText(null));
 
-        blindspotRepository.save(doc);
+        String projectName = input.path("projectName").asText(null);
+        ThingDocument thing = thingService.createThing(projectId, ThingCategory.BLINDSPOT, payload);
+        if (projectName != null) {
+            thing.setProjectName(projectName);
+            thingService.save(thing);
+        }
+
         stream.progress(100, "Blindspot created: " + title);
 
         ObjectNode result = MAPPER.createObjectNode();
-        result.put("blindspotId", doc.getBlindspotId());
+        result.put("blindspotId", thing.getId());
         result.put("category", category.name());
         result.put("severity", severity.name());
         return ToolResult.success(result);

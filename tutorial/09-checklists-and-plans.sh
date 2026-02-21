@@ -10,13 +10,20 @@ section() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
 ok()      { echo -e "${GREEN}  OK${NC} $1"; }
 fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
-# --- Create Project ---
-section "1. Create Project"
-PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Tutorial Checklists","description":"ORR checklist and plan demo","tags":["tutorial","checklist"]}')
-PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
-ok "Project: $PROJECT_ID"
+# --- Find or Create Project ---
+section "1. Find or Create Project"
+PROJECT_NAME="Tutorial Payment Gateway"
+PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+  '.[] | select(.name == $name) | .projectId' | head -1)
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
+  PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
+  ok "Project created: $PROJECT_ID"
+else
+  ok "Project found: $PROJECT_ID"
+fi
 
 # --- Create Phases ---
 section "2. Create Phases"
@@ -28,9 +35,7 @@ PHASE1=$(curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/phases" \
     "entryCriteria": ["Requirements approved", "Design reviewed"],
     "exitCriteria": ["All unit tests passing", "Code reviewed"],
     "status": "IN_PROGRESS",
-    "sortOrder": 1,
-    "startDate": "2026-02-03",
-    "endDate": "2026-02-28"
+    "sortOrder": 1
   }')
 P1_ID=$(echo "$PHASE1" | jq -r '.phaseId')
 ok "Phase: Development ($P1_ID)"
@@ -43,9 +48,7 @@ PHASE2=$(curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/phases" \
     "entryCriteria": ["Development complete", "All tests green"],
     "exitCriteria": ["ORR checklist 100%", "Sign-off from team lead"],
     "status": "NOT_STARTED",
-    "sortOrder": 2,
-    "startDate": "2026-03-01",
-    "endDate": "2026-03-07"
+    "sortOrder": 2
   }')
 P2_ID=$(echo "$PHASE2" | jq -r '.phaseId')
 ok "Phase: ORR ($P2_ID)"
@@ -57,7 +60,6 @@ MILESTONE=$(curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/milestones" \
   -d "{
     \"name\": \"ORR Sign-off\",
     \"description\": \"All checklist items verified, production readiness confirmed\",
-    \"targetDate\": \"2026-03-07\",
     \"status\": \"UPCOMING\",
     \"phaseId\": \"$P2_ID\",
     \"owner\": \"alice\"
@@ -70,7 +72,7 @@ section "4. Create ORR Checklist"
 CHECKLIST=$(curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/checklists" \
   -H 'Content-Type: application/json' \
   -d "{
-    \"name\": \"ORR Checklist — KYC Platform\",
+    \"name\": \"PCI Compliance Checklist — Payment Gateway\",
     \"phaseId\": \"$P2_ID\",
     \"items\": [
       {\"text\": \"Load test results documented\", \"assignee\": \"joe\"},
@@ -112,19 +114,19 @@ ok "Progress: $CHECKED/$TOTAL items complete"
 # --- List Phases ---
 section "8. Phase Overview"
 PHASES=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/phases")
-echo "$PHASES" | jq -r '.[] | "  [\(.status)] \(.name) — \(.startDate // "?") to \(.endDate // "?")"'
+echo "$PHASES" | jq -r '.[] | "  [\(.status)] \(.name)"'
 
 # --- List Milestones ---
 section "9. Milestone Status"
 MILESTONES=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/milestones")
-echo "$MILESTONES" | jq -r '.[] | "  [\(.status)] \(.name) — target: \(.targetDate) — owner: \(.owner // "unassigned")"'
+echo "$MILESTONES" | jq -r '.[] | "  [\(.status)] \(.name) — owner: \(.owner // "unassigned")"'
 
 # --- Summary ---
 section "10. Summary"
 echo "  Project planning hierarchy:"
-echo "    Phases  → high-level stages (Development, ORR, Production)"
-echo "    Milestones → key dates within phases"
-echo "    Checklists → detailed items with assignees"
+echo "    Phases     -> high-level stages (Development, ORR, Production)"
+echo "    Milestones -> key dates within phases"
+echo "    Checklists -> detailed items with assignees"
 echo ""
 echo "  ORR Checklist: $CHECKED/$TOTAL complete"
 echo "  Next: Complete remaining 4 items before ORR Sign-off milestone"

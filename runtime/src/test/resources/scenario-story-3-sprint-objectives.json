@@ -31,8 +31,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-101: Build Evidence API",
-            "description": "Epic: Evidence Service | Status: In Progress | Owner: Alice",
-            "priority": "HIGH"
+            "description": "Epic: Evidence Service | Status: In Progress",
+            "priority": "HIGH",
+            "owner": "Alice"
           }
         },
         {
@@ -40,8 +41,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-102: UI for onboarding",
-            "description": "Epic: Onboarding | Status: Todo | Owner: Bob",
-            "priority": "MEDIUM"
+            "description": "Epic: Onboarding | Status: Todo",
+            "priority": "MEDIUM",
+            "owner": "Bob"
           }
         },
         {
@@ -49,8 +51,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-103: Validation rules",
-            "description": "Epic: Evidence Service | Status: Todo | Owner: Alice",
-            "priority": "HIGH"
+            "description": "Epic: Evidence Service | Status: Todo",
+            "priority": "HIGH",
+            "owner": "Alice"
           }
         },
         {
@@ -58,8 +61,9 @@
           "url": "/api/projects/{{projectId}}/tickets",
           "body": {
             "title": "J-104: Refactor intake",
-            "description": "Epic: (none) | Status: Todo | Owner: Charlie",
-            "priority": "LOW"
+            "description": "Epic: (none) | Status: Todo",
+            "priority": "LOW",
+            "owner": "Charlie"
           }
         }
       ]

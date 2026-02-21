@@ -3,9 +3,10 @@ package io.github.drompincen.javaclawv1.tools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.github.drompincen.javaclawv1.persistence.document.ChecklistDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ChecklistRepository;
-import io.github.drompincen.javaclawv1.protocol.api.ChecklistStatus;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolContext;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolResult;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolStream;
@@ -19,12 +20,14 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
-
-import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -33,7 +36,7 @@ class CreateChecklistToolTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Mock private ChecklistRepository checklistRepository;
+    @Mock private ThingService thingService;
     @Mock private ToolStream stream;
 
     private CreateChecklistTool tool;
@@ -42,9 +45,19 @@ class CreateChecklistToolTest {
     @BeforeEach
     void setUp() {
         tool = new CreateChecklistTool();
-        tool.setChecklistRepository(checklistRepository);
+        tool.setThingService(thingService);
         ctx = new ToolContext("session-1", Path.of("."), Map.of());
-        when(checklistRepository.save(any(ChecklistDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(thingService.createThing(any(), eq(ThingCategory.CHECKLIST), any()))
+                .thenAnswer(inv -> {
+                    ThingDocument thing = new ThingDocument();
+                    thing.setId(java.util.UUID.randomUUID().toString());
+                    thing.setProjectId(inv.getArgument(0));
+                    thing.setThingCategory(ThingCategory.CHECKLIST);
+                    thing.setPayload(new LinkedHashMap<>(inv.getArgument(2)));
+                    thing.setCreateDate(Instant.now());
+                    thing.setUpdateDate(Instant.now());
+                    return thing;
+                });
     }
 
     @Test
@@ -53,7 +66,7 @@ class CreateChecklistToolTest {
     }
 
     @Test
-    void failsWithoutRepository() {
+    void failsWithoutThingService() {
         CreateChecklistTool unwired = new CreateChecklistTool();
         ObjectNode input = MAPPER.createObjectNode();
         input.put("projectId", "p1");
@@ -84,6 +97,7 @@ class CreateChecklistToolTest {
         assertThat(result.error()).contains("items");
     }
 
+    @SuppressWarnings("unchecked")
     @Test
     void createsChecklistWithItems() {
         ObjectNode input = MAPPER.createObjectNode();
@@ -99,19 +113,20 @@ class CreateChecklistToolTest {
         assertThat(result.output().get("itemCount").asInt()).isEqualTo(2);
         assertThat(result.output().get("checklistId").asText()).isNotBlank();
 
-        ArgumentCaptor<ChecklistDocument> captor = ArgumentCaptor.forClass(ChecklistDocument.class);
-        verify(checklistRepository).save(captor.capture());
-        ChecklistDocument saved = captor.getValue();
-        assertThat(saved.getProjectId()).isEqualTo("proj-1");
-        assertThat(saved.getName()).isEqualTo("Sprint Checklist");
-        assertThat(saved.getStatus()).isEqualTo(ChecklistStatus.IN_PROGRESS);
-        assertThat(saved.getItems()).hasSize(2);
-        assertThat(saved.getItems().get(0).getText()).isEqualTo("Write tests");
-        assertThat(saved.getItems().get(0).getAssignee()).isEqualTo("Alice");
-        assertThat(saved.getItems().get(0).isChecked()).isFalse();
-        assertThat(saved.getItems().get(1).getAssignee()).isNull();
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.CHECKLIST), payloadCaptor.capture());
+        Map<String, Object> payload = payloadCaptor.getValue();
+        assertThat(payload.get("name")).isEqualTo("Sprint Checklist");
+        assertThat(payload.get("status")).isEqualTo("IN_PROGRESS");
+        List<Map<String, Object>> savedItems = (List<Map<String, Object>>) payload.get("items");
+        assertThat(savedItems).hasSize(2);
+        assertThat(savedItems.get(0).get("text")).isEqualTo("Write tests");
+        assertThat(savedItems.get(0).get("assignee")).isEqualTo("Alice");
+        assertThat(savedItems.get(0).get("checked")).isEqualTo(false);
+        assertThat(savedItems.get(1).get("assignee")).isNull();
     }
 
+    @SuppressWarnings("unchecked")
     @Test
     void linksSourceThread() {
         ObjectNode input = MAPPER.createObjectNode();
@@ -124,8 +139,8 @@ class CreateChecklistToolTest {
 
         assertThat(result.success()).isTrue();
 
-        ArgumentCaptor<ChecklistDocument> captor = ArgumentCaptor.forClass(ChecklistDocument.class);
-        verify(checklistRepository).save(captor.capture());
-        assertThat(captor.getValue().getSourceThreadId()).isEqualTo("thread-xyz");
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.CHECKLIST), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue().get("sourceThreadId")).isEqualTo("thread-xyz");
     }
 }

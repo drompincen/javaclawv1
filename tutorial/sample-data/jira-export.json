@@ -1,0 +1,79 @@
+[
+  {
+    "key": "PAY-201",
+    "fields": {
+      "summary": "Refactor card payment handler",
+      "status": {"name": "In Progress"},
+      "priority": {"name": "High"},
+      "assignee": {"displayName": "Joe Martinez"},
+      "customfield_10016": 5,
+      "parent": {"fields": {"summary": "Payment Processing"}}
+    }
+  },
+  {
+    "key": "PAY-202",
+    "fields": {
+      "summary": "Refactor bank transfer handler",
+      "status": {"name": "To Do"},
+      "priority": {"name": "High"},
+      "assignee": {"displayName": "Joe Martinez"},
+      "customfield_10016": 3,
+      "parent": {"fields": {"summary": "Payment Processing"}}
+    }
+  },
+  {
+    "key": "PAY-203",
+    "fields": {
+      "summary": "Refactor digital wallet handler",
+      "status": {"name": "To Do"},
+      "priority": {"name": "High"},
+      "assignee": {"displayName": "Joe Martinez"},
+      "customfield_10016": 3,
+      "parent": {"fields": {"summary": "Payment Processing"}}
+    }
+  },
+  {
+    "key": "PAY-204",
+    "fields": {
+      "summary": "Spike RabbitMQ queue integration",
+      "status": {"name": "In Progress"},
+      "priority": {"name": "Medium"},
+      "assignee": {"displayName": "Bob Taylor"},
+      "customfield_10016": 5,
+      "parent": {"fields": {"summary": "Webhook Integration"}}
+    }
+  },
+  {
+    "key": "PAY-205",
+    "fields": {
+      "summary": "Implement retry/backoff consumer",
+      "status": {"name": "To Do"},
+      "priority": {"name": "High"},
+      "assignee": {"displayName": "Joe Martinez"},
+      "customfield_10016": 8,
+      "parent": {"fields": {"summary": "Webhook Integration"}}
+    }
+  },
+  {
+    "key": "PAY-206",
+    "fields": {
+      "summary": "Single-page wizard wireframes",
+      "status": {"name": "To Do"},
+      "priority": {"name": "Medium"},
+      "assignee": {"displayName": "Joe Martinez"},
+      "customfield_10016": 3,
+      "parent": {"fields": {"summary": "Merchant Onboarding"}}
+    }
+  },
+  {
+    "key": "PAY-207",
+    "fields": {
+      "summary": "Presigned S3 upload endpoint",
+      "status": {"name": "In Progress"},
+      "priority": {"name": "High"},
+      "assignee": {"displayName": "Alice Chen"},
+      "customfield_10016": 5,
+      "parent": {"fields": {"summary": "Merchant Onboarding"}}
+    }
+  }
+]

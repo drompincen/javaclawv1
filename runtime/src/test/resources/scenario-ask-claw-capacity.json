@@ -1,0 +1,335 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Ask Claw Capacity Test",
+  "description": "E2E: Seed resources with varying capacity/availability and tickets with SP, then ask capacity questions and verify the LLM context contains computed effectiveHours, allocatedSP, and RESOURCE CAPACITY SUMMARY",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed resources and tickets with story points",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Joe Martinez",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.8,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Alice Chen",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 1.0,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Bob Taylor",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.5,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-201: Refactor card payment handler",
+            "description": "Refactor the card payment processing handler to use strategy pattern",
+            "priority": "HIGH",
+            "owner": "Joe Martinez",
+            "storyPoints": 5
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-202: Refactor bank transfer handler",
+            "description": "Refactor the bank transfer handler to use strategy pattern",
+            "priority": "HIGH",
+            "owner": "Joe Martinez",
+            "storyPoints": 3
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-203: Refactor digital wallet handler",
+            "description": "Refactor the digital wallet handler to use strategy pattern",
+            "priority": "HIGH",
+            "owner": "Joe Martinez",
+            "storyPoints": 3
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-204: RabbitMQ queue integration spike",
+            "description": "Spike on RabbitMQ queue integration for webhook processing",
+            "priority": "MEDIUM",
+            "owner": "Bob Taylor",
+            "storyPoints": 5
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-205: Implement retry/backoff consumer",
+            "description": "Implement retry logic with exponential backoff for webhook consumer",
+            "priority": "HIGH",
+            "owner": "Joe Martinez",
+            "storyPoints": 8
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-206: Merchant onboarding wizard wireframes",
+            "description": "Create wireframes for single-page merchant onboarding wizard",
+            "priority": "MEDIUM",
+            "storyPoints": 3
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "PAY-207: Presigned S3 upload endpoint",
+            "description": "Implement presigned S3 upload endpoint for merchant document uploads",
+            "priority": "HIGH",
+            "owner": "Alice Chen",
+            "storyPoints": 5
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 42",
+            "outcome": "Complete Payment Processing refactor and webhook integration",
+            "status": "COMMITTED",
+            "coveragePercent": 60,
+            "startDate": "2026-02-17T00:00:00Z",
+            "endDate": "2026-03-03T00:00:00Z"
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 7}
+          },
+          {
+            "collection": "resources",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 3}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ask Claw: who has the most capacity",
+      "type": "seed",
+      "agentResponses": [
+        {
+          "agentName": "generalist",
+          "responseFallback": "## Developer Capacity Analysis\n\n**Alice Chen has the most available capacity.**\n\nHere's the breakdown:\n\n| Developer | Effective Hours | Tickets | Allocated SP | Spare Capacity |\n|-----------|----------------|---------|-------------|----------------|\n| **Alice Chen** | 40h (capacity=40, availability=1.0) | 1 ticket | 5 SP | **HIGH** — only 1 ticket assigned |\n| **Bob Taylor** | 20h (capacity=40, availability=0.5) | 1 ticket | 5 SP | LOW — limited by 50% availability |\n| **Joe Martinez** | 32h (capacity=40, availability=0.8) | 4 tickets | 19 SP | **LOW** — heavily loaded |\n\n### Key Findings\n- **Alice Chen** has the highest effective hours (40h) and the lightest workload (5 SP, 1 ticket)\n- **Joe Martinez** is overloaded: 4 tickets totaling 19 SP on 32 effective hours\n- **Bob Taylor** has limited availability (50%) despite only having 1 ticket\n- **PAY-206** (3 SP) is UNASSIGNED — consider assigning to Alice\n\n### Recommendation\nAlice Chen should take on additional work. PAY-206 (Merchant onboarding wizard) is unassigned and would be a good fit."
+        }
+      ],
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/ask",
+          "body": {
+            "projectId": "{{projectId}}",
+            "question": "Which developer has the most capacity? Who is overloaded and who has spare capacity?"
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "effectiveHours=32"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "effectiveHours=40"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "effectiveHours=20"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "sp=5"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "sp=8"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "sp=3"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "RESOURCE CAPACITY SUMMARY"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Joe Martinez.*effectiveHours=32"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Alice Chen.*effectiveHours=40"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Bob Taylor.*effectiveHours=20"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=UNASSIGNED"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=Joe Martinez"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=Alice Chen"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "ASSIGNMENT SUMMARY"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ask Claw: unassigned tickets",
+      "type": "seed",
+      "agentResponses": [
+        {
+          "agentName": "generalist",
+          "responseFallback": "## Unassigned Tickets\n\nThere is **1 unassigned ticket**:\n\n- **PAY-206: Merchant onboarding wizard wireframes** [TODO] priority=MEDIUM sp=3\n\nAll other tickets (6 out of 7) are assigned:\n- Joe Martinez: 4 tickets (PAY-201, PAY-202, PAY-203, PAY-205) totaling 19 SP\n- Bob Taylor: 1 ticket (PAY-204) totaling 5 SP\n- Alice Chen: 1 ticket (PAY-207) totaling 5 SP\n\n**Recommendation:** Assign PAY-206 to Alice Chen — she has the most spare capacity (40 effective hours, only 5 SP allocated)."
+        }
+      ],
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/ask",
+          "body": {
+            "projectId": "{{projectId}}",
+            "question": "Are there any unassigned tickets? Who should they be assigned to?"
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "PAY-206.*assignee=UNASSIGNED"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Unassigned: \\d+"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Assigned: \\d+"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

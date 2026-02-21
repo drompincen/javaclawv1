@@ -148,6 +148,85 @@ public class ThreadController {
                 doc.getCurrentCheckpointId(), doc.getCreatedAt(), doc.getUpdatedAt(),
                 doc.getSummary(), doc.getContent(), decisions, actions,
                 doc.getEvidence() != null ? doc.getEvidence().size() : 0,
-                doc.getObjectiveIds() != null ? doc.getObjectiveIds() : List.of());
+                doc.getObjectiveIds() != null ? doc.getObjectiveIds() : List.of(),
+                doc.getLifecycle() != null ? doc.getLifecycle().name() : null,
+                doc.getMergedFromThreadIds(),
+                doc.getMergedIntoThreadId());
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping("/merge")
+    public ResponseEntity<?> merge(@PathVariable String projectId, @RequestBody Map<String, Object> body) {
+        List<String> sourceThreadIds = (List<String>) body.get("sourceThreadIds");
+        String targetTitle = (String) body.get("targetTitle");
+
+        if (sourceThreadIds == null || sourceThreadIds.size() < 2) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Need at least 2 thread IDs to merge"));
+        }
+
+        // Validate all threads exist and belong to project
+        List<ThreadDocument> sourceThreads = new java.util.ArrayList<>();
+        for (String tid : sourceThreadIds) {
+            var opt = threadRepository.findById(tid);
+            if (opt.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Thread not found: " + tid));
+            }
+            ThreadDocument t = opt.get();
+            if (!t.getEffectiveProjectIds().contains(projectId)) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Thread " + tid + " not in project " + projectId));
+            }
+            sourceThreads.add(t);
+        }
+
+        // Use first thread as merge target
+        ThreadDocument target = sourceThreads.get(0);
+        if (targetTitle != null && !targetTitle.isBlank()) {
+            target.setTitle(targetTitle);
+        }
+
+        // Collect all messages from target + sources into memory
+        List<MessageDocument> allMsgs = new java.util.ArrayList<>(
+                messageRepository.findBySessionIdOrderBySeqAsc(target.getThreadId()));
+
+        // Merge content from source threads into target
+        StringBuilder contentBuilder = new StringBuilder(target.getContent() != null ? target.getContent() : "");
+        for (int i = 1; i < sourceThreads.size(); i++) {
+            ThreadDocument source = sourceThreads.get(i);
+            allMsgs.addAll(messageRepository.findBySessionIdOrderBySeqAsc(source.getThreadId()));
+
+            // Append source content to target
+            if (source.getContent() != null && !source.getContent().isBlank()) {
+                if (contentBuilder.length() > 0) contentBuilder.append("\n\n---\n\n");
+                contentBuilder.append(source.getContent());
+            }
+
+            // Delete source messages
+            messageRepository.deleteBySessionId(source.getThreadId());
+
+            // Mark source as merged
+            source.setLifecycle(io.github.drompincen.javaclawv1.protocol.api.ThreadLifecycle.MERGED);
+            source.setMergedIntoThreadId(target.getThreadId());
+            source.setUpdatedAt(Instant.now());
+            threadRepository.save(source);
+        }
+
+        // Delete target messages to avoid seq collisions
+        messageRepository.deleteBySessionId(target.getThreadId());
+
+        // Sort all collected messages by timestamp, re-assign seq, save
+        allMsgs.sort(java.util.Comparator.comparing(m -> m.getTimestamp() != null ? m.getTimestamp() : Instant.EPOCH));
+        for (int i = 0; i < allMsgs.size(); i++) {
+            allMsgs.get(i).setSessionId(target.getThreadId());
+            allMsgs.get(i).setSeq(i + 1);
+            messageRepository.save(allMsgs.get(i));
+        }
+
+        // Update target with merge metadata + merged content
+        target.setContent(contentBuilder.toString());
+        target.setMergedFromThreadIds(sourceThreadIds.subList(1, sourceThreadIds.size()));
+        target.setUpdatedAt(Instant.now());
+        threadRepository.save(target);
+
+        return ResponseEntity.ok(toDto(target));
     }
 }

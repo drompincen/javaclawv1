@@ -1,49 +1,49 @@
 package io.github.drompincen.javaclawv1.gateway.controller;
 
-import io.github.drompincen.javaclawv1.persistence.document.MilestoneDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.MilestoneRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.MilestoneDto;
 import io.github.drompincen.javaclawv1.protocol.api.MilestoneStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/projects/{projectId}/milestones")
 public class MilestoneController {
 
-    private final MilestoneRepository milestoneRepository;
+    private final ThingService thingService;
 
-    public MilestoneController(MilestoneRepository milestoneRepository) {
-        this.milestoneRepository = milestoneRepository;
+    public MilestoneController(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @PostMapping
     public ResponseEntity<MilestoneDto> create(@PathVariable String projectId,
-                                                @RequestBody MilestoneDocument body) {
-        body.setMilestoneId(UUID.randomUUID().toString());
-        body.setProjectId(projectId);
-        if (body.getStatus() == null) {
-            body.setStatus(MilestoneStatus.UPCOMING);
+                                                @RequestBody Map<String, Object> body) {
+        if (body.get("status") == null) {
+            body.put("status", MilestoneStatus.UPCOMING.name());
         }
-        body.setCreatedAt(Instant.now());
-        body.setUpdatedAt(Instant.now());
-        milestoneRepository.save(body);
-        return ResponseEntity.ok(toDto(body));
+        ThingDocument thing = thingService.createThing(projectId, ThingCategory.MILESTONE, body);
+        return ResponseEntity.ok(toDto(thing));
     }
 
     @GetMapping
     public List<MilestoneDto> list(@PathVariable String projectId,
                                     @RequestParam(required = false) MilestoneStatus status) {
-        List<MilestoneDocument> docs;
+        List<ThingDocument> docs;
         if (status != null) {
-            docs = milestoneRepository.findByProjectIdAndStatus(projectId, status);
+            docs = thingService.findByProjectCategoryAndPayload(projectId, ThingCategory.MILESTONE,
+                    "status", status.name());
         } else {
-            docs = milestoneRepository.findByProjectIdOrderByTargetDateAsc(projectId);
+            docs = thingService.findByProjectAndCategorySorted(projectId, ThingCategory.MILESTONE,
+                    "payload.targetDate", true);
         }
         return docs.stream().map(this::toDto).collect(Collectors.toList());
     }
@@ -51,7 +51,7 @@ public class MilestoneController {
     @GetMapping("/{milestoneId}")
     public ResponseEntity<MilestoneDto> get(@PathVariable String projectId,
                                              @PathVariable String milestoneId) {
-        return milestoneRepository.findById(milestoneId)
+        return thingService.findById(milestoneId, ThingCategory.MILESTONE)
                 .filter(d -> projectId.equals(d.getProjectId()))
                 .map(d -> ResponseEntity.ok(toDto(d)))
                 .orElse(ResponseEntity.notFound().build());
@@ -60,42 +60,53 @@ public class MilestoneController {
     @PutMapping("/{milestoneId}")
     public ResponseEntity<MilestoneDto> update(@PathVariable String projectId,
                                                 @PathVariable String milestoneId,
-                                                @RequestBody MilestoneDocument updates) {
-        return milestoneRepository.findById(milestoneId)
+                                                @RequestBody Map<String, Object> updates) {
+        return thingService.findById(milestoneId, ThingCategory.MILESTONE)
                 .filter(d -> projectId.equals(d.getProjectId()))
                 .map(existing -> {
-                    if (updates.getName() != null) existing.setName(updates.getName());
-                    if (updates.getDescription() != null) existing.setDescription(updates.getDescription());
-                    if (updates.getTargetDate() != null) existing.setTargetDate(updates.getTargetDate());
-                    if (updates.getActualDate() != null) existing.setActualDate(updates.getActualDate());
-                    if (updates.getStatus() != null) existing.setStatus(updates.getStatus());
-                    if (updates.getPhaseId() != null) existing.setPhaseId(updates.getPhaseId());
-                    if (updates.getObjectiveIds() != null) existing.setObjectiveIds(updates.getObjectiveIds());
-                    if (updates.getTicketIds() != null) existing.setTicketIds(updates.getTicketIds());
-                    if (updates.getOwner() != null) existing.setOwner(updates.getOwner());
-                    if (updates.getDependencies() != null) existing.setDependencies(updates.getDependencies());
-                    existing.setUpdatedAt(Instant.now());
-                    milestoneRepository.save(existing);
-                    return ResponseEntity.ok(toDto(existing));
+                    Map<String, Object> merged = new LinkedHashMap<>();
+                    if (updates.get("name") != null) merged.put("name", updates.get("name"));
+                    if (updates.get("description") != null) merged.put("description", updates.get("description"));
+                    if (updates.get("targetDate") != null) merged.put("targetDate", updates.get("targetDate"));
+                    if (updates.get("actualDate") != null) merged.put("actualDate", updates.get("actualDate"));
+                    if (updates.get("status") != null) merged.put("status", updates.get("status").toString());
+                    if (updates.get("phaseId") != null) merged.put("phaseId", updates.get("phaseId"));
+                    if (updates.get("objectiveIds") != null) merged.put("objectiveIds", updates.get("objectiveIds"));
+                    if (updates.get("ticketIds") != null) merged.put("ticketIds", updates.get("ticketIds"));
+                    if (updates.get("owner") != null) merged.put("owner", updates.get("owner"));
+                    if (updates.get("dependencies") != null) merged.put("dependencies", updates.get("dependencies"));
+                    ThingDocument updated = thingService.mergePayload(existing, merged);
+                    return ResponseEntity.ok(toDto(updated));
                 }).orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{milestoneId}")
     public ResponseEntity<Void> delete(@PathVariable String projectId,
                                         @PathVariable String milestoneId) {
-        return milestoneRepository.findById(milestoneId)
+        return thingService.findById(milestoneId, ThingCategory.MILESTONE)
                 .filter(d -> projectId.equals(d.getProjectId()))
                 .map(d -> {
-                    milestoneRepository.deleteById(milestoneId);
+                    thingService.deleteById(milestoneId);
                     return ResponseEntity.noContent().<Void>build();
                 }).orElse(ResponseEntity.notFound().build());
     }
 
-    private MilestoneDto toDto(MilestoneDocument doc) {
-        return new MilestoneDto(doc.getMilestoneId(), doc.getProjectId(), doc.getName(),
-                doc.getDescription(), doc.getTargetDate(), doc.getActualDate(),
-                doc.getStatus(), doc.getPhaseId(), doc.getObjectiveIds(),
-                doc.getTicketIds(), doc.getOwner(), doc.getDependencies(),
-                doc.getCreatedAt(), doc.getUpdatedAt());
+    @SuppressWarnings("unchecked")
+    private MilestoneDto toDto(ThingDocument thing) {
+        Map<String, Object> p = thing.getPayload();
+        MilestoneStatus status = null;
+        if (p.get("status") != null) {
+            try { status = MilestoneStatus.valueOf(p.get("status").toString()); }
+            catch (IllegalArgumentException ignored) {}
+        }
+        Instant targetDate = p.get("targetDate") != null ? Instant.parse(p.get("targetDate").toString()) : null;
+        Instant actualDate = p.get("actualDate") != null ? Instant.parse(p.get("actualDate").toString()) : null;
+        return new MilestoneDto(thing.getId(), thing.getProjectId(),
+                (String) p.get("name"), (String) p.get("description"),
+                targetDate, actualDate, status,
+                (String) p.get("phaseId"), (List<String>) p.get("objectiveIds"),
+                (List<String>) p.get("ticketIds"), (String) p.get("owner"),
+                (List<String>) p.get("dependencies"),
+                thing.getCreateDate(), thing.getUpdateDate());
     }
 }

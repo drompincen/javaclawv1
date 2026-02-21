@@ -1,8 +1,9 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.PhaseDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.PhaseRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,7 +15,7 @@ import java.util.*;
 public class ReadPhasesTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private PhaseRepository phaseRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "read_phases"; }
     @Override public String description() { return "Read all phases for a project, ordered by sortOrder."; }
@@ -31,24 +32,26 @@ public class ReadPhasesTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.READ_ONLY); }
 
-    public void setPhaseRepository(PhaseRepository phaseRepository) {
-        this.phaseRepository = phaseRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (phaseRepository == null) return ToolResult.failure("Phase repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
         String projectId = input.path("projectId").asText(null);
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
 
-        List<PhaseDocument> phases = phaseRepository.findByProjectIdOrderBySortOrder(projectId);
+        List<ThingDocument> phases = thingService.findByProjectAndCategorySorted(
+                projectId, ThingCategory.PHASE, "payload.sortOrder", true);
         ArrayNode arr = MAPPER.createArrayNode();
-        for (PhaseDocument p : phases) {
+        for (ThingDocument p : phases) {
+            Map<String, Object> payload = p.getPayload();
             ObjectNode n = MAPPER.createObjectNode();
-            n.put("phaseId", p.getPhaseId());
-            n.put("name", p.getName());
-            n.put("status", p.getStatus() != null ? p.getStatus().name() : "UNKNOWN");
-            n.put("sortOrder", p.getSortOrder());
+            n.put("phaseId", p.getId());
+            n.put("name", (String) payload.get("name"));
+            n.put("status", payload.get("status") != null ? payload.get("status").toString() : "UNKNOWN");
+            n.put("sortOrder", payload.get("sortOrder") != null ? ((Number) payload.get("sortOrder")).intValue() : 0);
             arr.add(n);
         }
         stream.progress(100, "Read " + phases.size() + " phases");

@@ -17,6 +17,7 @@ spring:
       chat:
         options:
           model: claude-sonnet-4-5-20250929
+          max-tokens: 8192
       enabled: true
     openai:
       api-key: ${OPENAI_API_KEY:sk-placeholder-set-real-key-via-ctrl-k}

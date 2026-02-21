@@ -1,9 +1,10 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ChecklistDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ChecklistRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.ChecklistStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,7 +16,7 @@ import java.util.*;
 public class ChecklistProgressTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ChecklistRepository checklistRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "checklist_progress"; }
 
@@ -38,14 +39,15 @@ public class ChecklistProgressTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.READ_ONLY); }
 
-    public void setChecklistRepository(ChecklistRepository checklistRepository) {
-        this.checklistRepository = checklistRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (checklistRepository == null) {
-            return ToolResult.failure("Checklist repository not available");
+        if (thingService == null) {
+            return ToolResult.failure("ThingService not available");
         }
 
         String projectId = input.path("projectId").asText(null);
@@ -54,33 +56,36 @@ public class ChecklistProgressTool implements Tool {
         String statusStr = input.path("status").asText(null);
         String phaseId = input.path("phaseId").asText(null);
 
-        List<ChecklistDocument> checklists;
+        List<ThingDocument> checklists;
         if (statusStr != null && !statusStr.isBlank()) {
             try {
                 ChecklistStatus status = ChecklistStatus.valueOf(statusStr.toUpperCase());
-                checklists = checklistRepository.findByProjectIdAndStatus(projectId, status);
+                checklists = thingService.findByProjectCategoryAndPayload(projectId, ThingCategory.CHECKLIST,
+                        "status", status.name());
             } catch (IllegalArgumentException e) {
                 return ToolResult.failure("Invalid status: " + statusStr);
             }
         } else {
-            checklists = checklistRepository.findByProjectId(projectId);
+            checklists = thingService.findByProjectAndCategory(projectId, ThingCategory.CHECKLIST);
         }
 
         if (phaseId != null && !phaseId.isBlank()) {
             checklists = checklists.stream()
-                    .filter(c -> phaseId.equals(c.getPhaseId()))
+                    .filter(c -> phaseId.equals(c.getPayload().get("phaseId")))
                     .toList();
         }
 
         ArrayNode results = MAPPER.createArrayNode();
-        for (ChecklistDocument cl : checklists) {
+        for (ThingDocument cl : checklists) {
+            Map<String, Object> p = cl.getPayload();
             ObjectNode entry = MAPPER.createObjectNode();
-            entry.put("checklistId", cl.getChecklistId());
-            entry.put("title", cl.getName());
-            entry.put("status", cl.getStatus() != null ? cl.getStatus().name() : "UNKNOWN");
+            entry.put("checklistId", cl.getId());
+            entry.put("title", (String) p.get("name"));
+            entry.put("status", p.get("status") != null ? p.get("status").toString() : "UNKNOWN");
 
-            List<ChecklistDocument.ChecklistItem> items = cl.getItems() != null ? cl.getItems() : List.of();
-            long complete = items.stream().filter(ChecklistDocument.ChecklistItem::isChecked).count();
+            List<Map<String, Object>> items = p.get("items") != null
+                    ? (List<Map<String, Object>>) p.get("items") : List.of();
+            long complete = items.stream().filter(i -> Boolean.TRUE.equals(i.get("checked"))).count();
             int total = items.size();
             double percentDone = total == 0 ? 0 : ((double) complete / total) * 100;
 
@@ -89,7 +94,8 @@ public class ChecklistProgressTool implements Tool {
             entry.put("percentDone", Math.round(percentDone * 10) / 10.0);
 
             long unassigned = items.stream()
-                    .filter(i -> !i.isChecked() && (i.getAssignee() == null || i.getAssignee().isBlank()))
+                    .filter(i -> !Boolean.TRUE.equals(i.get("checked"))
+                            && (i.get("assignee") == null || i.get("assignee").toString().isBlank()))
                     .count();
             entry.put("unassignedItems", unassigned);
 

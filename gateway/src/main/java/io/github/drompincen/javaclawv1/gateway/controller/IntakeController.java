@@ -2,15 +2,15 @@ package io.github.drompincen.javaclawv1.gateway.controller;
 
 import io.github.drompincen.javaclawv1.persistence.document.MessageDocument;
 import io.github.drompincen.javaclawv1.persistence.document.SessionDocument;
-import io.github.drompincen.javaclawv1.persistence.document.UploadDocument;
 import io.github.drompincen.javaclawv1.persistence.repository.MessageRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.SessionRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.UploadRepository;
 import io.github.drompincen.javaclawv1.protocol.api.IntakePipelineRequest;
 import io.github.drompincen.javaclawv1.protocol.api.IntakePipelineResponse;
 import io.github.drompincen.javaclawv1.protocol.api.SessionStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.UploadStatus;
 import io.github.drompincen.javaclawv1.runtime.agent.IntakePipelineService;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -21,10 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/intake")
@@ -33,16 +30,16 @@ public class IntakeController {
     private final IntakePipelineService pipelineService;
     private final SessionRepository sessionRepository;
     private final MessageRepository messageRepository;
-    private final UploadRepository uploadRepository;
+    private final ThingService thingService;
 
     public IntakeController(IntakePipelineService pipelineService,
                             SessionRepository sessionRepository,
                             MessageRepository messageRepository,
-                            UploadRepository uploadRepository) {
+                            ThingService thingService) {
         this.pipelineService = pipelineService;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
-        this.uploadRepository = uploadRepository;
+        this.thingService = thingService;
     }
 
     @PostMapping("/pipeline")
@@ -103,23 +100,32 @@ public class IntakeController {
             Path dest = uploadDir.resolve(savedName);
             file.transferTo(dest.toFile());
 
-            UploadDocument doc = new UploadDocument();
-            doc.setUploadId(UUID.randomUUID().toString());
-            doc.setProjectId(projectId);
-            doc.setSource("file_upload");
-            doc.setTitle(originalName);
-            doc.setContentType(file.getContentType());
-            doc.setBinaryRef(dest.toAbsolutePath().toString());
-            doc.setStatus(UploadStatus.INBOX);
-            doc.setCreatedAt(Instant.now());
-            doc.setUpdatedAt(Instant.now());
-            uploadRepository.save(doc);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("source", "file_upload");
+            payload.put("title", originalName);
+            payload.put("contentType", file.getContentType());
+            payload.put("binaryRef", dest.toAbsolutePath().toString());
+            payload.put("status", UploadStatus.INBOX.name());
 
-            results.add(new UploadInfo(doc.getUploadId(), originalName, dest.toAbsolutePath().toString()));
+            var thing = thingService.createThing(projectId, ThingCategory.UPLOAD, payload);
+
+            String detectedType = detectContentType(originalName);
+            results.add(new UploadInfo(thing.getId(), originalName, dest.toAbsolutePath().toString(), detectedType));
         }
 
         return ResponseEntity.ok(results);
     }
 
-    record UploadInfo(String uploadId, String fileName, String filePath) {}
+    private String detectContentType(String fileName) {
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return "spreadsheet";
+        if (lower.endsWith(".csv")) return "csv";
+        if (lower.endsWith(".json")) return "json";
+        if (lower.endsWith(".xml")) return "xml";
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
+        if (lower.endsWith(".txt") || lower.endsWith(".md")) return "text";
+        return "unknown";
+    }
+
+    record UploadInfo(String uploadId, String fileName, String filePath, String contentType) {}
 }

@@ -12,18 +12,26 @@ ok()      { echo -e "${GREEN}  OK${NC} $1"; }
 warn()    { echo -e "${YELLOW}  WARN${NC} $1"; }
 fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
-# --- Create Project ---
-section "1. Create Project"
-PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Tutorial Intake","description":"Meeting notes intake demo","tags":["tutorial","intake"]}')
-PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
-[ "$PROJECT_ID" != "null" ] && ok "Project: $PROJECT_ID" || fail "Project creation failed"
+# --- Find or Create Project ---
+section "1. Find or Create Project"
+PROJECT_NAME="Tutorial Payment Gateway"
+PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+  '.[] | select(.name == $name) | .projectId' | head -1)
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
+  PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
+  ok "Project created: $PROJECT_ID"
+else
+  ok "Project found: $PROJECT_ID"
+fi
+[ "$PROJECT_ID" != "null" ] && [ -n "$PROJECT_ID" ] || fail "Project creation failed"
 
 # --- Load Meeting Notes ---
 section "2. Load Meeting Notes"
-NOTES=$(cat "$SCRIPT_DIR/sample-data/meeting-notes-kyc.txt")
-ok "Loaded KYC Architecture Review notes ($(echo "$NOTES" | wc -l) lines)"
+NOTES=$(cat "$SCRIPT_DIR/sample-data/meeting-notes-payments.txt")
+ok "Loaded Payment Gateway Architecture Review notes ($(echo "$NOTES" | wc -l) lines)"
 
 # --- Submit to Intake Pipeline ---
 section "3. Submit to Intake Pipeline"

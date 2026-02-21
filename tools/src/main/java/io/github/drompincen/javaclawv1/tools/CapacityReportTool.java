@@ -1,12 +1,9 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ResourceAssignmentDocument;
-import io.github.drompincen.javaclawv1.persistence.document.ResourceDocument;
-import io.github.drompincen.javaclawv1.persistence.document.TicketDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceAssignmentRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.TicketRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,9 +16,7 @@ import java.util.stream.Collectors;
 public class CapacityReportTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ResourceRepository resourceRepository;
-    private ResourceAssignmentRepository resourceAssignmentRepository;
-    private TicketRepository ticketRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "capacity_report"; }
     @Override public String description() { return "Generate a capacity report for all resources in a project."; }
@@ -38,60 +33,57 @@ public class CapacityReportTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.READ_ONLY); }
 
-    public void setResourceRepository(ResourceRepository resourceRepository) {
-        this.resourceRepository = resourceRepository;
-    }
-    public void setResourceAssignmentRepository(ResourceAssignmentRepository resourceAssignmentRepository) {
-        this.resourceAssignmentRepository = resourceAssignmentRepository;
-    }
-    public void setTicketRepository(TicketRepository ticketRepository) {
-        this.ticketRepository = ticketRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (resourceRepository == null) return ToolResult.failure("Resource repository not available");
-        if (resourceAssignmentRepository == null) return ToolResult.failure("Assignment repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
 
         String projectId = input.path("projectId").asText(null);
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
 
-        List<ResourceDocument> resources = resourceRepository.findByProjectId(projectId);
-        List<ResourceAssignmentDocument> allAssignments = resourceAssignmentRepository.findByProjectId(projectId);
+        List<ThingDocument> resources = thingService.findByProjectAndCategory(projectId, ThingCategory.RESOURCE);
+        List<ThingDocument> allAssignments = thingService.findByProjectAndCategory(projectId, ThingCategory.RESOURCE_ASSIGNMENT);
 
         // Group assignments by resourceId
-        Map<String, List<ResourceAssignmentDocument>> assignmentsByResource = allAssignments.stream()
-                .collect(Collectors.groupingBy(ResourceAssignmentDocument::getResourceId));
+        Map<String, List<ThingDocument>> assignmentsByResource = allAssignments.stream()
+                .collect(Collectors.groupingBy(a -> (String) a.getPayload().get("resourceId")));
 
         // Build ticket lookup for names/priorities
-        Map<String, TicketDocument> ticketMap = new HashMap<>();
-        if (ticketRepository != null) {
-            Set<String> ticketIds = allAssignments.stream()
-                    .map(ResourceAssignmentDocument::getTicketId)
-                    .collect(Collectors.toSet());
-            for (String tid : ticketIds) {
-                ticketRepository.findById(tid).ifPresent(t -> ticketMap.put(tid, t));
-            }
+        Map<String, ThingDocument> ticketMap = new HashMap<>();
+        Set<String> ticketIds = allAssignments.stream()
+                .map(a -> (String) a.getPayload().get("ticketId"))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        for (String tid : ticketIds) {
+            thingService.findById(tid, ThingCategory.TICKET).ifPresent(t -> ticketMap.put(tid, t));
         }
 
         ArrayNode resourcesArr = MAPPER.createArrayNode();
         int overloaded = 0, balanced = 0, underutilized = 0, idle = 0;
 
-        for (ResourceDocument r : resources) {
+        for (ThingDocument r : resources) {
+            Map<String, Object> p = r.getPayload();
             ObjectNode rNode = MAPPER.createObjectNode();
-            rNode.put("resourceId", r.getResourceId());
-            rNode.put("name", r.getName());
-            rNode.put("role", r.getRole() != null ? r.getRole().name() : "UNKNOWN");
-            rNode.put("totalCapacity", r.getCapacity());
+            rNode.put("resourceId", r.getId());
+            rNode.put("name", (String) p.get("name"));
+            rNode.put("role", p.get("role") != null ? p.get("role").toString() : "UNKNOWN");
+            int totalCapacity = p.get("capacity") != null ? ((Number) p.get("capacity")).intValue() : 0;
+            rNode.put("totalCapacity", totalCapacity);
 
-            List<ResourceAssignmentDocument> assignments = assignmentsByResource.getOrDefault(r.getResourceId(), List.of());
-            double allocatedPercent = assignments.stream().mapToDouble(ResourceAssignmentDocument::getPercentageAllocation).sum();
-            double availablePercent = Math.max(0, r.getCapacity() - allocatedPercent);
+            List<ThingDocument> assignments = assignmentsByResource.getOrDefault(r.getId(), List.of());
+            double allocatedPercent = assignments.stream()
+                    .mapToDouble(a -> {
+                        Object alloc = a.getPayload().get("percentageAllocation");
+                        return alloc != null ? ((Number) alloc).doubleValue() : 0;
+                    }).sum();
+            double availablePercent = Math.max(0, totalCapacity - allocatedPercent);
 
             rNode.put("allocatedPercent", allocatedPercent);
             rNode.put("availablePercent", availablePercent);
 
-            // Determine status
             String status;
             if (allocatedPercent == 0) { status = "IDLE"; idle++; }
             else if (allocatedPercent > 100) { status = "OVERLOADED"; overloaded++; }
@@ -99,23 +91,27 @@ public class CapacityReportTool implements Tool {
             else { status = "UNDERUTILIZED"; underutilized++; }
             rNode.put("status", status);
 
-            // Assignments detail
             ArrayNode assignArr = rNode.putArray("assignments");
-            for (ResourceAssignmentDocument a : assignments) {
+            for (ThingDocument a : assignments) {
+                Map<String, Object> ap = a.getPayload();
                 ObjectNode aNode = MAPPER.createObjectNode();
-                aNode.put("ticketId", a.getTicketId());
-                aNode.put("allocationPercent", a.getPercentageAllocation());
-                TicketDocument ticket = ticketMap.get(a.getTicketId());
+                String ticketId = (String) ap.get("ticketId");
+                aNode.put("ticketId", ticketId);
+                aNode.put("allocationPercent", ap.get("percentageAllocation") != null
+                        ? ((Number) ap.get("percentageAllocation")).doubleValue() : 0);
+                ThingDocument ticket = ticketMap.get(ticketId);
                 if (ticket != null) {
-                    aNode.put("ticketTitle", ticket.getTitle());
-                    aNode.put("ticketPriority", ticket.getPriority() != null ? ticket.getPriority().name() : "UNKNOWN");
+                    Map<String, Object> tp = ticket.getPayload();
+                    aNode.put("ticketTitle", (String) tp.get("title"));
+                    aNode.put("ticketPriority", tp.get("priority") != null ? tp.get("priority").toString() : "UNKNOWN");
                 }
                 assignArr.add(aNode);
             }
 
-            // Skills
+            @SuppressWarnings("unchecked")
+            List<String> skills = (List<String>) p.get("skills");
             ArrayNode skillsArr = rNode.putArray("skills");
-            if (r.getSkills() != null) r.getSkills().forEach(skillsArr::add);
+            if (skills != null) skills.forEach(skillsArr::add);
 
             resourcesArr.add(rNode);
         }

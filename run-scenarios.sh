@@ -31,6 +31,15 @@ SCENARIOS=(
   scenario-reconcile-agent
   scenario-resource-agent
   scenario-intake-pipeline
+  scenario-ask-claw
+  scenario-ask-claw-capacity
+  scenario-thread-merge
+  scenario-agent-merge
+  scenario-thread-update-on-reintake
+  scenario-unassigned-tickets
+  scenario-unallocated-resources
+  scenario-all-agents-seeded
+  scenario-generalist-seeded
   scenario-story-1-intake
   scenario-story-1-reintake
   scenario-story-1-full-pipeline
@@ -44,6 +53,8 @@ SCENARIOS=(
   scenario-story-8-ondemand-agents
   scenario-story-9-memory
   scenario-story-10-daily-reset
+  scenario-file-upload
+  scenario-generalist-intake
 )
 
 PORT=${1:-18080}

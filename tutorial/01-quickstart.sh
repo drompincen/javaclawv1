@@ -15,13 +15,21 @@ section "1. Health Check"
 STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/projects")
 [ "$STATUS" = "200" ] && ok "Server is running at $BASE_URL" || fail "Server not reachable (HTTP $STATUS)"
 
-# --- Create Project ---
-section "2. Create Project"
-PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Tutorial Quickstart","description":"First steps with JavaClaw","tags":["tutorial"]}')
-PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
-[ "$PROJECT_ID" != "null" ] && ok "Project created: $PROJECT_ID" || fail "Project creation failed"
+# --- Find or Create Project ---
+section "2. Find or Create Project"
+PROJECT_NAME="Tutorial Payment Gateway"
+PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+  '.[] | select(.name == $name) | .projectId' | head -1)
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
+  PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
+  ok "Project created: $PROJECT_ID"
+else
+  ok "Project found: $PROJECT_ID"
+fi
+[ "$PROJECT_ID" != "null" ] && [ -n "$PROJECT_ID" ] || fail "Project creation failed"
 
 # --- List Projects ---
 section "3. List Projects"
@@ -70,10 +78,5 @@ THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
 T_COUNT=$(echo "$THREADS" | jq 'length')
 ok "Project has $T_COUNT thread(s)"
 echo "$THREADS" | jq -r '.[] | "  - \(.title) [\(.status)]"'
-
-# --- Cleanup ---
-section "10. Cleanup"
-curl -s -X DELETE "$BASE_URL/api/projects/$PROJECT_ID" > /dev/null
-ok "Project deleted"
 
 echo -e "\n${GREEN}DONE${NC} — Tutorial 01 complete. You created a project, session, thread, and message."

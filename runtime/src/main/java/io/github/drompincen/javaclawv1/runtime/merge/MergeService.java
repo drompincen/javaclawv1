@@ -1,18 +1,17 @@
 package io.github.drompincen.javaclawv1.runtime.merge;
 
-import io.github.drompincen.javaclawv1.persistence.document.IdeaDocument;
-import io.github.drompincen.javaclawv1.persistence.document.TicketDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.IdeaRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.TicketRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.IdeaDto;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.TicketDto;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,46 +19,40 @@ public class MergeService {
 
     private static final Logger log = LoggerFactory.getLogger(MergeService.class);
 
-    private final IdeaRepository ideaRepository;
-    private final TicketRepository ticketRepository;
+    private final ThingService thingService;
 
-    public MergeService(IdeaRepository ideaRepository,
-                        TicketRepository ticketRepository) {
-        this.ideaRepository = ideaRepository;
-        this.ticketRepository = ticketRepository;
+    public MergeService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
-    public TicketDocument mergeIdeas(String projectId, List<String> ideaIds) {
-        List<IdeaDocument> ideas = ideaIds.stream()
-                .map(id -> ideaRepository.findById(id).orElseThrow())
+    public ThingDocument mergeIdeas(String projectId, List<String> ideaIds) {
+        List<ThingDocument> ideas = ideaIds.stream()
+                .map(id -> thingService.findById(id, ThingCategory.IDEA).orElseThrow())
                 .toList();
 
         String combinedTitle = ideas.stream()
-                .map(IdeaDocument::getTitle)
+                .map(t -> t.payloadString("title"))
                 .collect(Collectors.joining(" + "));
         String combinedContent = ideas.stream()
-                .map(IdeaDocument::getContent)
+                .map(t -> t.payloadString("content"))
                 .collect(Collectors.joining("\n\n---\n\n"));
 
-        TicketDocument ticket = new TicketDocument();
-        ticket.setTicketId(UUID.randomUUID().toString());
-        ticket.setProjectId(projectId);
-        ticket.setTitle(combinedTitle);
-        ticket.setDescription(combinedContent);
-        ticket.setStatus(TicketDto.TicketStatus.TODO);
-        ticket.setPriority(TicketDto.TicketPriority.MEDIUM);
-        ticket.setCreatedAt(Instant.now());
-        ticket.setUpdatedAt(Instant.now());
-        ticketRepository.save(ticket);
+        // Create ticket via ThingService
+        Map<String, Object> ticketPayload = new LinkedHashMap<>();
+        ticketPayload.put("title", combinedTitle);
+        ticketPayload.put("description", combinedContent);
+        ticketPayload.put("status", TicketDto.TicketStatus.TODO.name());
+        ticketPayload.put("priority", TicketDto.TicketPriority.MEDIUM.name());
+        ThingDocument ticket = thingService.createThing(projectId, ThingCategory.TICKET, ticketPayload);
 
-        for (IdeaDocument idea : ideas) {
-            idea.setStatus(IdeaDto.IdeaStatus.PROMOTED);
-            idea.setPromotedToTicketId(ticket.getTicketId());
-            idea.setUpdatedAt(Instant.now());
-            ideaRepository.save(idea);
+        for (ThingDocument idea : ideas) {
+            thingService.mergePayload(idea, Map.of(
+                    "status", IdeaDto.IdeaStatus.PROMOTED.name(),
+                    "promotedToTicketId", ticket.getId()
+            ));
         }
 
-        log.info("Merged {} ideas into ticket {}", ideaIds.size(), ticket.getTicketId());
+        log.info("Merged {} ideas into ticket {}", ideaIds.size(), ticket.getId());
         return ticket;
     }
 }

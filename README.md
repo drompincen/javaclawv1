@@ -6,15 +6,15 @@
 
 David opens JavaClaw early in the morning. He pastes his meeting notes — a mix of architecture decisions, open questions, and action items — into the Intake panel and hits enter. The system first saves the raw content as project memory, then the Triage agent — reading memories from yesterday's intakes — classifies the content, organizes it into topics, and decides which downstream agents should process it. No keyword matching, no hardcoded rules — the LLM reasons about the content.
 
-The Thread agent takes over. It sees the existing threads for this project, recognizes that "Evidence Service" was discussed yesterday, and appends the new decisions to the existing thread instead of creating a duplicate. For genuinely new topics — "KYC-SVC Phase 1 Architecture", "Operational Readiness (ORR)" — it creates new threads with distilled key points, decisions, and action items.
+The Thread agent takes over. It sees the existing threads for this project, recognizes that "Evidence Service" was discussed yesterday, and appends the new decisions to the existing thread instead of creating a duplicate. For genuinely new topics — "Payment Service Phase 1 Architecture", "Operational Readiness (ORR)" — it creates new threads with distilled key points, decisions, and action items.
 
 Later, he pastes a Jira export, a Confluence design page, and a Smartsheet plan. The Triage agent recognizes ticket data, timeline milestones, and design content — routing each to the right specialist. The system layers intelligence: tickets are grouped, phases are extracted, objectives are synthesized, and a Delta Pack appears showing "Missing Epic: Evidence Service", "Milestone drift: March 8 -> March 15", "Owner mismatch: Alice vs Bob", "Unmapped tickets: 6". The system isn't just organizing — it's challenging inconsistencies across sources.
 
-The next morning, David asks "What are our objectives for this sprint?" The Objective agent doesn't just count tickets — it reads the "train of thought" in the threads. While there are 10 tickets for "KYC Facade," the threads show the team is stuck on "Evidence API." It marks that objective as AT_RISK despite the good ticket count. David asks "Who is working on what?" and the Resource agent — remembering Alice's last three "overloaded" flags — suggests a permanent reassignment to Bob. He asks "Create a plan from the current threads" and a three-phase execution path emerges with entry conditions, exit criteria, and linked milestones.
+The next morning, David asks "What are our objectives for this sprint?" The Objective agent doesn't just count tickets — it reads the "train of thought" in the threads. While there are 10 tickets for "Payment Facade," the threads show the team is stuck on "Evidence API." It marks that objective as AT_RISK despite the good ticket count. David asks "Who is working on what?" and the Resource agent — remembering Alice's last three "overloaded" flags — suggests a permanent reassignment to Bob. He asks "Create a plan from the current threads" and a three-phase execution path emerges with entry conditions, exit criteria, and linked milestones.
 
 Days pass. The scheduler triggers the Reconcile Agent overnight. It reads its own memory from last week's reconciliation: "MISSING_EPIC for J-104 was flagged." It checks again — still unresolved. It escalates the severity. A new delta appears: "The Triage agent just processed a note saying 'Vendor delayed by 2 weeks.' DATE_DRIFT detected." The system kept the project honest without David.
 
-Weeks later, David notices the system uses consistent naming, recalls past decisions, and avoids repeating earlier mistakes. Overnight, the memory janitor noticed two conflicting dates for the KYC launch — the older "tentative" date is now contradicted by a confirmed date in the latest thread. It purged the stale memory. This morning, the system only references the truth. After a week of heavy brainstorming, 150 small memories accumulated. The distiller ran a compression pass — synthesizing them into 10 executive summaries and deleting the fragments. The system's intelligence stays sharp.
+Weeks later, David notices the system uses consistent naming, recalls past decisions, and avoids repeating earlier mistakes. Overnight, the memory janitor noticed two conflicting dates for the payment gateway launch — the older "tentative" date is now contradicted by a confirmed date in the latest thread. It purged the stale memory. This morning, the system only references the truth. After a week of heavy brainstorming, 150 small memories accumulated. The distiller ran a compression pass — synthesizing them into 10 executive summaries and deleting the fragments. The system's intelligence stays sharp.
 
 David never "manages tickets." He pastes information, asks questions, triggers intent. The system structures, aligns, challenges, and executes.
 
@@ -46,8 +46,8 @@ David never "manages tickets." He pastes information, asks questions, triggers i
               ▼                ▼          ▼          ▼                ▼
      ┌──────────────┐  ┌──────────┐  ┌────────┐  ┌───────────────────┐
      │  persistence  │  │ protocol │  │ tools  │  │     MongoDB       │
-     │  32 documents │  │  DTOs    │  │ 46 SPI │  │   Replica Set     │
-     │  35 repos     │  │  Enums   │  │ tools  │  │   32 collections  │
+     │  18 documents │  │  DTOs    │  │ 46 SPI │  │   Replica Set     │
+     │  19 repos     │  │  Enums   │  │ tools  │  │   18 collections  │
      │  Change       │  │  Events  │  │        │  │   Change Streams  │
      │  Streams      │  │  WS msgs │  │        │  │                   │
      └───────────────┘  └──────────┘  └────────┘  └───────────────────┘
@@ -58,8 +58,8 @@ David never "manages tickets." He pastes information, asks questions, triggers i
 | Module | Purpose |
 |---|---|
 | **protocol** | Shared DTOs (Java records), enums (AgentRole, SessionStatus, TicketStatus, MilestoneStatus, etc.), event types (40+), WebSocket message contracts. Pure Java — no Spring dependencies. |
-| **persistence** | 32 MongoDB document classes, 35 repository interfaces, `ChangeStreamService` for real-time reactive streaming. Covers agents, projects, threads, tickets, objectives, phases, milestones, checklists, resources, delta packs, blindspots, schedules, and more. |
-| **runtime** | Multi-agent engine: `AgentLoop` orchestrates sessions, `AgentGraphBuilder` runs the controller→specialist→checker loop, `IntakePipelineService` chains memory-first ingest→LLM-driven triage→context-aware thread creation→alignment→reconciliation, scheduler engine for automated agent runs, scenario test framework with 38 E2E tests. |
+| **persistence** | 18 MongoDB document classes, 19 repository interfaces, `ChangeStreamService` for real-time reactive streaming. Domain entities (tickets, objectives, phases, resources, etc.) stored in a unified `things` collection via `ThingDocument` with flexible `Map<String, Object>` payload. Infrastructure collections (agents, sessions, messages, events, checkpoints, memories, schedules) remain separate. |
+| **runtime** | Multi-agent engine: `AgentLoop` orchestrates sessions, `AgentGraphBuilder` runs the controller→specialist→checker loop, `IntakePipelineService` chains memory-first ingest→LLM-driven triage→context-aware thread creation→alignment→reconciliation, scheduler engine for automated agent runs, `ThingService` for unified domain entity CRUD, scenario test framework with 50 E2E tests. |
 | **tools** | 46 built-in tools loaded via Java SPI: file I/O, shell, git, JBang, Python, Excel, memory, HTTP, project management (tickets, phases, milestones, objectives, checklists, resources, delta packs, blindspots). |
 | **gateway** | Spring Boot REST + WebSocket server. 24 controllers for all domain objects. Serves the web cockpit UI as static assets. |
 
@@ -167,27 +167,27 @@ If file paths are provided, the agent first calls `excel` to read the spreadshee
 Each `create_ticket` call creates a `TicketDocument` with the original Jira key preserved in the title (e.g., "J-101: Build Evidence API"). Tickets without an epic are flagged as orphaned work in the description.
 
 **Collections written:**
-- `tickets` — One document per ticket. Fields populated: `ticketId`, `projectId`, `title` (includes Jira key), `description` (epic, status, owner info), `priority` (HIGH/MEDIUM/LOW), `status: TODO`, `createdAt`
+- `things` (category: TICKET) — One document per ticket. Payload fields: `title` (includes Jira key), `description` (epic, status, owner info), `priority` (HIGH/MEDIUM/LOW), `status: TODO`
 
 #### Phase 4: Plan Agent (conditional — runs if triage routed PLAN: yes)
 
 Runs in parallel with Phase 3 if the triage agent identified plan/timeline data (`PLAN: yes`). The plan agent calls `create_phase` for each phase and `create_milestone` for each milestone.
 
 **Collections written:**
-- `phases` — One document per phase. Fields: `phaseId`, `projectId`, `name`, `description`, `sortOrder`, `status: PENDING`, `createdAt`
-- `milestones` — One document per milestone. Fields: `milestoneId`, `projectId`, `name`, `targetDate`, `owner`, `status: UPCOMING`, `createdAt`
+- `things` (category: PHASE) — One document per phase. Payload fields: `name`, `description`, `sortOrder`, `status: PENDING`
+- `things` (category: MILESTONE) — One document per milestone. Payload fields: `name`, `targetDate`, `owner`, `status: UPCOMING`
 
 #### Phase 5: Objective Agent (conditional — runs when project state warrants alignment analysis)
 
 After PM and Plan agents complete (or when triggered by the scheduler), the objective agent follows the Contextual Specialist Pattern:
 
 1. **Context Prep:** Loads existing objectives, existing threads (titles + content summaries), existing tickets, and memories tagged `coverage-analysis` from prior runs
-2. **Reasoning:** The LLM doesn't just count tickets — it reads the "train of thought" in threads. It can realize that while there are 10 tickets for "KYC Facade," the threads show the team is stuck on "Evidence API," marking that objective as AT_RISK despite the good ticket count
+2. **Reasoning:** The LLM doesn't just count tickets — it reads the "train of thought" in threads. It can realize that while there are 10 tickets for "Payment Facade," the threads show the team is stuck on "Evidence API," marking that objective as AT_RISK despite the good ticket count
 3. **Structured Output:** Calls `compute_coverage` to get raw numbers, then creates/updates objectives with reasoned assessments, flagging blindspots and gaps
 4. **Feedback Loop:** Saves a `coverage-analysis` memory so the next run can track trends ("coverage improved from 60% to 72%")
 
 **Collections written:**
-- `objectives` — One document per derived objective. Fields: `objectiveId`, `projectId`, `outcome`, `ticketIds[]`, `threadIds[]`, `coveragePercent`, `status: PROPOSED`, `createdAt`
+- `things` (category: OBJECTIVE) — One document per derived objective. Payload fields: `outcome`, `ticketIds[]`, `threadIds[]`, `coveragePercent`, `status: PROPOSED`
 - `memories` — Coverage analysis summary for next run
 
 #### Phase 6: Reconcile Agent (conditional — System Auditor)
@@ -206,8 +206,8 @@ Example deltas from the Story 2 pipeline test:
 - **ORPHANED_WORK** (MEDIUM): "J-104 not mapped to any epic or objective" — Jira vs (none)
 
 **Collections written:**
-- `delta_packs` — One document per reconciliation run. Fields: `deltaPackId`, `projectId`, `deltas[]` (deltaType, severity, title, description, sourceA, sourceB, suggestedAction), `summary` (totalDeltas, bySeverity, byType), `status: FINAL`, `createdAt`
-- `blindspots` — One document per critical finding. Fields: `blindspotId`, `projectId`, `title`, `category` (e.g., MISSING_OWNER), `severity`, `description`, `status: OPEN`, `createdAt`
+- `things` (category: DELTA_PACK) — One document per reconciliation run. Payload fields: `deltas[]` (deltaType, severity, title, description, sourceA, sourceB, suggestedAction), `summary` (totalDeltas, bySeverity, byType), `status: FINAL`
+- `things` (category: BLINDSPOT) — One document per critical finding. Payload fields: `title`, `category` (e.g., MISSING_OWNER), `severity`, `description`, `status: OPEN`
 - `memories` — Reconciliation summary for next run
 
 #### Complete Data Flow Diagram
@@ -245,16 +245,16 @@ Phase 2: thread-agent (always runs)
         ▼                                              ▼
 Phase 3: pm (TICKETS: yes)              Phase 4: plan-agent (PLAN: yes)
         │  calls create_ticket                    │  calls create_phase
-        ├─ creates → tickets                      ├─ creates → phases
+        ├─ creates → things (TICKET)              ├─ creates → things (PHASE)
         │                                         │  calls create_milestone
-        │                                         ├─ creates → milestones
+        │                                         ├─ creates → things (MILESTONE)
         │                                         │
         └──────────────┬───────────────────────────┘
                        ▼
              Phase 5: objective-agent
                        │  loads existing objectives + threads + memories
                        │  calls compute_coverage, reasons about risk
-                       ├─ creates → objectives (with coveragePercent)
+                       ├─ creates → things (OBJECTIVE, with coveragePercent)
                        ├─ creates → memories (coverage-analysis summary)
                        │
                        ▼
@@ -262,9 +262,9 @@ Phase 3: pm (TICKETS: yes)              Phase 4: plan-agent (PLAN: yes)
                        │  loads all data + previous reconciliation memories
                        │  reasons about deltas, tracks recurring findings
                        │  calls create_delta_pack
-                       ├─ creates → delta_packs (drift report)
+                       ├─ creates → things (DELTA_PACK, drift report)
                        │  calls create_blindspot (for critical items)
-                       ├─ creates → blindspots (risk flags)
+                       ├─ creates → things (BLINDSPOT, risk flags)
                        ├─ creates → memories (reconciliation summary)
                        │
                        ▼
@@ -326,28 +326,30 @@ projects (root aggregate)
 │   ├── events ────── via sessionId
 │   ├── checkpoints ─ via sessionId
 │   └── approvals ─── via threadId
-├── tickets ────────── via projectId (self-referential hierarchy)
-│   └── resource_assignments ─ via ticketId
-├── objectives ─────── via projectId
-├── phases ─────────── via projectId (ordered by sortOrder)
-│   ├── milestones ── via phaseId
-│   └── checklists ── via phaseId
-├── ideas ──────────── via projectId
-├── uploads ─────────── via projectId
-├── intakes ─────────── via projectId
-├── delta_packs ────── via projectId
-├── blindspots ─────── via projectId
-├── reconciliations ── via projectId
-├── links ──────────── via projectId
-├── resources ──────── via projectId
-└── reminders ──────── via projectId
+└── things ─────────── via projectId + thingCategory
+    ├── TICKET ─────── self-referential hierarchy (parentTicketId)
+    │   └── RESOURCE_ASSIGNMENT ─ via payload.ticketId
+    ├── OBJECTIVE ──── links to tickets + threads
+    ├── PHASE ──────── ordered by payload.sortOrder
+    │   ├── MILESTONE ─ via payload.phaseId
+    │   └── CHECKLIST ─ via payload.phaseId
+    ├── RESOURCE ───── team members
+    ├── IDEA ────────── promotable to tickets
+    ├── UPLOAD ─────── full-text searchable
+    ├── INTAKE ─────── raw classifications
+    ├── DELTA_PACK ─── drift reports
+    ├── BLINDSPOT ──── risk flags
+    ├── RECONCILIATION ─ source-to-ticket mapping
+    ├── LINK ────────── curated URLs
+    ├── REMINDER ───── timers
+    └── CHECKLIST_TEMPLATE ─ reusable templates (global)
 
 agents (global) ────── agent_schedules, future_executions, past_executions
 memories (scoped) ──── GLOBAL / PROJECT / SESSION / THREAD
 sessions (ephemeral) ─ deleted on restart, linked to threads via threadId
 ```
 
-### Collections Reference (32)
+### Collections Reference (18)
 
 #### Core Orchestration
 
@@ -364,56 +366,53 @@ sessions (ephemeral) ─ deleted on restart, linked to threads via threadId
 
 **How sessions and threads share messages:** Both sessions and threads store messages in the `messages` collection keyed by `sessionId`. For threads, `sessionId == threadId`. The `AgentLoop` performs a dual-lookup — `SessionRepository` first, then `ThreadRepository` — so the agent loop, checkpointing, and event streaming work identically for both.
 
-#### Project Management
+#### Projects and Threads
 
 | Collection | Document | Purpose | Key Fields |
 |---|---|---|---|
 | `projects` | ProjectDocument | Root aggregate — top-level container for all project data | projectId, name, status (ACTIVE/ARCHIVED/TEMPLATE), tags[] |
 | `threads` | ThreadDocument | Persistent knowledge store — distilled project content organized by topic | threadId, projectIds[] (M:N), title, lifecycle (DRAFT/ACTIVE/CLOSED/MERGED), summary, content (distilled markdown), evidence[], decisions[], actions[] |
-| `tickets` | TicketDocument | Work items with self-referential hierarchy | ticketId, projectId, title, status (TODO/IN_PROGRESS/REVIEW/DONE/BLOCKED), priority (LOW-CRITICAL), type (INITIATIVE/EPIC/STORY/SUBTASK), parentTicketId, assignedResourceId, objectiveIds[], externalRef (Jira key) |
-| `ideas` | IdeaDocument | Brainstorming items, promotable to tickets | ideaId, projectId, title, status (NEW/REVIEWED/PROMOTED/ARCHIVED), promotedToTicketId |
-| `objectives` | ObjectiveDocument | Sprint objectives with measurable coverage | objectiveId, projectId, sprintName, outcome, measurableSignal, coveragePercent, status (PROPOSED/COMMITTED/ACHIEVED/MISSED/DROPPED), threadIds[], ticketIds[] |
-| `phases` | PhaseDocument | Execution phases with entry/exit criteria | phaseId, projectId, name, entryCriteria[], exitCriteria[], status (PENDING/ACTIVE/COMPLETED/BLOCKED), sortOrder |
-| `milestones` | MilestoneDocument | Delivery milestones linked to phases | milestoneId, projectId, phaseId, name, targetDate, actualDate, status (UPCOMING/ON_TRACK/AT_RISK/MISSED/COMPLETED), objectiveIds[], ticketIds[], dependencies[] |
-| `checklists` | ChecklistDocument | Operational readiness and release checklists | checklistId, projectId, phaseId, name, items[] (text, assignee, checked, notes), status (PENDING/IN_PROGRESS/COMPLETED) |
-| `checklist_templates` | ChecklistTemplateDocument | Reusable checklist templates (global or project-scoped) | templateId, category (ORR/RELEASE_READINESS/ONBOARDING/SPRINT_CLOSE/DEPLOYMENT/ROLLBACK/CUSTOM), items[] |
 
-**Tickets form a hierarchy:** INITIATIVE → EPIC → STORY → SUBTASK via the `parentTicketId` field. Tickets link to objectives, phases, and threads. The `externalRef` field holds Jira issue keys for imported tickets.
+#### Things — Unified Domain Collection
 
-**Objectives drive alignment:** The objective-agent computes `coveragePercent` by mapping tickets and threads to each objective. Stories 3 and 4 test this — the agent evaluates threads (what's being discussed), tickets (what's planned), and milestones (what must be delivered) to produce coverage percentages and identify orphaned work.
-
-**Phases and milestones create execution structure:** The plan-agent creates phases with entry/exit criteria and links milestones to them. Story 5 tests this flow — "Create a plan from the current threads" produces Phase 1: Facade + Tooling, Phase 2: Threaded Execution, Phase 3: Operational Readiness.
-
-#### Resources and Capacity
+All 16 domain entity types are stored in a single `things` collection using `ThingDocument`. Each document has a `thingCategory` discriminator and a flexible `Map<String, Object> payload` holding all type-specific fields. REST API URLs and DTOs remain unchanged — the unification is an internal storage optimization.
 
 | Collection | Document | Purpose | Key Fields |
 |---|---|---|---|
-| `resources` | ResourceDocument | Team members with skills and capacity | resourceId, projectId, name, email, role (ENGINEER/DESIGNER/PM/QA), skills[], capacity (units), availability (0.0-1.0) |
-| `resource_assignments` | ResourceAssignmentDocument | Links resources to tickets with allocation | assignmentId, resourceId, ticketId, projectId, percentageAllocation |
+| `things` | ThingDocument | All domain entities (tickets, objectives, resources, phases, etc.) | id, projectId, projectName, thingCategory (16 values), payload (Map), createDate, updateDate |
 
-**Capacity planning:** The resource-agent maps people → tickets → objectives to compute load. Story 4 tests this — "Who is working on what?" reveals Alice at 138% (overloaded), Bob at 88% (5h spare), with rebalancing recommendations.
+**16 ThingCategory values and their payload fields:**
 
-#### Reconciliation and Drift Detection
+| Category | Purpose | Key Payload Fields |
+|---|---|---|
+| `TICKET` | Work items with self-referential hierarchy | title, status (TODO/IN_PROGRESS/REVIEW/DONE/BLOCKED), priority (LOW-CRITICAL), type (INITIATIVE/EPIC/STORY/SUBTASK), parentTicketId, assignedResourceId, objectiveIds[], externalRef (Jira key), storyPoints |
+| `OBJECTIVE` | Sprint objectives with measurable coverage | sprintName, outcome, measurableSignal, coveragePercent, status (PROPOSED/COMMITTED/ACHIEVED/MISSED/DROPPED/AT_RISK), threadIds[], ticketIds[] |
+| `PHASE` | Execution phases with entry/exit criteria | name, entryCriteria[], exitCriteria[], status (PENDING/ACTIVE/COMPLETED/BLOCKED), sortOrder |
+| `MILESTONE` | Delivery milestones linked to phases | phaseId, name, targetDate, actualDate, status (UPCOMING/ON_TRACK/AT_RISK/MISSED/COMPLETED), objectiveIds[], ticketIds[], dependencies[] |
+| `CHECKLIST` | Operational readiness and release checklists | phaseId, name, items[] (text, assignee, checked, notes), status (PENDING/IN_PROGRESS/COMPLETED) |
+| `CHECKLIST_TEMPLATE` | Reusable checklist templates (global or project-scoped) | category (ORR/RELEASE_READINESS/ONBOARDING/SPRINT_CLOSE/DEPLOYMENT/ROLLBACK/CUSTOM), items[] |
+| `RESOURCE` | Team members with skills and capacity | name, email, role (ENGINEER/DESIGNER/PM/QA), skills[], capacity (units), availability (0.0-1.0) |
+| `RESOURCE_ASSIGNMENT` | Links resources to tickets with allocation | resourceId, ticketId, percentageAllocation |
+| `IDEA` | Brainstorming items, promotable to tickets | title, status (NEW/REVIEWED/PROMOTED/ARCHIVED), promotedToTicketId |
+| `DELTA_PACK` | Drift reports comparing data sources | deltas[] (deltaType, severity, title, sourceA, sourceB, suggestedAction), summary, status (DRAFT/FINAL/SUPERSEDED) |
+| `BLINDSPOT` | Individual risk items found during reconciliation | title, category, severity (LOW-CRITICAL), status (OPEN/ACKNOWLEDGED/RESOLVED/DISMISSED) |
+| `RECONCILIATION` | Source-to-ticket mapping with conflict detection | mappings[] (sourceRow, ticketId, matchType), conflicts[] (field, sourceValue, ticketValue, resolution) |
+| `INTAKE` | Raw content received for processing | sourceType, classifiedAs, dispatchedTo[], status (RECEIVED/PROCESSING/DISPATCHED/FAILED) |
+| `UPLOAD` | Processed documents with extracted metadata (full-text searchable) | source, title, content (text-indexed), people[], systems[], threadId, status (INBOX/THREADED/ARCHIVED) |
+| `LINK` | External URLs grouped by category and bundled | url, title, category, bundleId, threadIds[], objectiveIds[], phaseIds[] |
+| `REMINDER` | Recurring and one-shot timers | message, type (TIME_BASED/CONDITION_BASED), triggerAt, recurring, intervalSeconds |
 
-| Collection | Document | Purpose | Key Fields |
-|---|---|---|---|
-| `delta_packs` | DeltaPackDocument | Drift reports comparing data sources | deltaPackId, projectId, deltas[] (deltaType, severity, title, sourceA, sourceB, suggestedAction), status (DRAFT/FINAL/SUPERSEDED) |
-| `blindspots` | BlindspotDocument | Individual risk items found during reconciliation | blindspotId, projectId, category, severity (LOW-CRITICAL), status (OPEN/ACKNOWLEDGED/RESOLVED/DISMISSED) |
-| `reconciliations` | ReconciliationDocument | Source-to-ticket mapping with conflict detection | reconciliationId, projectId, mappings[] (sourceRow, ticketId, matchType), conflicts[] (field, sourceValue, ticketValue, resolution) |
+**Tickets form a hierarchy:** INITIATIVE → EPIC → STORY → SUBTASK via the `parentTicketId` payload field. Tickets link to objectives, phases, and threads. The `externalRef` field holds Jira issue keys for imported tickets.
+
+**Objectives drive alignment:** The objective-agent computes `coveragePercent` by mapping tickets and threads to each objective. The agent evaluates threads (what's being discussed), tickets (what's planned), and milestones (what must be delivered) to produce coverage percentages and identify orphaned work.
+
+**Phases and milestones create execution structure:** The plan-agent creates phases with entry/exit criteria and links milestones to them. "Create a plan from the current threads" produces phases with linked milestones and entry/exit criteria.
+
+**Capacity planning:** The resource-agent maps people → tickets → objectives to compute load. "Who is working on what?" reveals load percentages per resource with rebalancing recommendations.
 
 **Delta types:** MISSING_EPIC, DATE_DRIFT, OWNER_MISMATCH, SCOPE_MISMATCH, DEPENDENCY_MISMATCH, COVERAGE_GAP, ORPHANED_WORK, CAPACITY_OVERLOAD, STALE_ARTIFACT, PRIORITY_MISMATCH, STATUS_MISMATCH
 
 **Blindspot categories:** ORPHANED_TICKET, UNCOVERED_OBJECTIVE, EMPTY_PHASE, UNASSIGNED_WORK, MISSING_OWNER, DEPENDENCY_RISK, CAPACITY_GAP, SCOPE_OVERLAP, MISSING_TEST_SIGNAL, STALE_ARTIFACT
-
-Story 7 tests scheduled reconciliation — the reconcile-agent runs automatically overnight and produces a delta pack with "Payment Gateway milestone at risk" and "notification owner mismatch". Story 2 tests the full alignment flow after intake — the system challenges inconsistencies across Confluence, Jira, and Smartsheet data.
-
-#### Intake and Uploads
-
-| Collection | Document | Purpose | Key Fields |
-|---|---|---|---|
-| `intakes` | IntakeDocument | Raw content received for processing | intakeId, projectId, sourceType (CONFLUENCE_EXPORT/JIRA_DUMP/SMARTSHEET_EXPORT/MEETING_NOTES/FREE_TEXT/...), classifiedAs, dispatchedTo[], status (RECEIVED/PROCESSING/DISPATCHED/FAILED) |
-| `uploads` | UploadDocument | Processed documents with extracted metadata (full-text searchable) | uploadId, projectId, source, title, content (text-indexed), people[], systems[], threadId, status (INBOX/THREADED/ARCHIVED) |
-| `links` | LinkDocument | External URLs grouped by category and bundled | linkId, projectId, url, title, category, bundleId, threadIds[], objectiveIds[], phaseIds[] |
 
 #### Memory
 
@@ -464,7 +463,6 @@ Story 10 tests the daily reset flow — CRON schedules are created, future execu
 |---|---|---|---|
 | `logs` | LogDocument | System logs with level filtering | level (DEBUG/INFO/WARN/ERROR), source, sessionId, message, stackTrace |
 | `llm_interactions` | LlmInteractionDocument | LLM call metrics for cost and performance tracking | sessionId, agentId, provider, model, promptTokens, completionTokens, durationMs, success |
-| `reminders` | ReminderDocument | Recurring and one-shot timers | reminderId, projectId, message, type (TIME_BASED/CONDITION_BASED), triggerAt, recurring, intervalSeconds |
 
 ### Index Strategy
 
@@ -474,14 +472,14 @@ Key indexes defined in `mongo-init.js` and via Spring Data annotations:
 |---|---|---|
 | events | `{sessionId, seq}` unique | Event ordering and deduplication |
 | messages | `{sessionId, seq}` unique | Message ordering |
-| checkpoints | `{sessionId, stepNo}` unique | Step-level state snapshots |
+| checkpoints | `{sessionId, stepNo}` desc | Step-level state snapshots |
 | locks | `expiresAt` TTL | Auto-expiry of distributed locks |
-| tickets | `{projectId, status}`, `parentTicketId` | Status queries and hierarchy traversal |
-| objectives | `{projectId, status}`, `{projectId, sprintName}` | Sprint-scoped objective lookup |
-| memories | `{content, key}` text, `{scope, key}`, `{projectId, scope}`, `expiresAt` TTL | Full-text search, scope-filtered recall, auto-expiry of temporary summaries |
-| uploads | `{title, content}` text | Full-text search across uploaded documents |
-| future_executions | `{execStatus, scheduledAt}` | Pickup queue for scheduler |
-| agent_schedules | `{agentId, projectId}` unique | One schedule per agent per project |
+| memories | `{content, key}` text, `{scope, key}`, `{projectId, scope}`, `expiresAt` TTL | Full-text search, scope-filtered recall, auto-expiry |
+| things | `{projectId, thingCategory}` | Universal category-scoped queries |
+| things | `{projectId, thingCategory, "payload.status"}` | Status-filtered queries |
+| things | Category-specific partial filter indexes (9) | OBJECTIVE by sprintName, PHASE by sortOrder, RESOURCE_ASSIGNMENT by resourceId/ticketId, CHECKLIST/MILESTONE by phaseId, BLINDSPOT by deltaPackId, REMINDER by triggered+triggerAt, UPLOAD text search on title+content, TICKET by parentTicketId, IDEA by tags |
+| future_executions | `{scheduledAt}` | Pickup queue for scheduler |
+| agent_schedules | `{agentId, enabled}` | Active schedule lookup |
 
 ## Tool System (46 Built-in Tools)
 
@@ -585,7 +583,7 @@ JavaClaw includes a deterministic E2E test framework where every agent response 
 # Single scenario
 jbang javaclaw.java --headless --scenario runtime/src/test/resources/scenario-pm-tools-v2.json
 
-# All 36 scenarios (single JVM, ~10x faster)
+# All 50 scenarios (single JVM, ~10x faster)
 bash run-scenarios.sh
 ```
 
@@ -597,7 +595,7 @@ The V2 schema (schemaVersion: 2) supports:
 - **Seed actions:** Pre-populate project data via REST POST before running agent steps
 - **Assertion types:** `sessionStatus`, `events` (containsTypes, minCounts), `mongo` (collection queries with countGte/exists), `messages` (anyAssistantContains), `http` (REST API response validation with status, body, jsonPath, jsonArrayMinSize)
 
-### 36 Built-in Scenarios
+### 50 Built-in Scenarios
 
 | Scenario | What It Tests |
 |---|---|
@@ -605,12 +603,13 @@ The V2 schema (schemaVersion: 2) supports:
 | **V2 Framework (3)** | PM tools, memory, file tools with V2 assertions |
 | **Agent-Specific (10)** | Thread agent, objective agent, checklist agent, intake triage, plan agent, reconcile agent, resource agent, thread intake, extraction, intake pipeline |
 | **Story E2E (10)** | Stories 2-10: alignment pipeline, sprint objectives, resource load, plan creation, checklist generation, scheduled reconcile, on-demand agents, memory persistence, daily schedule reset |
+| **Tool Coverage (14)** | Per-tool scenario tests for all domain tools: create/read tickets, objectives, resources, phases, milestones, checklists, ideas, blindspots, delta packs, uploads, links, reminders, reconciliations, thread merge |
 
 Each story scenario seeds prerequisite data, runs agents with mock responses, and asserts both MongoDB state and REST API responses — verifying that the cockpit UI would display the correct data.
 
 ### Maven Unit Tests
 
-66 Maven tests across all modules (unit + integration via embedded MongoDB):
+272 Maven tests across all modules (unit + integration via embedded MongoDB):
 
 ```bash
 cmd.exe /c "mvnw.cmd test"   # Windows/WSL
@@ -747,13 +746,17 @@ Connect to `ws://localhost:8080/ws`:
 3. Register via SPI: add to `tools/src/main/resources/META-INF/services/io.github.drompincen.javaclawv1.runtime.tools.Tool`
 4. Auto-discovered by `ToolRegistry` at startup
 
-### How to Add a New Collection
+### How to Add a New Entity Type
 
-1. Create a `Document` class in `persistence/src/main/java/.../persistence/document/`
-2. Create a `MongoRepository` interface in `.../persistence/repository/`
-3. Create a DTO record in `protocol/src/main/java/.../protocol/api/`
-4. Create a REST controller in `gateway/src/main/java/.../gateway/controller/`
-5. Add indexes to `mongo-init.js`
+All domain entities use the unified `things` collection. To add a new entity type:
+
+1. Add a new value to `ThingCategory` enum in `protocol/src/main/java/.../protocol/api/ThingCategory.java`
+2. Create a DTO record in `protocol/src/main/java/.../protocol/api/` for the REST API contract
+3. Create a REST controller in `gateway/src/main/java/.../gateway/controller/` using `ThingService` for CRUD
+4. (Optional) Add partial-filter indexes to `mongo-init.js` for category-specific query fields
+5. (Optional) Create a tool in `tools/` if agents need to create/read this entity type
+
+No new Document classes or Repository interfaces needed — `ThingDocument` and `ThingRepository` handle all domain entities.
 
 ### Key File Paths
 
@@ -767,7 +770,7 @@ Connect to `ws://localhost:8080/ws`:
 | `runtime/.../agent/llm/ScenarioRunner.java` | E2E scenario test playback engine |
 | `persistence/.../stream/EventChangeStreamTailer.java` | MongoDB change stream → WebSocket bridge |
 | `gateway/.../websocket/JavaClawWebSocketHandler.java` | WebSocket handler for event streaming |
-| `run-scenarios.sh` | Run all 36 scenario tests in a single JVM |
+| `run-scenarios.sh` | Run all 50 scenario tests in a single JVM |
 | `stories.txt` | 10 user stories describing the full workflow |
 
 ### Common Pitfalls

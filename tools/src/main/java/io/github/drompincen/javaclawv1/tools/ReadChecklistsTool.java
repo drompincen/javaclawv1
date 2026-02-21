@@ -1,8 +1,9 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ChecklistDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ChecklistRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,7 +15,7 @@ import java.util.*;
 public class ReadChecklistsTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ChecklistRepository checklistRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "read_checklists"; }
     @Override public String description() { return "Read all checklists for a project."; }
@@ -31,24 +32,27 @@ public class ReadChecklistsTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.READ_ONLY); }
 
-    public void setChecklistRepository(ChecklistRepository checklistRepository) {
-        this.checklistRepository = checklistRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (checklistRepository == null) return ToolResult.failure("Checklist repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
         String projectId = input.path("projectId").asText(null);
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
 
-        List<ChecklistDocument> checklists = checklistRepository.findByProjectId(projectId);
+        List<ThingDocument> checklists = thingService.findByProjectAndCategory(projectId, ThingCategory.CHECKLIST);
         ArrayNode arr = MAPPER.createArrayNode();
-        for (ChecklistDocument c : checklists) {
+        for (ThingDocument c : checklists) {
+            Map<String, Object> p = c.getPayload();
             ObjectNode n = MAPPER.createObjectNode();
-            n.put("checklistId", c.getChecklistId());
-            n.put("name", c.getName());
-            n.put("status", c.getStatus() != null ? c.getStatus().name() : "UNKNOWN");
-            n.put("itemCount", c.getItems() != null ? c.getItems().size() : 0);
+            n.put("checklistId", c.getId());
+            n.put("name", (String) p.get("name"));
+            n.put("status", p.get("status") != null ? p.get("status").toString() : "UNKNOWN");
+            List<Map<String, Object>> items = (List<Map<String, Object>>) p.get("items");
+            n.put("itemCount", items != null ? items.size() : 0);
             arr.add(n);
         }
         stream.progress(100, "Read " + checklists.size() + " checklists");

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Agent Auto-Merge Test",
+  "description": "Agent merges two similar threads using merge_threads tool",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed 2 similar threads",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "API Gateway Design",
+            "content": "Gateway routing, rate limiting, and auth middleware design."
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "API Gateway Implementation",
+            "content": "Gateway implementation notes: rate limiting with Redis, JWT auth middleware."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ask agent to merge overlapping threads",
+      "userQuery": "These two API Gateway threads overlap significantly. Please merge them into one.",
+      "agentResponses": [
+        {
+          "agentName": "controller",
+          "responseFallback": "{\"delegate\": \"pm\", \"subTask\": \"merge overlapping API Gateway threads\"}"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "I can see two overlapping threads about API Gateway. Let me merge them.\n\n<tool_call>\n{\"name\": \"read_threads\", \"args\": {\"projectId\": \"{{projectId}}\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Found 2 API Gateway threads. Merging them now.\n\n<tool_call>\n{\"name\": \"merge_threads\", \"args\": {\"sourceThreadIds\": [\"{{threads[0].threadId}}\", \"{{threads[1].threadId}}\"], \"targetTitle\": \"API Gateway Design & Implementation\", \"reason\": \"Both threads cover API Gateway design and implementation — consolidating for clarity\"}}\n</tool_call>"
+        },
+        {
+          "agentName": "pm",
+          "responseFallback": "Done! I've merged the two API Gateway threads into one: **API Gateway Design & Implementation**. The merged thread combines the design decisions (routing, rate limiting, auth) with the implementation notes (Redis, JWT). The source thread has been marked as MERGED."
+        },
+        {
+          "agentName": "reviewer",
+          "responseFallback": "{\"pass\": true, \"summary\": \"PM agent successfully merged 2 overlapping API Gateway threads into one consolidated thread.\"}"
+        }
+      ],
+      "expects": {
+        "sessionStatus": "COMPLETED",
+        "mongo": [
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}", "lifecycle": "MERGED"},
+            "assert": {"countEq": 1}
+          },
+          {
+            "collection": "threads",
+            "filter": {"projectIds": "{{projectId}}"},
+            "assert": {"countEq": 2}
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,101 +1,109 @@
 package io.github.drompincen.javaclawv1.gateway.controller;
 
-import io.github.drompincen.javaclawv1.persistence.document.IdeaDocument;
-import io.github.drompincen.javaclawv1.persistence.document.TicketDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.IdeaRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.TicketRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.protocol.api.CreateIdeaRequest;
 import io.github.drompincen.javaclawv1.protocol.api.IdeaDto;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.TicketDto;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/projects/{projectId}/ideas")
 public class IdeaController {
 
-    private final IdeaRepository ideaRepository;
-    private final TicketRepository ticketRepository;
+    private final ThingService thingService;
 
-    public IdeaController(IdeaRepository ideaRepository, TicketRepository ticketRepository) {
-        this.ideaRepository = ideaRepository;
-        this.ticketRepository = ticketRepository;
+    public IdeaController(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @PostMapping
     public ResponseEntity<IdeaDto> create(@PathVariable String projectId, @RequestBody CreateIdeaRequest req) {
-        IdeaDocument doc = new IdeaDocument();
-        doc.setIdeaId(UUID.randomUUID().toString());
-        doc.setProjectId(projectId);
-        doc.setTitle(req.title());
-        doc.setContent(req.content());
-        doc.setTags(req.tags());
-        doc.setStatus(IdeaDto.IdeaStatus.NEW);
-        doc.setCreatedAt(Instant.now());
-        doc.setUpdatedAt(Instant.now());
-        ideaRepository.save(doc);
-        return ResponseEntity.ok(toDto(doc));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("title", req.title());
+        payload.put("content", req.content());
+        payload.put("tags", req.tags());
+        payload.put("status", IdeaDto.IdeaStatus.NEW.name());
+        ThingDocument thing = thingService.createThing(projectId, ThingCategory.IDEA, payload);
+        return ResponseEntity.ok(toDto(thing));
     }
 
     @GetMapping
     public List<IdeaDto> list(@PathVariable String projectId) {
-        return ideaRepository.findByProjectId(projectId).stream()
+        return thingService.findByProjectAndCategory(projectId, ThingCategory.IDEA).stream()
                 .map(this::toDto).collect(Collectors.toList());
     }
 
     @GetMapping("/{ideaId}")
     public ResponseEntity<IdeaDto> get(@PathVariable String projectId, @PathVariable String ideaId) {
-        return ideaRepository.findById(ideaId)
+        return thingService.findById(ideaId, ThingCategory.IDEA)
                 .map(d -> ResponseEntity.ok(toDto(d)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{ideaId}")
     public ResponseEntity<IdeaDto> update(@PathVariable String projectId, @PathVariable String ideaId,
-                                          @RequestBody IdeaDocument updates) {
-        return ideaRepository.findById(ideaId).map(existing -> {
-            if (updates.getTitle() != null) existing.setTitle(updates.getTitle());
-            if (updates.getContent() != null) existing.setContent(updates.getContent());
-            if (updates.getTags() != null) existing.setTags(updates.getTags());
-            if (updates.getStatus() != null) existing.setStatus(updates.getStatus());
-            existing.setUpdatedAt(Instant.now());
-            ideaRepository.save(existing);
-            return ResponseEntity.ok(toDto(existing));
+                                          @RequestBody Map<String, Object> updates) {
+        return thingService.findById(ideaId, ThingCategory.IDEA).map(existing -> {
+            Map<String, Object> merged = new LinkedHashMap<>();
+            if (updates.get("title") != null) merged.put("title", updates.get("title"));
+            if (updates.get("content") != null) merged.put("content", updates.get("content"));
+            if (updates.get("tags") != null) merged.put("tags", updates.get("tags"));
+            if (updates.get("status") != null) merged.put("status", updates.get("status").toString());
+            ThingDocument updated = thingService.mergePayload(existing, merged);
+            return ResponseEntity.ok(toDto(updated));
         }).orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/{ideaId}/promote")
     public ResponseEntity<?> promote(@PathVariable String projectId, @PathVariable String ideaId) {
-        return ideaRepository.findById(ideaId).map(idea -> {
-            TicketDocument ticket = new TicketDocument();
-            ticket.setTicketId(UUID.randomUUID().toString());
-            ticket.setProjectId(projectId);
-            ticket.setTitle(idea.getTitle());
-            ticket.setDescription(idea.getContent());
-            ticket.setStatus(TicketDto.TicketStatus.TODO);
-            ticket.setPriority(TicketDto.TicketPriority.MEDIUM);
-            ticket.setCreatedAt(Instant.now());
-            ticket.setUpdatedAt(Instant.now());
-            ticketRepository.save(ticket);
+        return thingService.findById(ideaId, ThingCategory.IDEA).map(idea -> {
+            Map<String, Object> p = idea.getPayload();
 
-            idea.setStatus(IdeaDto.IdeaStatus.PROMOTED);
-            idea.setPromotedToTicketId(ticket.getTicketId());
-            idea.setUpdatedAt(Instant.now());
-            ideaRepository.save(idea);
+            // Create ticket via ThingService
+            Map<String, Object> ticketPayload = new LinkedHashMap<>();
+            ticketPayload.put("title", p.get("title"));
+            ticketPayload.put("description", p.get("content"));
+            ticketPayload.put("status", TicketDto.TicketStatus.TODO.name());
+            ticketPayload.put("priority", TicketDto.TicketPriority.MEDIUM.name());
+            ThingDocument ticket = thingService.createThing(projectId, ThingCategory.TICKET, ticketPayload);
 
-            return ResponseEntity.ok(java.util.Map.of("ticketId", ticket.getTicketId(), "ideaId", ideaId));
+            // Update idea status
+            thingService.mergePayload(idea, Map.of(
+                    "status", IdeaDto.IdeaStatus.PROMOTED.name(),
+                    "promotedToTicketId", ticket.getId()
+            ));
+
+            return ResponseEntity.ok(Map.of("ticketId", ticket.getId(), "ideaId", ideaId));
         }).orElse(ResponseEntity.notFound().build());
     }
 
-    private IdeaDto toDto(IdeaDocument doc) {
-        return new IdeaDto(doc.getIdeaId(), doc.getProjectId(), doc.getTitle(), doc.getContent(),
-                doc.getTags(), doc.getStatus(), doc.getPromotedToTicketId(),
-                doc.getThreadId(), doc.getSourceUploadId(),
-                doc.getCreatedAt(), doc.getUpdatedAt());
+    private IdeaDto toDto(ThingDocument thing) {
+        Map<String, Object> p = thing.getPayload();
+        IdeaDto.IdeaStatus status = null;
+        if (p.get("status") != null) {
+            try { status = IdeaDto.IdeaStatus.valueOf(p.get("status").toString()); }
+            catch (IllegalArgumentException ignored) {}
+        }
+        @SuppressWarnings("unchecked")
+        List<String> tags = (List<String>) p.get("tags");
+        return new IdeaDto(
+                thing.getId(),
+                thing.getProjectId(),
+                (String) p.get("title"),
+                (String) p.get("content"),
+                tags,
+                status,
+                (String) p.get("promotedToTicketId"),
+                (String) p.get("threadId"),
+                (String) p.get("sourceUploadId"),
+                thing.getCreateDate(),
+                thing.getUpdateDate()
+        );
     }
 }

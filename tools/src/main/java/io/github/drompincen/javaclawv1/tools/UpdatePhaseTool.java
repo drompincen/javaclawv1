@@ -1,9 +1,9 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.PhaseDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.PhaseRepository;
 import io.github.drompincen.javaclawv1.protocol.api.PhaseStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,7 +16,7 @@ import java.util.*;
 public class UpdatePhaseTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private PhaseRepository phaseRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "update_phase"; }
 
@@ -44,26 +44,27 @@ public class UpdatePhaseTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setPhaseRepository(PhaseRepository phaseRepository) {
-        this.phaseRepository = phaseRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (phaseRepository == null) return ToolResult.failure("Phase repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
 
         String phaseId = input.path("phaseId").asText(null);
         if (phaseId == null || phaseId.isBlank()) return ToolResult.failure("'phaseId' is required");
 
-        PhaseDocument doc = phaseRepository.findById(phaseId).orElse(null);
+        var doc = thingService.findById(phaseId, ThingCategory.PHASE).orElse(null);
         if (doc == null) return ToolResult.failure("Phase not found: " + phaseId);
 
+        Map<String, Object> updates = new LinkedHashMap<>();
         ArrayNode updatedFields = MAPPER.createArrayNode();
 
         String statusStr = input.path("status").asText(null);
         if (statusStr != null && !statusStr.isBlank()) {
             try {
-                doc.setStatus(PhaseStatus.valueOf(statusStr.toUpperCase()));
+                updates.put("status", PhaseStatus.valueOf(statusStr.toUpperCase()).name());
                 updatedFields.add("status");
             } catch (IllegalArgumentException ignored) {}
         }
@@ -71,30 +72,29 @@ public class UpdatePhaseTool implements Tool {
         if (input.has("entryCriteria") && input.get("entryCriteria").isArray()) {
             List<String> criteria = new ArrayList<>();
             input.get("entryCriteria").forEach(n -> criteria.add(n.asText()));
-            doc.setEntryCriteria(criteria);
+            updates.put("entryCriteria", criteria);
             updatedFields.add("entryCriteria");
         }
 
         if (input.has("exitCriteria") && input.get("exitCriteria").isArray()) {
             List<String> criteria = new ArrayList<>();
             input.get("exitCriteria").forEach(n -> criteria.add(n.asText()));
-            doc.setExitCriteria(criteria);
+            updates.put("exitCriteria", criteria);
             updatedFields.add("exitCriteria");
         }
 
         String startDate = input.path("startDate").asText(null);
         if (startDate != null) {
-            doc.setStartDate(Instant.parse(startDate + (startDate.contains("T") ? "" : "T00:00:00Z")));
+            updates.put("startDate", Instant.parse(startDate + (startDate.contains("T") ? "" : "T00:00:00Z")).toString());
             updatedFields.add("startDate");
         }
         String endDate = input.path("endDate").asText(null);
         if (endDate != null) {
-            doc.setEndDate(Instant.parse(endDate + (endDate.contains("T") ? "" : "T00:00:00Z")));
+            updates.put("endDate", Instant.parse(endDate + (endDate.contains("T") ? "" : "T00:00:00Z")).toString());
             updatedFields.add("endDate");
         }
 
-        doc.setUpdatedAt(Instant.now());
-        phaseRepository.save(doc);
+        thingService.mergePayload(doc, updates);
         stream.progress(100, "Phase updated: " + phaseId);
 
         ObjectNode result = MAPPER.createObjectNode();

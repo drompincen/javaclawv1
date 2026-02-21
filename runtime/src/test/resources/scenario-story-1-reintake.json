@@ -20,11 +20,11 @@
           "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** Use S3 for storage, REST API with versioning\n**Key Content:** Define evidence service API, storage model, and validation rules.\n\n### Routes\nTHREAD: yes\nTICKETS: no\nPLAN: no\nRESOURCES: no"
         },
         {
-          "agentName": "thread-agent",
+          "agentName": "generalist",
           "responseFallback": "Creating thread.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Evidence Service Design\", \"content\": \"## Evidence Service Design\\n\\nDefine evidence service API, storage model, and validation rules.\\n\\n**Decisions:**\\n- Use S3 for storage\\n- REST API with versioning\\n\\n**Open Questions:**\\n- Retention policy\", \"decisions\": [\"Use S3 for storage\", \"REST API with versioning\"], \"actions\": []}}\n</tool_call>"
         },
         {
-          "agentName": "thread-agent",
+          "agentName": "generalist",
           "responseFallback": "Created thread 'Evidence Service Design'."
         }
       ],
@@ -63,11 +63,11 @@
           "responseFallback": "Content classified.\n\n### Topic: Evidence Service Design\n**Type:** architecture_decision\n**Decisions:** 7-year retention, versioned documents\n**Action Items:** Implement audit trail (Charlie)\n**Key Content:** Updated evidence service design with retention policy and versioning decisions.\n\n### Routes\nTHREAD: yes\nTICKETS: no\nPLAN: no\nRESOURCES: no"
         },
         {
-          "agentName": "thread-agent",
+          "agentName": "generalist",
           "responseFallback": "Updating existing thread with new content.\n\n<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"projectId\": \"{{projectId}}\", \"title\": \"Evidence Service Design\", \"content\": \"## Updated Design Notes\\n\\nRetention policy decided: 7 years for regulatory compliance.\\nAdd versioning to evidence documents.\\n\\n**New Decisions:**\\n- 7-year retention for regulatory compliance\\n- Versioned documents\", \"decisions\": [\"7-year retention for regulatory compliance\", \"Versioned documents\"], \"actions\": [{\"text\": \"Implement audit trail\", \"assignee\": \"Charlie\"}]}}\n</tool_call>"
         },
         {
-          "agentName": "thread-agent",
+          "agentName": "generalist",
           "responseFallback": "Updated existing thread 'Evidence Service Design' with new content and decisions."
         }
       ],

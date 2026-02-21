@@ -2,10 +2,10 @@ package io.github.drompincen.javaclawv1.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.github.drompincen.javaclawv1.persistence.document.TicketDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.TicketRepository;
-import io.github.drompincen.javaclawv1.protocol.api.TicketDto;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolContext;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolResult;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolStream;
@@ -19,10 +19,15 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,7 +36,7 @@ class CreateTicketToolTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Mock private TicketRepository ticketRepository;
+    @Mock private ThingService thingService;
     @Mock private ToolStream stream;
 
     private CreateTicketTool tool;
@@ -40,9 +45,19 @@ class CreateTicketToolTest {
     @BeforeEach
     void setUp() {
         tool = new CreateTicketTool();
-        tool.setTicketRepository(ticketRepository);
+        tool.setThingService(thingService);
         ctx = new ToolContext("session-1", Path.of("."), Map.of());
-        when(ticketRepository.save(any(TicketDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(thingService.createThing(any(), eq(ThingCategory.TICKET), any()))
+                .thenAnswer(inv -> {
+                    ThingDocument thing = new ThingDocument();
+                    thing.setId(UUID.randomUUID().toString());
+                    thing.setProjectId(inv.getArgument(0));
+                    thing.setThingCategory(ThingCategory.TICKET);
+                    thing.setPayload(new LinkedHashMap<>(inv.getArgument(2)));
+                    thing.setCreateDate(Instant.now());
+                    thing.setUpdateDate(Instant.now());
+                    return thing;
+                });
     }
 
     @Test
@@ -62,12 +77,12 @@ class CreateTicketToolTest {
     }
 
     @Test
-    void failsWithoutRepository() {
+    void failsWithoutThingService() {
         CreateTicketTool unwired = new CreateTicketTool();
         ObjectNode input = MAPPER.createObjectNode().put("projectId", "p1").put("title", "test");
         ToolResult result = unwired.execute(ctx, input, stream);
         assertThat(result.success()).isFalse();
-        assertThat(result.error()).contains("repository not available");
+        assertThat(result.error()).contains("not available");
     }
 
     @Test
@@ -98,13 +113,13 @@ class CreateTicketToolTest {
         assertThat(result.output().get("ticketId").asText()).isNotBlank();
         assertThat(result.output().get("status").asText()).isEqualTo("created");
 
-        ArgumentCaptor<TicketDocument> captor = ArgumentCaptor.forClass(TicketDocument.class);
-        verify(ticketRepository).save(captor.capture());
-        TicketDocument saved = captor.getValue();
-        assertThat(saved.getProjectId()).isEqualTo("proj-1");
-        assertThat(saved.getTitle()).isEqualTo("Fix login bug");
-        assertThat(saved.getStatus()).isEqualTo(TicketDto.TicketStatus.TODO);
-        assertThat(saved.getPriority()).isEqualTo(TicketDto.TicketPriority.MEDIUM);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.TICKET), payloadCaptor.capture());
+        Map<String, Object> payload = payloadCaptor.getValue();
+        assertThat(payload.get("title")).isEqualTo("Fix login bug");
+        assertThat(payload.get("status")).isEqualTo("TODO");
+        assertThat(payload.get("priority")).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -119,10 +134,11 @@ class CreateTicketToolTest {
 
         assertThat(result.success()).isTrue();
 
-        ArgumentCaptor<TicketDocument> captor = ArgumentCaptor.forClass(TicketDocument.class);
-        verify(ticketRepository).save(captor.capture());
-        assertThat(captor.getValue().getPriority()).isEqualTo(TicketDto.TicketPriority.CRITICAL);
-        assertThat(captor.getValue().getDescription()).isEqualTo("Production is down");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.TICKET), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue().get("priority")).isEqualTo("CRITICAL");
+        assertThat(payloadCaptor.getValue().get("description")).isEqualTo("Production is down");
     }
 
     @Test
@@ -136,8 +152,29 @@ class CreateTicketToolTest {
 
         assertThat(result.success()).isTrue();
 
-        ArgumentCaptor<TicketDocument> captor = ArgumentCaptor.forClass(TicketDocument.class);
-        verify(ticketRepository).save(captor.capture());
-        assertThat(captor.getValue().getLinkedThreadIds()).containsExactly("thread-abc");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.TICKET), payloadCaptor.capture());
+        assertThat(payloadCaptor.getValue().get("linkedThreadIds")).asList().containsExactly("thread-abc");
+    }
+
+    @Test
+    void dedupReturnsExistingTicket() {
+        ThingDocument existing = new ThingDocument();
+        existing.setId("existing-ticket-id");
+        existing.setThingCategory(ThingCategory.TICKET);
+        when(thingService.findByProjectCategoryAndTitleIgnoreCase("proj-1", ThingCategory.TICKET, "Fix login bug"))
+                .thenReturn(Optional.of(existing));
+
+        ObjectNode input = MAPPER.createObjectNode();
+        input.put("projectId", "proj-1");
+        input.put("title", "Fix login bug");
+
+        ToolResult result = tool.execute(ctx, input, stream);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output().get("ticketId").asText()).isEqualTo("existing-ticket-id");
+        assertThat(result.output().get("status").asText()).isEqualTo("already_exists");
+        verify(thingService, never()).createThing(any(), any(), any());
     }
 }

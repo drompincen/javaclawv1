@@ -1,12 +1,9 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ResourceAssignmentDocument;
-import io.github.drompincen.javaclawv1.persistence.document.ResourceDocument;
-import io.github.drompincen.javaclawv1.persistence.document.TicketDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceAssignmentRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.ResourceRepository;
-import io.github.drompincen.javaclawv1.persistence.repository.TicketRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,9 +14,7 @@ import java.util.*;
 public class AssignResourceTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ResourceRepository resourceRepository;
-    private ResourceAssignmentRepository resourceAssignmentRepository;
-    private TicketRepository ticketRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "assign_resource"; }
     @Override public String description() { return "Assign a resource to a ticket with an allocation percentage."; }
@@ -39,19 +34,13 @@ public class AssignResourceTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setResourceRepository(ResourceRepository resourceRepository) {
-        this.resourceRepository = resourceRepository;
-    }
-    public void setResourceAssignmentRepository(ResourceAssignmentRepository resourceAssignmentRepository) {
-        this.resourceAssignmentRepository = resourceAssignmentRepository;
-    }
-    public void setTicketRepository(TicketRepository ticketRepository) {
-        this.ticketRepository = ticketRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (resourceAssignmentRepository == null) return ToolResult.failure("Assignment repository not available");
+        if (thingService == null) return ToolResult.failure("ThingService not available");
         String resourceId = input.path("resourceId").asText(null);
         String ticketId = input.path("ticketId").asText(null);
         String projectId = input.path("projectId").asText(null);
@@ -64,38 +53,34 @@ public class AssignResourceTool implements Tool {
 
         // Verify resource exists
         String resourceName = "unknown";
-        if (resourceRepository != null) {
-            Optional<ResourceDocument> res = resourceRepository.findById(resourceId);
-            if (res.isEmpty()) return ToolResult.failure("Resource not found: " + resourceId);
-            resourceName = res.get().getName();
-        }
+        Optional<ThingDocument> res = thingService.findById(resourceId, ThingCategory.RESOURCE);
+        if (res.isEmpty()) return ToolResult.failure("Resource not found: " + resourceId);
+        resourceName = (String) res.get().getPayload().get("name");
 
         // Verify ticket exists
         String ticketTitle = "unknown";
-        if (ticketRepository != null) {
-            Optional<TicketDocument> ticket = ticketRepository.findById(ticketId);
-            if (ticket.isEmpty()) return ToolResult.failure("Ticket not found: " + ticketId);
-            ticketTitle = ticket.get().getTitle();
-        }
+        Optional<ThingDocument> ticket = thingService.findById(ticketId, ThingCategory.TICKET);
+        if (ticket.isEmpty()) return ToolResult.failure("Ticket not found: " + ticketId);
+        ticketTitle = (String) ticket.get().getPayload().get("title");
 
         // Check for existing assignment
-        Optional<ResourceAssignmentDocument> existing = resourceAssignmentRepository.findByResourceIdAndTicketId(resourceId, ticketId);
+        Optional<ThingDocument> existing = thingService.findOneByPayloadFields(
+                ThingCategory.RESOURCE_ASSIGNMENT,
+                Map.of("resourceId", resourceId, "ticketId", ticketId));
         if (existing.isPresent()) {
             return ToolResult.failure("Resource " + resourceId + " is already assigned to ticket " + ticketId);
         }
 
-        ResourceAssignmentDocument doc = new ResourceAssignmentDocument();
-        doc.setAssignmentId(UUID.randomUUID().toString());
-        doc.setResourceId(resourceId);
-        doc.setTicketId(ticketId);
-        doc.setProjectId(projectId);
-        doc.setPercentageAllocation(allocationPercent);
-        resourceAssignmentRepository.save(doc);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("resourceId", resourceId);
+        payload.put("ticketId", ticketId);
+        payload.put("percentageAllocation", allocationPercent);
+        ThingDocument assignment = thingService.createThing(projectId, ThingCategory.RESOURCE_ASSIGNMENT, payload);
 
         stream.progress(100, "Assigned " + resourceName + " to " + ticketTitle);
 
         ObjectNode result = MAPPER.createObjectNode();
-        result.put("assignmentId", doc.getAssignmentId());
+        result.put("assignmentId", assignment.getId());
         result.put("resourceName", resourceName);
         result.put("ticketTitle", ticketTitle);
         result.put("allocationPercent", allocationPercent);

@@ -4,7 +4,6 @@ import { getState, setProject, setView, onChange, setWsConnected } from './state
 import { initNav, highlightNav, updateNavBadge } from './nav.js';
 import { initAgentPanel, initTimerPanel } from './panels/agents.js';
 import { initActivityStream } from './panels/activity.js';
-import { initInspector } from './panels/inspector.js';
 import { toast } from './components/toast.js';
 
 // View modules (lazy-ish: all loaded upfront as ES modules)
@@ -46,8 +45,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   initAgentPanel();
   initTimerPanel();  // async — runs in background, does not block init
   initActivityStream();
-  initInspector();
-
   // WebSocket
   ws.connect();
   ws.onEvent((msg) => {
@@ -65,6 +62,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Data-mutation events that should trigger UI refresh
+  const DATA_EVENTS = new Set([
+    'THREAD_CREATED', 'THREAD_RENAMED', 'THREAD_MERGED',
+    'TICKET_CREATED', 'TICKET_UPDATED',
+    'BLINDSPOT_CREATED', 'BLINDSPOT_ACKNOWLEDGED', 'BLINDSPOT_RESOLVED',
+    'OBJECTIVE_UPDATED', 'OBJECTIVE_COVERAGE_COMPUTED',
+    'PHASE_CREATED', 'PHASE_UPDATED',
+    'MILESTONE_CREATED', 'MILESTONE_UPDATED',
+    'CHECKLIST_CREATED', 'CHECKLIST_UPDATED', 'CHECKLIST_COMPLETED',
+    'RESOURCE_ASSIGNED', 'RESOURCE_OVERLOADED',
+    'LINK_CREATED', 'LINK_UPDATED',
+    'OBJECTIVE_CREATED', 'OBJECTIVE_DELETED',
+    'REMINDER_CREATED',
+    'DELTA_PACK_CREATED',
+    'INTAKE_PIPELINE_COMPLETED',
+    'MEMORY_STORED', 'MEMORY_DISTILLED',
+    'SCHEDULE_CREATED', 'SCHEDULE_UPDATED',
+    'PROJECT_CREATED',
+  ]);
+
+  let _refreshTimer = null;
+  ws.onEvent((msg) => {
+    if (msg.type !== 'EVENT' || !msg.payload) return;
+    const evType = msg.payload.type || '';
+    if (!DATA_EVENTS.has(evType)) return;
+
+    // Debounce: refresh after 1.5s of quiet (avoids rapid re-renders during pipeline)
+    clearTimeout(_refreshTimer);
+    _refreshTimer = setTimeout(async () => {
+      await renderCurrentView();
+      await refreshNavBadges();
+      loadProjects();
+      refreshTokenCounter();
+    }, 1500);
+  });
+
   // Load projects into selector
   await loadProjects();
 
@@ -80,6 +113,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Subscribe to project events via WS
       const pid = getState().currentProjectId;
       if (pid) ws.subscribeProject(pid);
+      // Show/hide share button
+      const shareBtn = document.getElementById('shareProject');
+      if (shareBtn) shareBtn.style.display = pid ? '' : 'none';
     }
     if (changeType === 'step') {
       const el = document.getElementById('stepBadge');
@@ -91,32 +127,87 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('runController')?.addEventListener('click', () => {
     toast('controller run');
   });
-  document.getElementById('toggleHelp')?.addEventListener('click', () => {
-    toast('F3 run controller \u2022 Intake: use project <name> \u2022 Right pane: run agents on-demand + timers');
+
+  // Share project link
+  document.getElementById('shareProject')?.addEventListener('click', () => {
+    const pid = getState().currentProjectId;
+    if (!pid) return;
+    const sel = document.getElementById('projectSelect');
+    const name = sel?.options[sel.selectedIndex]?.textContent || pid;
+    const url = `${location.origin}${location.pathname}?project=${encodeURIComponent(name)}`;
+    navigator.clipboard.writeText(url).then(() => toast('link copied to clipboard')).catch(() => toast('copy failed'));
   });
+  // Help modal (F1)
+  const helpOverlay = document.getElementById('helpOverlay');
+  function toggleHelp() {
+    if (!helpOverlay) return;
+    helpOverlay.style.display = helpOverlay.style.display === 'none' ? 'flex' : 'none';
+  }
+  document.getElementById('toggleHelp')?.addEventListener('click', toggleHelp);
+  document.getElementById('helpClose')?.addEventListener('click', toggleHelp);
+  helpOverlay?.addEventListener('click', (e) => { if (e.target === helpOverlay) toggleHelp(); });
 
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.key === 'F7') { e.preventDefault(); setView('intake'); setTimeout(() => document.getElementById('intakeText')?.focus(), 50); }
     if (e.key === 'F3') { e.preventDefault(); document.getElementById('runController')?.click(); }
-    if (e.key === 'F1') { e.preventDefault(); document.getElementById('toggleHelp')?.click(); }
+    if (e.key === 'F1') { e.preventDefault(); toggleHelp(); }
+    if (e.key === 'Escape' && helpOverlay?.style.display !== 'none') { toggleHelp(); }
+    // N = new project (only when not in a text field)
+    if (e.key === 'N' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      createNewProject();
+    }
   });
 
-  // Token counter
+  // Token counter + project poll fallback
   refreshTokenCounter();
-  setInterval(refreshTokenCounter, 30000);
+  setInterval(refreshTokenCounter, 10000);
+  setInterval(loadProjects, 10000);
 
-  // Render initial view
-  renderCurrentView();
+  // Show share button if project already selected
+  if (getState().currentProjectId) {
+    const shareBtn = document.getElementById('shareProject');
+    if (shareBtn) shareBtn.style.display = '';
+  }
+
+  // Listen for in-app data changes (create/delete/update from views)
+  document.addEventListener('jc:data-changed', () => refreshNavBadges());
+
+  // Render initial view then refresh badges
+  await renderCurrentView();
+  await refreshNavBadges();
 });
 
+// ── New project ──
+async function createNewProject() {
+  const name = prompt('New project name:');
+  if (!name || !name.trim()) return;
+  try {
+    const created = await api.projects.create({ name: name.trim() });
+    toast('project created: ' + name.trim());
+    await loadProjects();
+    const sel = document.getElementById('projectSelect');
+    if (sel && created.projectId) {
+      sel.value = created.projectId;
+      setProject(created.projectId);
+    }
+  } catch (e) {
+    toast('create failed: ' + e.message);
+  }
+}
+
 // ── Project selector ──
+let _projectListenerBound = false;
 async function loadProjects() {
   const sel = document.getElementById('projectSelect');
   if (!sel) return;
 
   try {
     const projectList = await api.projects.list();
+    const prevValue = sel.value;
     sel.innerHTML = '<option value="">— select project —</option>';
     projectList.forEach(p => {
       const opt = document.createElement('option');
@@ -125,20 +216,29 @@ async function loadProjects() {
       sel.appendChild(opt);
     });
 
-    // Restore previously selected project
-    const savedId = getState().currentProjectId;
-    if (savedId && projectList.find(p => p.projectId === savedId)) {
-      sel.value = savedId;
-      setProject(savedId);
+    // Restore previously selected project (from URL param or localStorage)
+    const savedId = getState().currentProjectId || prevValue;
+    if (savedId) {
+      // Support both project ID and project name in the URL
+      const match = projectList.find(p => p.projectId === savedId || p.name === savedId);
+      if (match) {
+        sel.value = match.projectId;
+        if (getState().currentProjectId !== match.projectId) {
+          setProject(match.projectId);
+        }
+      }
     }
 
-    sel.addEventListener('change', () => {
-      const pid = sel.value || null;
-      setProject(pid);
-      if (pid) {
-        toast('project set: ' + (sel.options[sel.selectedIndex]?.textContent || pid));
-      }
-    });
+    if (!_projectListenerBound) {
+      _projectListenerBound = true;
+      sel.addEventListener('change', () => {
+        const pid = sel.value || null;
+        setProject(pid);
+        if (pid) {
+          toast('project set: ' + (sel.options[sel.selectedIndex]?.textContent || pid));
+        }
+      });
+    }
   } catch (e) {
     sel.innerHTML = '<option value="">Error loading projects</option>';
   }
@@ -165,10 +265,11 @@ async function refreshTokenCounter() {
   if (!el) return;
   try {
     const m = await api.logs.metrics();
-    const tokens = m.totalTokens ?? 0;
-    const calls = m.totalCalls ?? 0;
-    const avg = m.avgLatencyMs != null ? Math.round(m.avgLatencyMs) : 0;
-    el.textContent = `\u{1FA99} ${tokens} tokens | ${calls} calls | avg ${avg}ms`;
+    const tokens = m.recentTokens ?? 0;
+    const calls = m.totalInteractions ?? 0;
+    const msgs = m.totalMessages ?? 0;
+    const avg = m.avgDurationMs != null ? Math.round(m.avgDurationMs) : 0;
+    el.textContent = `\u{1FA99} ${tokens} tok | ${msgs} msgs | ${calls} calls | avg ${avg}ms`;
   } catch { /* metrics endpoint not available yet */ }
 }
 

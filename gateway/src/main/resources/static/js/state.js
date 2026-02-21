@@ -1,8 +1,20 @@
 const _listeners = [];
 
+// Read project from URL param (?project=<id>) first, fall back to localStorage
+function _initProjectId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('project') || localStorage.getItem('jc_projectId') || null;
+}
+
+// Read view from URL param (?view=<key>) first, fall back to 'intake'
+function _initView() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('view') || 'intake';
+}
+
 const state = {
-  currentProjectId: localStorage.getItem('jc_projectId') || null,
-  currentView: 'intake',
+  currentProjectId: _initProjectId(),
+  currentView: _initView(),
   selectedEntity: null,   // { type, id, data }
   stepCount: 0,
   wsConnected: false,
@@ -15,13 +27,24 @@ export function setProject(projectId) {
   if (projectId) localStorage.setItem('jc_projectId', projectId);
   else localStorage.removeItem('jc_projectId');
   state.selectedEntity = null;
+  _updateUrl();
   _notify('project');
 }
 
 export function setView(view) {
   state.currentView = view;
   state.selectedEntity = null;
+  _updateUrl();
   _notify('view');
+}
+
+function _updateUrl() {
+  const params = new URLSearchParams();
+  if (state.currentProjectId) params.set('project', state.currentProjectId);
+  if (state.currentView && state.currentView !== 'intake') params.set('view', state.currentView);
+  const qs = params.toString();
+  const url = window.location.pathname + (qs ? '?' + qs : '');
+  window.history.replaceState(null, '', url);
 }
 
 export function setSelected(entity) {

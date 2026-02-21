@@ -1,21 +1,20 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ChecklistTemplateDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ChecklistTemplateRepository;
 import io.github.drompincen.javaclawv1.protocol.api.ChecklistCategory;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.time.Instant;
 import java.util.*;
 
 public class CreateChecklistTemplateTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ChecklistTemplateRepository checklistTemplateRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "create_checklist_template"; }
 
@@ -49,14 +48,14 @@ public class CreateChecklistTemplateTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setChecklistTemplateRepository(ChecklistTemplateRepository checklistTemplateRepository) {
-        this.checklistTemplateRepository = checklistTemplateRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (checklistTemplateRepository == null) {
-            return ToolResult.failure("ChecklistTemplate repository not available");
+        if (thingService == null) {
+            return ToolResult.failure("ThingService not available");
         }
 
         String name = input.path("name").asText(null);
@@ -77,32 +76,29 @@ public class CreateChecklistTemplateTool implements Tool {
             return ToolResult.failure("'items' must be a non-empty array");
         }
 
-        List<ChecklistTemplateDocument.TemplateItem> items = new ArrayList<>();
+        List<Map<String, Object>> items = new ArrayList<>();
         int sortOrder = 1;
         for (JsonNode itemNode : itemsNode) {
-            ChecklistTemplateDocument.TemplateItem item = new ChecklistTemplateDocument.TemplateItem();
-            item.setText(itemNode.path("text").asText(""));
-            item.setDefaultAssigneeRole(itemNode.path("defaultAssigneeRole").asText(null));
-            item.setRequired(itemNode.path("required").asBoolean(false));
-            item.setSortOrder(sortOrder++);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("text", itemNode.path("text").asText(""));
+            item.put("defaultAssigneeRole", itemNode.path("defaultAssigneeRole").asText(null));
+            item.put("required", itemNode.path("required").asBoolean(false));
+            item.put("sortOrder", sortOrder++);
             items.add(item);
         }
 
-        ChecklistTemplateDocument doc = new ChecklistTemplateDocument();
-        doc.setTemplateId(UUID.randomUUID().toString());
-        doc.setName(name);
-        doc.setDescription(input.path("description").asText(null));
-        doc.setCategory(category);
-        doc.setItems(items);
-        doc.setProjectId(input.path("projectId").asText(null));
-        doc.setCreatedAt(Instant.now());
-        doc.setUpdatedAt(Instant.now());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("name", name);
+        payload.put("description", input.path("description").asText(null));
+        payload.put("category", category.name());
+        payload.put("items", items);
 
-        checklistTemplateRepository.save(doc);
+        String projectId = input.path("projectId").asText(null);
+        var thing = thingService.createThing(projectId, ThingCategory.CHECKLIST_TEMPLATE, payload);
         stream.progress(100, "Template created: " + name + " (" + items.size() + " items)");
 
         ObjectNode result = MAPPER.createObjectNode();
-        result.put("templateId", doc.getTemplateId());
+        result.put("templateId", thing.getId());
         result.put("name", name);
         result.put("itemCount", items.size());
         return ToolResult.success(result);

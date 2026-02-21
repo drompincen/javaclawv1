@@ -1,8 +1,8 @@
 package io.github.drompincen.javaclawv1.runtime.reminder;
 
-import io.github.drompincen.javaclawv1.persistence.document.ReminderDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ReminderRepository;
+import io.github.drompincen.javaclawv1.persistence.document.ThingDocument;
 import io.github.drompincen.javaclawv1.runtime.agent.EventService;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.protocol.event.EventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,39 +20,43 @@ public class ReminderScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(ReminderScheduler.class);
 
-    private final ReminderRepository reminderRepository;
+    private final ThingService thingService;
     private final EventService eventService;
 
-    public ReminderScheduler(ReminderRepository reminderRepository, EventService eventService) {
-        this.reminderRepository = reminderRepository;
+    public ReminderScheduler(ThingService thingService, EventService eventService) {
+        this.thingService = thingService;
         this.eventService = eventService;
     }
 
     @Scheduled(fixedDelay = 60000)
     public void checkReminders() {
-        List<ReminderDocument> dueReminders =
-                reminderRepository.findByTriggeredFalseAndTriggerAtBefore(Instant.now());
+        List<ThingDocument> dueReminders = thingService.findDueReminders(Instant.now());
 
-        for (ReminderDocument reminder : dueReminders) {
+        for (ThingDocument reminder : dueReminders) {
             try {
+                Map<String, Object> p = reminder.getPayload();
+                String message = (String) p.get("message");
+                String type = p.get("type") != null ? p.get("type").toString() : "TIME_BASED";
+
                 eventService.emit(reminder.getProjectId(), EventType.REMINDER_TRIGGERED,
-                        Map.of("reminderId", reminder.getReminderId(),
-                                "message", reminder.getMessage(),
-                                "type", reminder.getType().name()));
+                        Map.of("reminderId", reminder.getId(),
+                                "message", message != null ? message : "",
+                                "type", type));
 
-                if (reminder.isRecurring() && reminder.getIntervalSeconds() != null) {
-                    // Re-arm recurring reminder for next occurrence
-                    Instant nextTrigger = Instant.now().plusSeconds(reminder.getIntervalSeconds());
-                    reminder.setTriggerAt(nextTrigger);
-                    reminder.setTriggered(false);
+                boolean recurring = Boolean.TRUE.equals(p.get("recurring"));
+                if (recurring && p.get("intervalSeconds") != null) {
+                    long interval = ((Number) p.get("intervalSeconds")).longValue();
+                    Instant nextTrigger = Instant.now().plusSeconds(interval);
+                    thingService.mergePayload(reminder, Map.of(
+                            "triggerAt", nextTrigger.toString(),
+                            "triggered", false));
                 } else {
-                    reminder.setTriggered(true);
+                    thingService.mergePayload(reminder, Map.of("triggered", true));
                 }
-                reminderRepository.save(reminder);
 
-                log.info("Triggered reminder {} for project {}", reminder.getReminderId(), reminder.getProjectId());
+                log.info("Triggered reminder {} for project {}", reminder.getId(), reminder.getProjectId());
             } catch (Exception e) {
-                log.error("Failed to trigger reminder {}", reminder.getReminderId(), e);
+                log.error("Failed to trigger reminder {}", reminder.getId(), e);
             }
         }
     }

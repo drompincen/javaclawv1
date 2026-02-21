@@ -22,7 +22,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -49,7 +48,7 @@ class CreateThreadToolTest {
         ctx = new ToolContext("session-1", Path.of("."), Map.of());
         when(threadRepository.save(any(ThreadDocument.class))).thenAnswer(inv -> inv.getArgument(0));
         when(threadRepository.findByTitleIgnoreCaseAndProjectIdsContaining(any(), any()))
-                .thenReturn(Optional.empty());
+                .thenReturn(List.of());
     }
 
     @Test
@@ -82,7 +81,7 @@ class CreateThreadToolTest {
         existing.setActions(new ArrayList<>());
 
         when(threadRepository.findByTitleIgnoreCaseAndProjectIdsContaining("Evidence Service Design", "proj-1"))
-                .thenReturn(Optional.of(existing));
+                .thenReturn(List.of(existing));
         when(messageRepository.countBySessionId("thread-1")).thenReturn(1L);
 
         ObjectNode input = MAPPER.createObjectNode();
@@ -121,7 +120,7 @@ class CreateThreadToolTest {
         existing.setActions(new ArrayList<>(List.of(existingAction)));
 
         when(threadRepository.findByTitleIgnoreCaseAndProjectIdsContaining("Evidence Service Design", "proj-1"))
-                .thenReturn(Optional.of(existing));
+                .thenReturn(List.of(existing));
         when(messageRepository.countBySessionId("thread-1")).thenReturn(1L);
 
         ObjectNode input = MAPPER.createObjectNode();

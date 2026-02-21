@@ -1,21 +1,20 @@
 package io.github.drompincen.javaclawv1.tools;
 
-import io.github.drompincen.javaclawv1.persistence.document.ChecklistDocument;
-import io.github.drompincen.javaclawv1.persistence.repository.ChecklistRepository;
 import io.github.drompincen.javaclawv1.protocol.api.ChecklistStatus;
+import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
+import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.runtime.tools.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.time.Instant;
 import java.util.*;
 
 public class UpdateChecklistTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private ChecklistRepository checklistRepository;
+    private ThingService thingService;
 
     @Override public String name() { return "update_checklist"; }
 
@@ -48,27 +47,29 @@ public class UpdateChecklistTool implements Tool {
     @Override public JsonNode outputSchema() { return MAPPER.createObjectNode().put("type", "object"); }
     @Override public Set<ToolRiskProfile> riskProfiles() { return Set.of(ToolRiskProfile.AGENT_INTERNAL); }
 
-    public void setChecklistRepository(ChecklistRepository checklistRepository) {
-        this.checklistRepository = checklistRepository;
+    public void setThingService(ThingService thingService) {
+        this.thingService = thingService;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public ToolResult execute(ToolContext ctx, JsonNode input, ToolStream stream) {
-        if (checklistRepository == null) {
+        if (thingService == null) {
             return ToolResult.failure("Checklist repository not available");
         }
 
         String checklistId = input.path("checklistId").asText(null);
         if (checklistId == null || checklistId.isBlank()) return ToolResult.failure("'checklistId' is required");
 
-        ChecklistDocument doc = checklistRepository.findById(checklistId).orElse(null);
+        var doc = thingService.findById(checklistId, ThingCategory.CHECKLIST).orElse(null);
         if (doc == null) return ToolResult.failure("Checklist not found: " + checklistId);
 
         JsonNode opsNode = input.get("operations");
         if (opsNode == null || !opsNode.isArray()) return ToolResult.failure("'operations' must be an array");
 
-        List<ChecklistDocument.ChecklistItem> items = doc.getItems() != null
-                ? new ArrayList<>(doc.getItems()) : new ArrayList<>();
+        List<Map<String, Object>> items = doc.getPayload().get("items") != null
+                ? new ArrayList<>((List<Map<String, Object>>) doc.getPayload().get("items"))
+                : new ArrayList<>();
 
         int applied = 0;
         for (JsonNode op : opsNode) {
@@ -78,20 +79,20 @@ public class UpdateChecklistTool implements Tool {
 
             switch (action) {
                 case "check" -> {
-                    if (idx >= 0 && idx < items.size()) { items.get(idx).setChecked(true); applied++; }
+                    if (idx >= 0 && idx < items.size()) { items.get(idx).put("checked", true); applied++; }
                 }
                 case "uncheck" -> {
-                    if (idx >= 0 && idx < items.size()) { items.get(idx).setChecked(false); applied++; }
+                    if (idx >= 0 && idx < items.size()) { items.get(idx).put("checked", false); applied++; }
                 }
                 case "assign" -> {
-                    if (idx >= 0 && idx < items.size() && value != null) { items.get(idx).setAssignee(value); applied++; }
+                    if (idx >= 0 && idx < items.size() && value != null) { items.get(idx).put("assignee", value); applied++; }
                 }
                 case "add" -> {
                     if (value != null && !value.isBlank()) {
-                        ChecklistDocument.ChecklistItem item = new ChecklistDocument.ChecklistItem();
-                        item.setItemId(UUID.randomUUID().toString());
-                        item.setText(value);
-                        item.setChecked(false);
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("itemId", UUID.randomUUID().toString());
+                        item.put("text", value);
+                        item.put("checked", false);
                         items.add(item);
                         applied++;
                     }
@@ -100,35 +101,33 @@ public class UpdateChecklistTool implements Tool {
                     if (idx >= 0 && idx < items.size()) { items.remove(idx); applied++; }
                 }
                 case "update_notes" -> {
-                    if (idx >= 0 && idx < items.size() && value != null) { items.get(idx).setNotes(value); applied++; }
+                    if (idx >= 0 && idx < items.size() && value != null) { items.get(idx).put("notes", value); applied++; }
                 }
             }
         }
 
-        doc.setItems(items);
-
         // Auto-transition status
+        Map<String, Object> updates = new LinkedHashMap<>();
+        updates.put("items", items);
         if (!items.isEmpty()) {
-            boolean allChecked = items.stream().allMatch(ChecklistDocument.ChecklistItem::isChecked);
-            if (allChecked) {
-                doc.setStatus(ChecklistStatus.COMPLETED);
-            } else {
-                doc.setStatus(ChecklistStatus.IN_PROGRESS);
-            }
+            boolean allChecked = items.stream().allMatch(i -> Boolean.TRUE.equals(i.get("checked")));
+            updates.put("status", allChecked ? ChecklistStatus.COMPLETED.name() : ChecklistStatus.IN_PROGRESS.name());
         }
 
-        doc.setUpdatedAt(Instant.now());
-        checklistRepository.save(doc);
+        thingService.mergePayload(doc, updates);
 
-        long complete = items.stream().filter(ChecklistDocument.ChecklistItem::isChecked).count();
+        long complete = items.stream().filter(i -> Boolean.TRUE.equals(i.get("checked"))).count();
         stream.progress(100, "Checklist updated: " + applied + " operations applied");
+
+        String status = updates.get("status") != null ? updates.get("status").toString()
+                : (doc.getPayload().get("status") != null ? doc.getPayload().get("status").toString() : "UNKNOWN");
 
         ObjectNode result = MAPPER.createObjectNode();
         result.put("checklistId", checklistId);
         result.put("operationsApplied", applied);
         result.put("itemsComplete", complete);
         result.put("itemsTotal", items.size());
-        result.put("status", doc.getStatus().name());
+        result.put("status", status);
         return ToolResult.success(result);
     }
 }

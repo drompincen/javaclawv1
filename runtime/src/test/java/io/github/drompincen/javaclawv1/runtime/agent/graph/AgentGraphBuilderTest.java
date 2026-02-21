@@ -509,6 +509,135 @@ class AgentGraphBuilderTest {
     }
 
     // ---------------------------------------------------------------
+    // 13. parseToolCalls: JSON format
+    // ---------------------------------------------------------------
+
+    @Test
+    void parseToolCalls_jsonFormat() {
+        String response = "<tool_call>\n{\"name\": \"create_thread\", \"args\": {\"title\": \"Test\"}}\n</tool_call>";
+        var calls = builder.parseToolCalls(response);
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).name()).isEqualTo("create_thread");
+        assertThat(calls.get(0).argsJson()).contains("\"title\"");
+    }
+
+    // ---------------------------------------------------------------
+    // 14. parseToolCalls: XML name+args with JSON args
+    // ---------------------------------------------------------------
+
+    @Test
+    void parseToolCalls_xmlNameJsonArgs() {
+        String response = "<tool_call><name>create_thread</name><args>{\"title\": \"Test\"}</args></tool_call>";
+        var calls = builder.parseToolCalls(response);
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).name()).isEqualTo("create_thread");
+        assertThat(calls.get(0).argsJson()).contains("\"title\"");
+    }
+
+    // ---------------------------------------------------------------
+    // 15. parseToolCalls: fully XML args (the LLM format that was failing)
+    // ---------------------------------------------------------------
+
+    @Test
+    void parseToolCalls_fullyXmlArgs_convertsToJson() {
+        String response = "<tool_call>\n"
+                + "  <name>create_thread</name>\n"
+                + "  <args>\n"
+                + "    <projectId>abc-123</projectId>\n"
+                + "    <title>Evidence Service Refactor</title>\n"
+                + "    <content>## Refactor details</content>\n"
+                + "    <decisions>[\"Use strategy pattern\"]</decisions>\n"
+                + "    <actions>[{\"text\": \"Create tickets\", \"assignee\": \"Joe\"}]</actions>\n"
+                + "  </args>\n"
+                + "</tool_call>";
+        var calls = builder.parseToolCalls(response);
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).name()).isEqualTo("create_thread");
+        // Verify the converted JSON is valid and has expected fields
+        try {
+            var node = objectMapper.readTree(calls.get(0).argsJson());
+            assertThat(node.get("projectId").asText()).isEqualTo("abc-123");
+            assertThat(node.get("title").asText()).isEqualTo("Evidence Service Refactor");
+            assertThat(node.get("decisions").isArray()).isTrue();
+            assertThat(node.get("actions").isArray()).isTrue();
+            assertThat(node.get("actions").get(0).get("assignee").asText()).isEqualTo("Joe");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse converted JSON", e);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 16. parseToolCalls: multiple fully XML tool calls
+    // ---------------------------------------------------------------
+
+    @Test
+    void parseToolCalls_multipleXmlArgs() {
+        String response = "<tool_call>\n"
+                + "  <name>create_thread</name>\n"
+                + "  <args>\n"
+                + "    <projectId>abc</projectId>\n"
+                + "    <title>Thread 1</title>\n"
+                + "  </args>\n"
+                + "</tool_call>\n\n"
+                + "<tool_call>\n"
+                + "  <name>create_thread</name>\n"
+                + "  <args>\n"
+                + "    <projectId>abc</projectId>\n"
+                + "    <title>Thread 2</title>\n"
+                + "  </args>\n"
+                + "</tool_call>";
+        var calls = builder.parseToolCalls(response);
+        assertThat(calls).hasSize(2);
+        assertThat(calls.get(0).name()).isEqualTo("create_thread");
+        assertThat(calls.get(1).name()).isEqualTo("create_thread");
+    }
+
+    // ---------------------------------------------------------------
+    // 17. xmlArgsToJson unit test
+    // ---------------------------------------------------------------
+
+    @Test
+    void xmlArgsToJson_simpleValues() {
+        String xml = "<projectId>abc</projectId><title>My Title</title>";
+        String json = builder.xmlArgsToJson(xml);
+        try {
+            var node = objectMapper.readTree(json);
+            assertThat(node.get("projectId").asText()).isEqualTo("abc");
+            assertThat(node.get("title").asText()).isEqualTo("My Title");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    void xmlArgsToJson_embeddedJsonArrays() {
+        String xml = "<name>test</name><items>[\"a\",\"b\"]</items><obj>{\"k\":1}</obj>";
+        String json = builder.xmlArgsToJson(xml);
+        try {
+            var node = objectMapper.readTree(json);
+            assertThat(node.get("name").asText()).isEqualTo("test");
+            assertThat(node.get("items").isArray()).isTrue();
+            assertThat(node.get("obj").isObject()).isTrue();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 18. stripToolCallTags removes XML-args format
+    // ---------------------------------------------------------------
+
+    @Test
+    void stripToolCallTags_removesXmlArgsBlocks() {
+        String response = "Here is the plan:\n\n<tool_call>\n  <name>create_thread</name>\n"
+                + "  <args><title>Test</title></args>\n</tool_call>\n\nDone.";
+        String stripped = builder.stripToolCallTags(response);
+        assertThat(stripped).doesNotContain("<tool_call>");
+        assertThat(stripped).contains("Here is the plan:");
+        assertThat(stripped).contains("Done.");
+    }
+
+    // ---------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------
 

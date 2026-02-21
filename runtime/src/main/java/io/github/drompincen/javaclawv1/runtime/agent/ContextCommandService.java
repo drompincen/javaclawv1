@@ -248,8 +248,9 @@ public class ContextCommandService {
         }
 
         // Find thread by title within the project
-        ThreadDocument thread = threadRepository
-                .findByTitleIgnoreCaseAndProjectIdsContaining(threadName, projectId).orElse(null);
+        var threadMatches = threadRepository
+                .findByTitleIgnoreCaseAndProjectIdsContaining(threadName, projectId);
+        ThreadDocument thread = threadMatches.isEmpty() ? null : threadMatches.get(0);
 
         if (thread == null) {
             // Create a new thread
