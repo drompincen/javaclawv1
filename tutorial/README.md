@@ -49,6 +49,11 @@ The server starts on `http://localhost:8080` by default. Override with `--port 9
 | 08 | [Memory & Context](08-memory-and-context.sh) | Store/recall/delete memories across scopes | No |
 | 09 | [Checklists & Plans](09-checklists-and-plans.sh) | Phases, milestones, checklists, plan artifacts | No |
 | 10 | [Code & Tools](10-code-and-tools.sh) | Direct tool invocation: JBang, Python, shell | No |
+| 11 | [Merge Threads](11-merge-threads.sh) | Thread merge, combined content/messages | No |
+| 12 | [Agent Orchestration](12-agent-orchestration.sh) | Multi-agent controller→specialist→checker | Yes |
+| 13 | [File Upload: Jira Formats](13-file-upload-jira-formats.sh) | CSV/JSON file upload and extraction | Yes |
+| 14 | [Upload: Objectives & Resources](14-upload-conversations-objectives-resources.sh) | Conversation upload with objectives and resources | Yes |
+| 15 | [Ask Claw: Grounded Answers](15-ask-claw-grounded.sh) | Capacity, workload, assignment questions grounded in data | Yes |
 
 **LLM Required = Yes** means the script submits content through the AI pipeline. In `--testmode`, these scripts will time out waiting for LLM responses. They are designed for real demos or reading as documentation.
 
@@ -86,7 +91,7 @@ All data references the same fictional team (Joe, Alice, Bob) working on a payme
 ## Scenario Tests
 
 For automated testing with mock LLM responses, see [scenarios/README.md](scenarios/README.md).
-The scenario framework validates all 41 scenario files covering every tool and agent workflow.
+The scenario framework validates all 42 scenario files covering every tool and agent workflow.
 
 ## Troubleshooting
 

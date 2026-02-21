@@ -32,6 +32,8 @@ public class CreateTicketTool implements Tool {
         props.putObject("priority").put("type", "string").put("description", "LOW, MEDIUM, HIGH, CRITICAL");
         props.putObject("owner").put("type", "string")
                 .put("description", "Person who owns this ticket (e.g. from Jira Owner field)");
+        props.putObject("storyPoints").put("type", "integer")
+                .put("description", "Story point estimate for this ticket");
         props.putObject("sourceThreadId").put("type", "string")
                 .put("description", "Thread ID where this ticket was identified");
         schema.putArray("required").add("projectId").add("title");
@@ -84,6 +86,10 @@ public class CreateTicketTool implements Tool {
         String owner = input.path("owner").asText(null);
         if (owner != null && !owner.isBlank()) {
             doc.setOwner(owner);
+        }
+        int sp = input.path("storyPoints").asInt(0);
+        if (sp > 0) {
+            doc.setStoryPoints(sp);
         }
         doc.setCreatedAt(Instant.now());
         doc.setUpdatedAt(Instant.now());

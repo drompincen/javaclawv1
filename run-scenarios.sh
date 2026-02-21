@@ -32,6 +32,7 @@ SCENARIOS=(
   scenario-resource-agent
   scenario-intake-pipeline
   scenario-ask-claw
+  scenario-ask-claw-capacity
   scenario-thread-merge
   scenario-agent-merge
   scenario-thread-update-on-reintake

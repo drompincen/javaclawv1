@@ -20,6 +20,7 @@ public record TicketDto(
         List<String> evidenceLinks,
         String externalRef,
         String owner,
+        Integer storyPoints,
         Instant lastExternalSync,
         Instant createdAt,
         Instant updatedAt

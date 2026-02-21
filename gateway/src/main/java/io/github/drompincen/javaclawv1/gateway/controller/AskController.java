@@ -204,6 +204,7 @@ public class AskController {
             ctx.append("- **").append(safe(t.getTitle())).append("**");
             if (t.getStatus() != null) ctx.append(" [").append(t.getStatus()).append("]");
             if (t.getPriority() != null) ctx.append(" priority=").append(t.getPriority());
+            if (t.getStoryPoints() != null) ctx.append(" sp=").append(t.getStoryPoints());
             ctx.append(" assignee=").append(assignee != null ? assignee : "UNASSIGNED");
             if (t.getExternalRef() != null) ctx.append(" externalRef=").append(t.getExternalRef());
             ctx.append("\n");
@@ -231,34 +232,60 @@ public class AskController {
             }
         }
 
-        // Resources — enhanced with assignment info
+        // Resources — enhanced with assignment info and computed capacity
         ctx.append("\n## RESOURCES (").append(resources.size()).append(")\n");
         for (ResourceDocument r : resources) {
+            double effectiveHours = r.getCapacity() * r.getAvailability();
             ctx.append("- **").append(safe(r.getName())).append("**");
             if (r.getRole() != null) ctx.append(" role=").append(r.getRole());
             ctx.append(" capacity=").append(r.getCapacity());
             ctx.append(" availability=").append(r.getAvailability());
+            ctx.append(" effectiveHours=").append(String.format("%.0f", effectiveHours));
             ctx.append("\n");
 
-            // Show assigned tickets
+            // Show assigned tickets with SP
             List<String> ticketIds = resourceTicketMap.getOrDefault(r.getResourceId(), List.of());
+            int allocatedSP = 0;
             if (!ticketIds.isEmpty()) {
-                List<String> ticketLabels = ticketIds.stream()
-                        .map(tid -> {
-                            TicketDocument td = ticketById.get(tid);
-                            if (td != null) {
-                                String label = safe(td.getTitle());
-                                if (td.getPriority() != null) label += " (" + td.getPriority() + ")";
-                                return label;
-                            }
-                            return tid;
-                        })
-                        .collect(Collectors.toList());
+                List<String> ticketLabels = new ArrayList<>();
+                for (String tid : ticketIds) {
+                    TicketDocument td = ticketById.get(tid);
+                    if (td != null) {
+                        String label = safe(td.getTitle());
+                        if (td.getPriority() != null) label += " (" + td.getPriority() + ")";
+                        if (td.getStoryPoints() != null) {
+                            label += " " + td.getStoryPoints() + "SP";
+                            allocatedSP += td.getStoryPoints();
+                        }
+                        ticketLabels.add(label);
+                    } else {
+                        ticketLabels.add(tid);
+                    }
+                }
                 ctx.append("  Assigned: ").append(String.join(", ", ticketLabels));
                 ctx.append(" — ").append(ticketIds.size()).append(ticketIds.size() == 1 ? " ticket" : " tickets");
+                ctx.append(", allocatedSP=").append(allocatedSP);
                 ctx.append("\n");
             } else {
-                ctx.append("  Assigned: (none) — 0 tickets\n");
+                // Also count SP from tickets assigned via owner field
+                int ownerSP = 0;
+                int ownerTickets = 0;
+                for (TicketDocument t : tickets) {
+                    String assignee = null;
+                    if (t.getOwner() != null && !t.getOwner().isBlank()) assignee = t.getOwner();
+                    if (assignee != null && assignee.equalsIgnoreCase(r.getName())) {
+                        ownerTickets++;
+                        if (t.getStoryPoints() != null) ownerSP += t.getStoryPoints();
+                    }
+                }
+                if (ownerTickets > 0) {
+                    ctx.append("  Assigned (via owner): ").append(ownerTickets)
+                            .append(ownerTickets == 1 ? " ticket" : " tickets")
+                            .append(", allocatedSP=").append(ownerSP).append("\n");
+                    allocatedSP = ownerSP;
+                } else {
+                    ctx.append("  Assigned: (none) — 0 tickets, allocatedSP=0\n");
+                }
             }
         }
 
@@ -275,6 +302,37 @@ public class AskController {
             ctx.append(" (").append(String.join(", ", unassignedTicketIds)).append(")");
         }
         ctx.append("\n");
+
+        // Resource capacity summary — compute effective capacity and allocated SP per resource
+        ctx.append("\n## RESOURCE CAPACITY SUMMARY\n");
+        for (ResourceDocument r : resources) {
+            double effectiveHours = r.getCapacity() * r.getAvailability();
+            List<String> rTicketIds = resourceTicketMap.getOrDefault(r.getResourceId(), List.of());
+            int allocSP = 0;
+            int ticketCount = 0;
+            for (String tid : rTicketIds) {
+                TicketDocument td = ticketById.get(tid);
+                if (td != null) {
+                    ticketCount++;
+                    if (td.getStoryPoints() != null) allocSP += td.getStoryPoints();
+                }
+            }
+            // Also count tickets via owner field if no resource_assignments
+            if (rTicketIds.isEmpty()) {
+                for (TicketDocument t : tickets) {
+                    if (t.getOwner() != null && t.getOwner().equalsIgnoreCase(r.getName())) {
+                        ticketCount++;
+                        if (t.getStoryPoints() != null) allocSP += t.getStoryPoints();
+                    }
+                }
+            }
+            ctx.append("- **").append(safe(r.getName())).append("**: ");
+            ctx.append("effectiveHours=").append(String.format("%.0f", effectiveHours));
+            ctx.append(", tickets=").append(ticketCount);
+            ctx.append(", allocatedSP=").append(allocSP);
+            ctx.append(", spareCapacity=").append(allocSP > 0 ? "LOW" : "HIGH");
+            ctx.append("\n");
+        }
 
         // Checklists
         List<ChecklistDocument> checklists = checklistRepository.findByProjectId(projectId);

@@ -34,6 +34,9 @@ public class TicketController {
         if (req.owner() != null && !req.owner().isBlank()) {
             doc.setOwner(req.owner());
         }
+        if (req.storyPoints() != null) {
+            doc.setStoryPoints(req.storyPoints());
+        }
         doc.setCreatedAt(Instant.now());
         doc.setUpdatedAt(Instant.now());
         ticketRepository.save(doc);
@@ -67,6 +70,7 @@ public class TicketController {
             if (updates.getAssignedResourceId() != null) existing.setAssignedResourceId(updates.getAssignedResourceId());
             if (updates.getBlockedBy() != null) existing.setBlockedBy(updates.getBlockedBy());
             if (updates.getOwner() != null) existing.setOwner(updates.getOwner());
+            if (updates.getStoryPoints() != null) existing.setStoryPoints(updates.getStoryPoints());
             existing.setUpdatedAt(Instant.now());
             ticketRepository.save(existing);
             return ResponseEntity.ok(toDto(existing));
@@ -87,7 +91,7 @@ public class TicketController {
                 doc.getStatus(), doc.getPriority(), doc.getType(), doc.getParentTicketId(),
                 doc.getAssignedResourceId(), doc.getLinkedThreadIds(), doc.getBlockedBy(),
                 doc.getObjectiveIds(), doc.getPhaseId(), doc.getEvidenceLinks(),
-                doc.getExternalRef(), doc.getOwner(), doc.getLastExternalSync(),
+                doc.getExternalRef(), doc.getOwner(), doc.getStoryPoints(), doc.getLastExternalSync(),
                 doc.getCreatedAt(), doc.getUpdatedAt());
     }
 }
