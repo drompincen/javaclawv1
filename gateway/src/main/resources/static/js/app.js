@@ -39,6 +39,76 @@ const VIEW_MAP = {
 
 let eventCount = 0;
 
+// ── Provider badge ──
+async function refreshProviderBadge() {
+  const badge = document.getElementById('providerBadge');
+  if (!badge) return;
+  try {
+    const data = await api.config.getProvider();
+    const provider = data.provider || '';
+    if (!provider || provider.toLowerCase().includes('no api key') || provider.toLowerCase().includes('none')) {
+      badge.textContent = 'NO KEY';
+      badge.className = 'badge bad';
+    } else {
+      badge.textContent = provider;
+      badge.className = 'badge good';
+    }
+  } catch {
+    badge.textContent = 'NO KEY';
+    badge.className = 'badge bad';
+  }
+}
+
+// ── API key modal (Ctrl-K) ──
+function showApiKeyModal() {
+  // Remove existing modal if any
+  document.getElementById('apiKeyOverlay')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'apiKeyOverlay';
+  overlay.className = 'help-overlay';
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="help-modal" style="max-width:420px">
+      <h2>API Keys</h2>
+      <div class="help-section">
+        <label class="tiny" style="display:block;margin-bottom:4px">Anthropic API Key</label>
+        <input type="text" id="akAnthropicKey" class="input" style="width:100%;margin-bottom:12px" placeholder="sk-ant-..." />
+        <label class="tiny" style="display:block;margin-bottom:4px">OpenAI API Key</label>
+        <input type="text" id="akOpenaiKey" class="input" style="width:100%" placeholder="sk-..." />
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="btn ghost" id="akCancel">Cancel</button>
+        <button class="btn" id="akSave">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  // Pre-populate with masked keys
+  api.config.getKeys().then(data => {
+    document.getElementById('akAnthropicKey').value = data.anthropicKey || '';
+    document.getElementById('akOpenaiKey').value = data.openaiKey || '';
+  }).catch(() => {});
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('akCancel').addEventListener('click', () => overlay.remove());
+  document.getElementById('akSave').addEventListener('click', async () => {
+    const anthropicKey = document.getElementById('akAnthropicKey').value.trim();
+    const openaiKey = document.getElementById('akOpenaiKey').value.trim();
+    try {
+      await api.config.setKeys({ anthropicKey, openaiKey });
+      toast('API keys updated');
+      overlay.remove();
+      refreshProviderBadge();
+    } catch (e) {
+      toast('Failed to save keys: ' + e.message);
+    }
+  });
+
+  // Focus first input
+  setTimeout(() => document.getElementById('akAnthropicKey')?.focus(), 50);
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
   initNav();
@@ -153,6 +223,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'F3') { e.preventDefault(); document.getElementById('runController')?.click(); }
     if (e.key === 'F1') { e.preventDefault(); toggleHelp(); }
     if (e.key === 'Escape' && helpOverlay?.style.display !== 'none') { toggleHelp(); }
+    if (e.key === 'Escape') { document.getElementById('apiKeyOverlay')?.remove(); }
+    if (e.key === 'k' && e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); showApiKeyModal(); }
     // N = new project (only when not in a text field)
     if (e.key === 'N' && !e.ctrlKey && !e.altKey && !e.metaKey) {
       const tag = document.activeElement?.tagName;
@@ -162,10 +234,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Token counter + project poll fallback
+  // Token counter + project poll fallback + provider badge
   refreshTokenCounter();
+  refreshProviderBadge();
   setInterval(refreshTokenCounter, 10000);
   setInterval(loadProjects, 10000);
+  setInterval(refreshProviderBadge, 10000);
 
   // Show share button if project already selected
   if (getState().currentProjectId) {

@@ -11,6 +11,9 @@ javaclaw:
 spring:
   application:
     name: javaclaw
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
   ai:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY:sk-ant-placeholder-set-real-key-via-ctrl-k}

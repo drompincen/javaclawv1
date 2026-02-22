@@ -4,7 +4,7 @@ Automated tests that validate every tool, agent, and workflow using mock LLM res
 
 ## How Scenario Tests Work
 
-1. The server starts in `--testmode` with `--scenario <file.json>` flags
+1. The server starts in `--testMode` with `--scenario <file.json>` flags
 2. Each scenario file defines: seed data, mock LLM responses (with tool calls), and HTTP assertions
 3. The `ScenarioRunner` replays mock responses instead of calling the real LLM
 4. After the agent loop completes, HTTP assertions verify the expected state
@@ -12,18 +12,18 @@ Automated tests that validate every tool, agent, and workflow using mock LLM res
 ## Running All Scenarios
 
 ```bash
-# From project root — runs all 41 scenarios in a single JVM (~2 min)
-bash run-scenarios.sh
+# From project root — runs all 53 scenarios in a single JVM (~2 min)
+bash scenario-testing/run-scenarios.sh
 
 # Override port (default 18080):
-bash run-scenarios.sh 19090
+bash scenario-testing/run-scenarios.sh 19090
 ```
 
 ## Running a Single Scenario
 
 ```bash
-jbang javaclaw.java --testmode --port 18080 \
-  --scenario runtime/src/test/resources/scenario-general.json
+jbang javaclaw.java --testMode --port 18080 \
+  --scenario scenario-testing/scenarios/scenario-general.json
 ```
 
 ## Scenario File Format
@@ -105,10 +105,10 @@ jbang javaclaw.java --testmode --port 18080 \
 
 ## Adding a New Scenario
 
-1. Create `runtime/src/test/resources/scenario-<name>.json`
+1. Create `scenario-testing/scenarios/scenario-<name>.json`
 2. Define seed data, mock exchanges, and HTTP assertions
-3. Add the scenario name to `run-scenarios.sh` SCENARIOS array
-4. Run: `bash run-scenarios.sh`
+3. Add the scenario name to `scenario-testing/run-scenarios.sh` SCENARIOS array
+4. Run: `bash scenario-testing/run-scenarios.sh`
 
 ## Scenario Categories
 
@@ -118,4 +118,4 @@ jbang javaclaw.java --testmode --port 18080 \
 | Tools | 12 | Individual tool invocation |
 | Pipeline | 5 | Multi-step pipelines (intake, extraction) |
 | Story | 10 | End-to-end user stories |
-| **Total** | **41** | |
+| **Total** | **53** | |

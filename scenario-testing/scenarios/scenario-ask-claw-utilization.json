@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Ask Claw Utilization Test",
+  "description": "E2E: Seed resources where some have zero assignments, then ask 'tell me who is not utilized' and verify the LLM context contains assignment summary with unassigned resources",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed resources with mixed assignment levels",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Rachel Green",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.9,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Joey Tribbiani",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.7,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Ross Geller",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 1.0,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "UTIL-101: Implement search indexer",
+            "priority": "HIGH",
+            "owner": "Rachel Green",
+            "storyPoints": 8
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "UTIL-102: Build notification service",
+            "priority": "HIGH",
+            "owner": "Rachel Green",
+            "storyPoints": 5
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "UTIL-103: Database schema update",
+            "priority": "MEDIUM",
+            "storyPoints": 3
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "UTIL-104: API documentation",
+            "priority": "LOW",
+            "storyPoints": 2
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "resources",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 3}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ask Claw: tell me who is not utilized",
+      "type": "seed",
+      "agentResponses": [
+        {
+          "agentName": "generalist",
+          "responseFallback": "## Underutilized Resources\n\nBased on the project data, **2 resources are not utilized**:\n\n1. **Joey Tribbiani** — Engineer, 28 effective hours, **0 tickets assigned**, HIGH spare capacity\n2. **Ross Geller** — Engineer, 40 effective hours, **0 tickets assigned**, HIGH spare capacity\n\n### Overloaded\n- **Rachel Green**: 2 tickets (13 SP) on 36 effective hours — she's carrying all the assigned work\n\n### Unassigned Tickets\n- UTIL-103 (3 SP) and UTIL-104 (2 SP) have no owner\n\n**Recommendation:** Assign UTIL-103 to Joey and UTIL-104 to Ross to balance the workload."
+        }
+      ],
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/ask",
+          "body": {
+            "projectId": "{{projectId}}",
+            "question": "tell me who is not utilized"
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Rachel Green"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Joey Tribbiani"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Ross Geller"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "RESOURCE CAPACITY SUMMARY"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "ASSIGNMENT SUMMARY"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=Rachel Green"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=UNASSIGNED"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "effectiveHours=36"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "who is not utilized"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

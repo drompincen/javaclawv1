@@ -23,6 +23,9 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import java.util.Set;
+import static java.util.Map.entry;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -31,6 +34,29 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class ScenarioAsserts {
 
     private static final Logger log = LoggerFactory.getLogger(ScenarioAsserts.class);
+
+    /** Old collection names → thingCategory values for the unified "things" collection. */
+    private static final Map<String, String> THINGS_MAPPING = Map.ofEntries(
+            entry("tickets", "TICKET"),
+            entry("objectives", "OBJECTIVE"),
+            entry("resources", "RESOURCE"),
+            entry("blindspots", "BLINDSPOT"),
+            entry("checklists", "CHECKLIST"),
+            entry("phases", "PHASE"),
+            entry("milestones", "MILESTONE"),
+            entry("delta_packs", "DELTA_PACK"),
+            entry("reminders", "REMINDER"),
+            entry("uploads", "UPLOAD"),
+            entry("ideas", "IDEA"),
+            entry("links", "LINK"),
+            entry("intakes", "INTAKE"),
+            entry("reconciliations", "RECONCILIATION")
+    );
+
+    /** Top-level fields on ThingDocument — all other filter fields get payload. prefix. */
+    private static final Set<String> THING_TOP_LEVEL_FIELDS = Set.of(
+            "_id", "id", "projectId", "projectName", "thingCategory", "createDate", "updateDate"
+    );
 
     private final MongoTemplate mongoTemplate;
     private final EventRepository eventRepository;
@@ -147,15 +173,27 @@ public class ScenarioAsserts {
             return new AssertionResult("mongo[" + collection + "]", true, "no assertion", "skipped");
         }
 
+        // Map old collection names to unified "things" collection
+        String thingCategory = THINGS_MAPPING.get(collection);
+        String actualCollection = thingCategory != null ? "things" : collection;
+
         Query query = new Query();
+        if (thingCategory != null) {
+            query.addCriteria(Criteria.where("thingCategory").is(thingCategory));
+        }
         if (ma.filter() != null) {
             for (Map.Entry<String, Object> entry : ma.filter().entrySet()) {
                 Object value = resolveTemplateVar(entry.getValue(), ctx);
-                query.addCriteria(Criteria.where(entry.getKey()).is(value));
+                String fieldName = entry.getKey();
+                // For things collection, prefix domain-specific fields with payload.
+                if (thingCategory != null && !THING_TOP_LEVEL_FIELDS.contains(fieldName)) {
+                    fieldName = "payload." + fieldName;
+                }
+                query.addCriteria(Criteria.where(fieldName).is(value));
             }
         }
 
-        long count = mongoTemplate.count(query, collection);
+        long count = mongoTemplate.count(query, actualCollection);
 
         // countEq
         if (cond.countEq() != null) {
@@ -203,11 +241,16 @@ public class ScenarioAsserts {
 
         // anyMatchField + anyMatchPattern
         if (cond.anyMatchField() != null && cond.anyMatchPattern() != null) {
-            List<Document> docs = mongoTemplate.find(query, Document.class, collection);
+            List<Document> docs = mongoTemplate.find(query, Document.class, actualCollection);
             Pattern pattern = Pattern.compile(cond.anyMatchPattern(), Pattern.CASE_INSENSITIVE);
+            // For things collection, domain fields are nested under payload
+            String fieldName = cond.anyMatchField();
+            if (thingCategory != null) {
+                fieldName = "payload." + fieldName;
+            }
             boolean found = false;
             for (Document doc : docs) {
-                Object fieldVal = doc.get(cond.anyMatchField());
+                Object fieldVal = resolveNestedField(doc, fieldName);
                 if (fieldVal != null && pattern.matcher(fieldVal.toString()).find()) {
                     found = true;
                     break;
@@ -222,6 +265,20 @@ public class ScenarioAsserts {
         }
 
         return new AssertionResult("mongo[" + collection + "]", true, "no condition", "skipped");
+    }
+
+    /** Resolve dotted field paths like "payload.title" from a BSON Document. */
+    private Object resolveNestedField(Document doc, String fieldPath) {
+        String[] parts = fieldPath.split("\\.");
+        Object current = doc;
+        for (String part : parts) {
+            if (current instanceof Document d) {
+                current = d.get(part);
+            } else {
+                return null;
+            }
+        }
+        return current;
     }
 
     private List<AssertionResult> assertMessages(ScenarioConfigV2.MessageExpectations msgExp, StepContext ctx) {

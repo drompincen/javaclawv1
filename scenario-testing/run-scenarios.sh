@@ -2,7 +2,7 @@
 # Run all JavaClaw scenario tests in a single JVM via multi-scenario mode
 # This is ~10x faster than spawning separate JVMs per scenario
 
-SCENARIO_DIR="runtime/src/test/resources"
+SCENARIO_DIR="scenario-testing/scenarios"
 
 SCENARIOS=(
   scenario-general
@@ -33,6 +33,9 @@ SCENARIOS=(
   scenario-intake-pipeline
   scenario-ask-claw
   scenario-ask-claw-capacity
+  scenario-ask-claw-resources
+  scenario-ask-claw-utilization
+  scenario-ask-claw-sprint-health
   scenario-thread-merge
   scenario-agent-merge
   scenario-thread-update-on-reintake
@@ -76,12 +79,12 @@ if command -v cmd.exe &>/dev/null && [ -z "$USE_JBANG" ]; then
   # Windows (via cmd.exe)
   SCENARIO_ARGS_WIN=""
   for S in "${SCENARIOS[@]}"; do
-    SCENARIO_ARGS_WIN="$SCENARIO_ARGS_WIN --scenario runtime\\src\\test\\resources\\${S}.json"
+    SCENARIO_ARGS_WIN="$SCENARIO_ARGS_WIN --scenario scenario-testing\\scenarios\\${S}.json"
   done
-  cmd.exe /c "jbang.cmd --fresh javaclaw.java --testmode --port $PORT $SCENARIO_ARGS_WIN"
+  cmd.exe /c "jbang.cmd --fresh javaclaw.java --testMode --port $PORT $SCENARIO_ARGS_WIN"
 else
   # WSL / Linux native
-  jbang javaclaw.java --testmode --port $PORT $SCENARIO_ARGS
+  jbang javaclaw.java --testMode --port $PORT $SCENARIO_ARGS
 fi
 EXIT_CODE=$?
 

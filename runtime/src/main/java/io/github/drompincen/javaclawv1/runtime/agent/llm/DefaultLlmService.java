@@ -122,12 +122,12 @@ public class DefaultLlmService implements LlmService {
     }
 
     private ChatModel getOrCreateOpenAiModel() {
-        if (openaiModel != null) return openaiModel;
-        if (lazyOpenAiModel != null) return lazyOpenAiModel;
-        String key = resolveKey("spring.ai.openai.api-key");
-        if (hasRealKey(key, "sk-placeholder")) {
+        // If key was set at runtime, prefer lazy model over Spring bean (may have placeholder key)
+        String runtimeKey = System.getProperty("spring.ai.openai.api-key");
+        if (hasRealKey(runtimeKey, "sk-placeholder")) {
+            if (lazyOpenAiModel != null) return lazyOpenAiModel;
             try {
-                OpenAiApi api = new OpenAiApi(key);
+                OpenAiApi api = new OpenAiApi(runtimeKey);
                 OpenAiChatOptions options = OpenAiChatOptions.builder().model("gpt-4o").build();
                 lazyOpenAiModel = new OpenAiChatModel(api, options);
                 log.info("Created OpenAI model (lazy) — key set via --api-key or Ctrl+K");
@@ -136,16 +136,18 @@ public class DefaultLlmService implements LlmService {
                 log.error("Failed to create OpenAI model: {}", e.getMessage());
             }
         }
+        if (openaiModel != null) return openaiModel;
         return null;
     }
 
     private ChatModel getOrCreateAnthropicModel() {
-        if (anthropicModel != null) return anthropicModel;
-        if (lazyAnthropicModel != null) return lazyAnthropicModel;
-        String key = resolveKey("spring.ai.anthropic.api-key");
-        if (hasRealKey(key, "sk-ant-placeholder")) {
+        // If key was set at runtime (--api-key, Ctrl+K, env bridge), prefer lazy model
+        // because the Spring-injected bean may have been created with a placeholder key
+        String runtimeKey = System.getProperty("spring.ai.anthropic.api-key");
+        if (hasRealKey(runtimeKey, "sk-ant-placeholder")) {
+            if (lazyAnthropicModel != null) return lazyAnthropicModel;
             try {
-                AnthropicApi api = new AnthropicApi(key);
+                AnthropicApi api = new AnthropicApi(runtimeKey);
                 AnthropicChatOptions options = AnthropicChatOptions.builder()
                         .model("claude-sonnet-4-5-20250929")
                         .maxTokens(8192).build();
@@ -156,6 +158,7 @@ public class DefaultLlmService implements LlmService {
                 log.error("Failed to create Anthropic model: {}", e.getMessage());
             }
         }
+        if (anthropicModel != null) return anthropicModel;
         return null;
     }
 

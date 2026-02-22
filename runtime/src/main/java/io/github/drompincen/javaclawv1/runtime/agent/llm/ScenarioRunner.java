@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -52,6 +53,9 @@ public class ScenarioRunner implements ApplicationRunner {
     @Autowired(required = false)
     private ScenarioAsserts scenarioAsserts;
 
+    @Autowired
+    private org.springframework.data.mongodb.core.MongoTemplate mongoTemplate;
+
     @Value("${server.port:8080}")
     private int serverPort;
 
@@ -65,6 +69,15 @@ public class ScenarioRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) throws Exception {
         Thread runner = new Thread(() -> {
             try {
+                // Guard: testMode must be active for scenario testing
+                String provider = System.getProperty("javaclaw.llm.provider");
+                if (!"test".equals(provider)) {
+                    log.error("[ScenarioRunner] ABORT: testMode is NOT active (javaclaw.llm.provider={}). " +
+                              "Scenario tests require --testMode flag to prevent real LLM calls.", provider);
+                    System.exit(2);
+                    return;
+                }
+
                 // Check for multi-scenario mode
                 String scenarioFiles = System.getProperty("javaclaw.scenario.files");
                 if (scenarioFiles != null && scenarioFiles.contains(",")) {
@@ -99,6 +112,9 @@ public class ScenarioRunner implements ApplicationRunner {
         log.info("[ScenarioRunner] ============================================================");
         log.info("[ScenarioRunner]  Multi-Scenario Mode — {} scenarios", files.size());
         log.info("[ScenarioRunner] ============================================================");
+
+        // Clean MongoDB state from previous runs (preserve agents collection)
+        cleanMongoDB();
 
         // Wait for server startup once
         try {
@@ -267,9 +283,16 @@ public class ScenarioRunner implements ApplicationRunner {
                 String stepLabel = step.name() != null ? step.name() : step.userQuery();
                 log.info("[ScenarioRunner] Step {}/{}: '{}'", i + 1, total, stepLabel);
 
+                // Scope responses to current step so pipeline fallback doesn't replay earlier steps
+                scenarioService.setCurrentStepIndex(i);
+
                 ScenarioReport.StepReport stepReport;
                 if ("seed".equals(step.type())) {
                     stepReport = playSeedStep(baseUrl, step, i + 1, total);
+                    // After seed, discover thread IDs for {{threads[N].threadId}} template resolution
+                    if (scenarioProjectId != null) {
+                        discoverThreadIds(baseUrl, scenarioProjectId);
+                    }
                 } else if ("upload".equals(step.type())) {
                     stepReport = playUploadStep(baseUrl, step, i + 1, total);
                 } else if ("pipeline".equals(step.type())) {
@@ -633,9 +656,17 @@ public class ScenarioRunner implements ApplicationRunner {
             // File parts
             for (String resourcePath : step.uploadFiles()) {
                 InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath);
+                // Fallback: try filesystem paths (relative to cwd, then scenario-testing/scenarios/)
+                if (is == null) {
+                    java.io.File f = new java.io.File(resourcePath);
+                    if (!f.exists()) f = new java.io.File("scenario-testing/scenarios/" + resourcePath);
+                    if (f.exists()) {
+                        is = new java.io.FileInputStream(f);
+                    }
+                }
                 if (is == null) {
                     return new ScenarioReport.StepReport(stepName, false,
-                            List.of(new AssertionResult("loadFile", false, resourcePath, "not found on classpath")));
+                            List.of(new AssertionResult("loadFile", false, resourcePath, "not found on classpath or filesystem")));
                 }
                 byte[] fileBytes = is.readAllBytes();
                 is.close();
@@ -808,6 +839,61 @@ public class ScenarioRunner implements ApplicationRunner {
             log.error("[ScenarioRunner] Seed step error: {}", e.getMessage(), e);
             return new ScenarioReport.StepReport(stepName, false,
                     List.of(new AssertionResult("exception", false, "no error", e.getMessage())));
+        }
+    }
+
+    // ======================== MongoDB Cleanup ========================
+
+    /** Collections to preserve during cleanup (agents must persist for orchestration). */
+    private static final Set<String> PRESERVED_COLLECTIONS = Set.of("agents");
+
+    /**
+     * Clean all MongoDB collections except preserved ones (agents).
+     * This ensures test isolation between scenario runs.
+     */
+    private void cleanMongoDB() {
+        try {
+            Set<String> collections = mongoTemplate.getCollectionNames();
+            int dropped = 0;
+            for (String col : collections) {
+                if (!PRESERVED_COLLECTIONS.contains(col) && !col.startsWith("system.")) {
+                    mongoTemplate.dropCollection(col);
+                    dropped++;
+                }
+            }
+            log.info("[ScenarioRunner] MongoDB cleanup: dropped {} collections (preserved: {})",
+                    dropped, PRESERVED_COLLECTIONS);
+        } catch (Exception e) {
+            log.warn("[ScenarioRunner] MongoDB cleanup failed: {}", e.getMessage());
+        }
+    }
+
+    // ======================== Thread ID Discovery ========================
+
+    /**
+     * After seed steps, query project threads and store their IDs in ScenarioService
+     * for {{threads[N].threadId}} template resolution in subsequent mock responses.
+     */
+    private void discoverThreadIds(String baseUrl, String projectId) {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/projects/" + projectId + "/threads"))
+                    .GET().build();
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 200) {
+                JsonNode threads = objectMapper.readTree(resp.body());
+                List<String> ids = new ArrayList<>();
+                if (threads.isArray()) {
+                    for (JsonNode t : threads) {
+                        String threadId = t.path("threadId").asText(null);
+                        if (threadId != null) ids.add(threadId);
+                    }
+                }
+                scenarioService.setThreadIds(ids);
+                log.info("[ScenarioRunner] Discovered {} thread IDs for template resolution: {}", ids.size(), ids);
+            }
+        } catch (Exception e) {
+            log.warn("[ScenarioRunner] Failed to discover thread IDs: {}", e.getMessage());
         }
     }
 

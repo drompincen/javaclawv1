@@ -32,6 +32,12 @@ public class ScenarioService {
     /** Current project ID for template resolution in pipeline scenario responses */
     private volatile String currentProjectId;
 
+    /** Current step index for step-scoped response collection (-1 = collect from all steps) */
+    private volatile int currentStepIndex = -1;
+
+    /** Thread IDs discovered after seed steps, for {{threads[N].threadId}} template resolution */
+    private volatile List<String> threadIds = new ArrayList<>();
+
     public ScenarioService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -129,7 +135,11 @@ public class ScenarioService {
         List<? extends Object> steps = v2 ? getV2Steps() : getSteps();
         if (steps == null) return result;
 
-        for (Object step : steps) {
+        for (int i = 0; i < steps.size(); i++) {
+            // When step-scoped, only collect from the current step
+            if (currentStepIndex >= 0 && i != currentStepIndex) continue;
+
+            Object step = steps.get(i);
             List<ScenarioConfig.AgentResponse> responses = getAgentResponses(step);
             if (responses == null) continue;
             for (ScenarioConfig.AgentResponse ar : responses) {
@@ -203,6 +213,8 @@ public class ScenarioService {
         this.v2 = false;
         this.agentResponseCounters.clear();
         this.currentProjectId = null;
+        this.currentStepIndex = -1;
+        this.threadIds = new ArrayList<>();
     }
 
     /** Reset only the per-agent response counters (for pipeline retries within the same scenario). */
@@ -215,10 +227,39 @@ public class ScenarioService {
         this.currentProjectId = projectId;
     }
 
-    /** Replace {{projectId}} templates in scenario responses with the actual project ID. */
+    /** Set the current step index for step-scoped response collection. */
+    public void setCurrentStepIndex(int stepIndex) {
+        this.currentStepIndex = stepIndex;
+    }
+
+    /** Set thread IDs for {{threads[N].threadId}} template resolution. */
+    public void setThreadIds(List<String> ids) {
+        this.threadIds = ids != null ? new ArrayList<>(ids) : new ArrayList<>();
+    }
+
+    /** Replace {{projectId}} and {{threads[N].threadId}} templates in scenario responses. */
     private String resolveTemplates(String response) {
-        if (response == null || currentProjectId == null) return response;
-        return response.replace("{{projectId}}", currentProjectId);
+        if (response == null) return response;
+        if (currentProjectId != null) {
+            response = response.replace("{{projectId}}", currentProjectId);
+        }
+        // Resolve {{threads[N].threadId}} patterns
+        if (!threadIds.isEmpty()) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{\\{threads\\[(\\d+)]\\.(\\w+)}}").matcher(response);
+            StringBuilder sb = new StringBuilder();
+            while (m.find()) {
+                int idx = Integer.parseInt(m.group(1));
+                String field = m.group(2);
+                String replacement = "";
+                if ("threadId".equals(field) && idx < threadIds.size()) {
+                    replacement = threadIds.get(idx);
+                }
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
+            }
+            m.appendTail(sb);
+            response = sb.toString();
+        }
+        return response;
     }
 
     // Package-private for testing
