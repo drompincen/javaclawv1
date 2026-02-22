@@ -4,6 +4,13 @@
 # Requires real LLM for answers — seeds work in any mode.
 set -euo pipefail
 
+# WSL detection: use curl.exe to reach Windows-hosted server
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  CURL="curl.exe"
+else
+  CURL="curl"
+fi
+
 BASE_URL=${BASE_URL:-http://localhost:8080}
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
 section() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
@@ -14,10 +21,10 @@ fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 # --- Find or Create + Seed Project ---
 section "1. Find or Create Project"
 PROJECT_NAME="Tutorial Payment Gateway"
-PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+PROJECT_ID=$($CURL -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+  PROJECT=$($CURL -s -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
     -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
@@ -27,25 +34,25 @@ else
 fi
 
 # Seed a thread
-curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/threads" \
+$CURL -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/threads" \
   -H 'Content-Type: application/json' \
   -d '{"title":"Payment Processing Refactor","summary":"Splitting monolith into strategy pattern. Joe owns refactor, 3 handlers. Target: Sprint 42."}' > /dev/null
 ok "Thread: Payment Processing"
 
 # Seed a ticket
-curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/tickets" \
+$CURL -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/tickets" \
   -H 'Content-Type: application/json' \
   -d '{"title":"PAY-103: Refactor digital wallet handler","description":"Joe, IN_PROGRESS, 3 SP","priority":"HIGH"}' > /dev/null
 ok "Ticket: PAY-103"
 
 # Seed a blindspot
-curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/blindspots" \
+$CURL -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/blindspots" \
   -H 'Content-Type: application/json' \
   -d '{"title":"No load test for payment processing service","category":"MISSING_TEST_SIGNAL","severity":"HIGH"}' > /dev/null
 ok "Blindspot: Missing load test"
 
 # Seed an objective
-curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/objectives" \
+$CURL -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/objectives" \
   -H 'Content-Type: application/json' \
   -d "{\"sprintName\":\"Sprint 42\",\"outcome\":\"Complete Payment Processing refactor\",\"status\":\"COMMITTED\"}" > /dev/null
 ok "Objective: Sprint 42"
@@ -54,7 +61,7 @@ ok "Objective: Sprint 42"
 ask_claw() {
   local Q="$1"
   echo -e "  ${CYAN}Q:${NC} $Q"
-  RESP=$(curl -s -X POST "$BASE_URL/api/ask" \
+  RESP=$($CURL -s -X POST "$BASE_URL/api/ask" \
     -H 'Content-Type: application/json' \
     -d "$(jq -n --arg pid "$PROJECT_ID" --arg q "$Q" '{projectId: $pid, question: $q}')")
   ANSWER=$(echo "$RESP" | jq -r '.answer // empty')
@@ -83,5 +90,10 @@ echo "  /api/ask assembles context from all project collections:"
 echo "    threads, objectives, tickets, blindspots, resources, memories"
 echo "  Then sends the question + context to the LLM for a grounded answer."
 echo "  Responses include source references so you can trace the data."
+
+# --- Teardown ---
+section "Teardown"
+$CURL -s -X DELETE "$BASE_URL/api/projects/$PROJECT_ID/data" -o $DEVNULL
+ok "Cleaned project data for next tutorial"
 
 echo -e "\n${GREEN}DONE${NC} — Tutorial 07 complete."

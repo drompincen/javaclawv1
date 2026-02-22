@@ -4,6 +4,13 @@
 # Requires real LLM or will time out — designed for demos and documentation.
 set -euo pipefail
 
+# WSL detection: use curl.exe to reach Windows-hosted server
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  CURL="curl.exe"
+else
+  CURL="curl"
+fi
+
 BASE_URL=${BASE_URL:-http://localhost:8080}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -15,10 +22,10 @@ fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 # --- Find or Create Project ---
 section "1. Find or Create Project"
 PROJECT_NAME="Tutorial Payment Gateway"
-PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+PROJECT_ID=$($CURL -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+  PROJECT=$($CURL -s -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
     -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
@@ -37,7 +44,7 @@ ok "Loaded Payment Gateway Architecture Review notes ($(echo "$NOTES" | wc -l) l
 section "3. Submit to Intake Pipeline"
 PAYLOAD=$(jq -n --arg pid "$PROJECT_ID" --arg content "$NOTES" \
   '{projectId: $pid, content: $content}')
-PIPELINE=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
+PIPELINE=$($CURL -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
   -H 'Content-Type: application/json' \
   -d "$PAYLOAD")
 HTTP_CODE=$(echo "$PIPELINE" | tail -1)
@@ -53,7 +60,7 @@ echo "  This may take 30-60 seconds with a real LLM."
 ATTEMPTS=0
 MAX_ATTEMPTS=30
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-  THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
+  THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
   T_COUNT=$(echo "$THREADS" | jq 'length')
   if [ "$T_COUNT" -gt 0 ]; then
     ok "Found $T_COUNT thread(s) created by the pipeline"
@@ -71,7 +78,7 @@ echo "$THREADS" | jq -r '.[] | "  - \(.title) [\(.status)]"'
 
 # --- Check Memories ---
 section "6. Check Memories"
-MEMORIES=$(curl -s "$BASE_URL/api/memories?projectId=$PROJECT_ID")
+MEMORIES=$($CURL -s "$BASE_URL/api/memories?projectId=$PROJECT_ID")
 M_COUNT=$(echo "$MEMORIES" | jq 'length')
 if [ "$M_COUNT" -gt 0 ]; then
   ok "Distiller created $M_COUNT memory(ies)"
@@ -90,5 +97,10 @@ echo "  The intake pipeline:"
 echo "    1. Triaged the meeting notes (classified topics)"
 echo "    2. Created a thread per topic"
 echo "    3. Distilled key decisions and actions into memories"
+
+# --- Teardown ---
+section "Teardown"
+$CURL -s -X DELETE "$BASE_URL/api/projects/$PROJECT_ID/data" -o $DEVNULL
+ok "Cleaned project data for next tutorial"
 
 echo -e "\n${GREEN}DONE${NC} — Tutorial 02 complete."

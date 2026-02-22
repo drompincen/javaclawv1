@@ -4,6 +4,15 @@
 # Works in any mode (testmode or real LLM).
 set -euo pipefail
 
+# WSL detection: use curl.exe to reach Windows-hosted server
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  CURL="curl.exe"
+  DEVNULL="NUL"
+else
+  CURL="curl"
+  DEVNULL="/dev/null"
+fi
+
 BASE_URL=${BASE_URL:-http://localhost:8080}
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 section() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
@@ -12,16 +21,16 @@ fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
 # --- Health Check ---
 section "1. Health Check"
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/projects")
+STATUS=$($CURL -s -o $DEVNULL -w '%{http_code}' "$BASE_URL/api/projects")
 [ "$STATUS" = "200" ] && ok "Server is running at $BASE_URL" || fail "Server not reachable (HTTP $STATUS)"
 
 # --- Find or Create Project ---
 section "2. Find or Create Project"
 PROJECT_NAME="Tutorial Payment Gateway"
-PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+PROJECT_ID=$($CURL -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+  PROJECT=$($CURL -s -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
     -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
@@ -33,17 +42,17 @@ fi
 
 # --- List Projects ---
 section "3. List Projects"
-COUNT=$(curl -s "$BASE_URL/api/projects" | jq 'length')
+COUNT=$($CURL -s "$BASE_URL/api/projects" | jq 'length')
 ok "Found $COUNT project(s)"
 
 # --- Get Project ---
 section "4. Get Project Details"
-NAME=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID" | jq -r '.name')
+NAME=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID" | jq -r '.name')
 ok "Project name: $NAME"
 
 # --- Create Session ---
 section "5. Create Session"
-SESSION=$(curl -s -X POST "$BASE_URL/api/sessions" \
+SESSION=$($CURL -s -X POST "$BASE_URL/api/sessions" \
   -H 'Content-Type: application/json' \
   -d "{\"projectId\":\"$PROJECT_ID\"}")
 SESSION_ID=$(echo "$SESSION" | jq -r '.sessionId')
@@ -51,7 +60,7 @@ SESSION_ID=$(echo "$SESSION" | jq -r '.sessionId')
 
 # --- Send Message ---
 section "6. Send Message"
-MSG=$(curl -s -X POST "$BASE_URL/api/sessions/$SESSION_ID/messages" \
+MSG=$($CURL -s -X POST "$BASE_URL/api/sessions/$SESSION_ID/messages" \
   -H 'Content-Type: application/json' \
   -d '{"content":"Hello JavaClaw! What can you do?","role":"user"}')
 MSG_ID=$(echo "$MSG" | jq -r '.messageId')
@@ -59,14 +68,14 @@ MSG_ID=$(echo "$MSG" | jq -r '.messageId')
 
 # --- List Messages ---
 section "7. List Messages"
-MESSAGES=$(curl -s "$BASE_URL/api/sessions/$SESSION_ID/messages")
+MESSAGES=$($CURL -s "$BASE_URL/api/sessions/$SESSION_ID/messages")
 MSG_COUNT=$(echo "$MESSAGES" | jq 'length')
 ok "Session has $MSG_COUNT message(s)"
 echo "$MESSAGES" | jq -r '.[] | "  [\(.role)] \(.content[:80])"'
 
 # --- Create Thread ---
 section "8. Create Thread"
-THREAD=$(curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/threads" \
+THREAD=$($CURL -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/threads" \
   -H 'Content-Type: application/json' \
   -d '{"title":"Getting Started","summary":"Initial exploration of the platform"}')
 THREAD_ID=$(echo "$THREAD" | jq -r '.threadId')
@@ -74,9 +83,14 @@ THREAD_ID=$(echo "$THREAD" | jq -r '.threadId')
 
 # --- List Threads ---
 section "9. List Threads"
-THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
+THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
 T_COUNT=$(echo "$THREADS" | jq 'length')
 ok "Project has $T_COUNT thread(s)"
 echo "$THREADS" | jq -r '.[] | "  - \(.title) [\(.status)]"'
+
+# --- Teardown ---
+section "Teardown"
+$CURL -s -X DELETE "$BASE_URL/api/projects/$PROJECT_ID/data" -o $DEVNULL
+ok "Cleaned project data for next tutorial"
 
 echo -e "\n${GREEN}DONE${NC} — Tutorial 01 complete. You created a project, session, thread, and message."

@@ -6,8 +6,21 @@
 # Requires real LLM — the intake pipeline uses agents (triage, generalist) to parse content.
 set -euo pipefail
 
+# WSL detection: use curl.exe to reach Windows-hosted server
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  CURL="curl.exe"
+else
+  CURL="curl"
+fi
+
 BASE_URL=${BASE_URL:-http://localhost:8080}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# For curl.exe file uploads, convert WSL path to Windows path
+if [ "$CURL" = "curl.exe" ]; then
+  UPLOAD_DIR="$(wslpath -w "$SCRIPT_DIR/sample-data")"
+else
+  UPLOAD_DIR="$SCRIPT_DIR/sample-data"
+fi
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
 section() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
 ok()      { echo -e "${GREEN}  OK${NC} $1"; }
@@ -49,10 +62,10 @@ assert_contains() {
 # --- Find or Create Project ---
 section "1. Find or Create Project"
 PROJECT_NAME="Tutorial Payment Gateway"
-PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+PROJECT_ID=$($CURL -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+  PROJECT=$($CURL -s -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
     -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
@@ -62,8 +75,8 @@ else
 fi
 
 # Snapshot baseline counts
-BASELINE_TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets" | jq 'length')
-BASELINE_THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads" | jq 'length')
+BASELINE_TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets" | jq 'length')
+BASELINE_THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads" | jq 'length')
 ok "Baseline: $BASELINE_TICKETS tickets, $BASELINE_THREADS threads"
 
 # ===================================================================
@@ -72,9 +85,9 @@ ok "Baseline: $BASELINE_TICKETS tickets, $BASELINE_THREADS threads"
 section "PART A: CSV File Upload via Multipart POST"
 
 section "A1. Upload CSV File"
-UPLOAD_RESP=$(curl -s -X POST "$BASE_URL/api/intake/upload" \
+UPLOAD_RESP=$($CURL -s -X POST "$BASE_URL/api/intake/upload" \
   -F "projectId=$PROJECT_ID" \
-  -F "files=@$SCRIPT_DIR/sample-data/jira-export.csv")
+  -F "files=@$UPLOAD_DIR/jira-export.csv")
 UPLOAD_COUNT=$(echo "$UPLOAD_RESP" | jq 'length')
 assert_eq "Upload count" "$UPLOAD_COUNT" "1"
 
@@ -92,7 +105,7 @@ ok "Upload ID: $UPLOAD_ID"
 section "A3. Submit CSV to Pipeline"
 PAYLOAD=$(jq -n --arg pid "$PROJECT_ID" --arg fp "$CSV_FILE_PATH" \
   '{projectId: $pid, content: "Process the uploaded CSV file — it contains Jira ticket data in CSV format with columns Key, Epic, Summary, Assignee, Status, Priority, SP.", filePaths: [$fp]}')
-PIPELINE_RESP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
+PIPELINE_RESP=$($CURL -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
   -H 'Content-Type: application/json' \
   -d "$PAYLOAD")
 HTTP_CODE=$(echo "$PIPELINE_RESP" | tail -1)
@@ -101,7 +114,7 @@ HTTP_CODE=$(echo "$PIPELINE_RESP" | tail -1)
 section "A4. Wait for Pipeline (CSV)"
 ATTEMPTS=0; MAX_ATTEMPTS=45
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-  TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
+  TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
   TK_COUNT=$(echo "$TICKETS" | jq 'length')
   [ "$TK_COUNT" -gt "$BASELINE_TICKETS" ] && break
   ATTEMPTS=$((ATTEMPTS + 1))
@@ -110,11 +123,11 @@ while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
 done
 
 section "A5. Assert CSV Results"
-THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
+THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
 T_COUNT=$(echo "$THREADS" | jq 'length')
 assert_gte "CSV threads exist" "$T_COUNT" "$((BASELINE_THREADS + 1))"
 
-TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
+TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
 TK_COUNT=$(echo "$TICKETS" | jq 'length')
 assert_gte "CSV tickets exist" "$TK_COUNT" "$((BASELINE_TICKETS + 3))"
 
@@ -139,9 +152,9 @@ POST_CSV_THREADS=$T_COUNT
 section "PART B: JSON File Upload via Multipart POST"
 
 section "B1. Upload JSON File"
-UPLOAD_RESP=$(curl -s -X POST "$BASE_URL/api/intake/upload" \
+UPLOAD_RESP=$($CURL -s -X POST "$BASE_URL/api/intake/upload" \
   -F "projectId=$PROJECT_ID" \
-  -F "files=@$SCRIPT_DIR/sample-data/jira-export.json")
+  -F "files=@$UPLOAD_DIR/jira-export.json")
 UPLOAD_COUNT=$(echo "$UPLOAD_RESP" | jq 'length')
 assert_eq "Upload count" "$UPLOAD_COUNT" "1"
 
@@ -152,7 +165,7 @@ assert_eq "Content type" "$JSON_CONTENT_TYPE" "json"
 section "B2. Submit JSON to Pipeline"
 PAYLOAD=$(jq -n --arg pid "$PROJECT_ID" --arg fp "$JSON_FILE_PATH" \
   '{projectId: $pid, content: "Process the uploaded JSON file — it contains a Jira REST API export with ticket fields including summary, status, priority, assignee, story points, and parent epic.", filePaths: [$fp]}')
-PIPELINE_RESP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
+PIPELINE_RESP=$($CURL -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
   -H 'Content-Type: application/json' \
   -d "$PAYLOAD")
 HTTP_CODE=$(echo "$PIPELINE_RESP" | tail -1)
@@ -161,7 +174,7 @@ HTTP_CODE=$(echo "$PIPELINE_RESP" | tail -1)
 section "B3. Wait for Pipeline (JSON)"
 ATTEMPTS=0; MAX_ATTEMPTS=45
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-  TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
+  TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
   TK_COUNT=$(echo "$TICKETS" | jq 'length')
   [ "$TK_COUNT" -gt "$POST_CSV_TICKETS" ] && break
   ATTEMPTS=$((ATTEMPTS + 1))
@@ -170,11 +183,11 @@ while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
 done
 
 section "B4. Assert JSON Results"
-THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
+THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
 T_COUNT=$(echo "$THREADS" | jq 'length')
 assert_gte "JSON threads exist" "$T_COUNT" "$POST_CSV_THREADS"
 
-TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
+TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
 TK_COUNT=$(echo "$TICKETS" | jq 'length')
 assert_gte "JSON tickets exist" "$TK_COUNT" "$((POST_CSV_TICKETS + 3))"
 
@@ -197,7 +210,7 @@ section "C1. Submit Text Content to Pipeline"
 JIRA_TEXT=$(cat "$SCRIPT_DIR/sample-data/jira-export.txt")
 PAYLOAD=$(jq -n --arg pid "$PROJECT_ID" --arg content "$JIRA_TEXT" \
   '{projectId: $pid, content: $content}')
-PIPELINE_RESP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
+PIPELINE_RESP=$($CURL -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
   -H 'Content-Type: application/json' \
   -d "$PAYLOAD")
 HTTP_CODE=$(echo "$PIPELINE_RESP" | tail -1)
@@ -206,7 +219,7 @@ HTTP_CODE=$(echo "$PIPELINE_RESP" | tail -1)
 section "C2. Wait for Pipeline (Text)"
 ATTEMPTS=0; MAX_ATTEMPTS=45
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-  TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
+  TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
   TK_COUNT=$(echo "$TICKETS" | jq 'length')
   [ "$TK_COUNT" -gt "$POST_JSON_TICKETS" ] && break
   ATTEMPTS=$((ATTEMPTS + 1))
@@ -215,11 +228,11 @@ while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
 done
 
 section "C3. Assert Text Results"
-THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
+THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
 T_COUNT=$(echo "$THREADS" | jq 'length')
 assert_gte "Text threads exist" "$T_COUNT" "$POST_JSON_THREADS"
 
-TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
+TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
 TK_COUNT=$(echo "$TICKETS" | jq 'length')
 assert_gte "Text tickets exist" "$TK_COUNT" "$((POST_JSON_TICKETS + 3))"
 
@@ -233,9 +246,9 @@ echo "$TICKETS" | jq -r '.[] | "    [\(.status)] \(.title)"' | tail -10
 # SUMMARY
 # ===================================================================
 section "SUMMARY"
-FINAL_TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets" | jq 'length')
-FINAL_THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads" | jq 'length')
-FINAL_MEMORIES=$(curl -s "$BASE_URL/api/memories?projectId=$PROJECT_ID" | jq 'length')
+FINAL_TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets" | jq 'length')
+FINAL_THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads" | jq 'length')
+FINAL_MEMORIES=$($CURL -s "$BASE_URL/api/memories?projectId=$PROJECT_ID" | jq 'length')
 echo "  Project: $PROJECT_ID"
 echo "  Threads:  $FINAL_THREADS (was $BASELINE_THREADS)"
 echo "  Tickets:  $FINAL_TICKETS (was $BASELINE_TICKETS)"
@@ -243,6 +256,11 @@ echo "  Memories: $FINAL_MEMORIES"
 echo "  3 formats tested: CSV upload, JSON upload, text REST pipeline"
 echo ""
 echo "  Assertions: $PASS/$TOTAL passed"
+
+# --- Teardown ---
+section "Teardown"
+$CURL -s -X DELETE "$BASE_URL/api/projects/$PROJECT_ID/data" -o $DEVNULL
+ok "Cleaned project data for next tutorial"
 
 if [ "$PASS" -eq "$TOTAL" ]; then
   echo -e "\n${GREEN}ALL ASSERTIONS PASSED${NC} — Tutorial 13 complete."
