@@ -13,8 +13,8 @@ package javaclaw;
 // Usage:
 //   jbang javaclaw.java                          # Default: starts on port 8080
 //   jbang javaclaw.java --port 9090              # Custom HTTP port (default: 8080)
-//   jbang javaclaw.java --testmode               # Test mode with deterministic LLM
-//   jbang javaclaw.java --scenario file.json      # Scenario-based E2E test (implies --testmode)
+//   jbang javaclaw.java --testMode               # Test mode with deterministic LLM
+//   jbang javaclaw.java --scenario file.json      # Scenario-based E2E test (implies --testMode)
 //   jbang javaclaw.java --api-key sk-ant-...      # Set API key (auto-detects Anthropic/OpenAI)
 //   jbang javaclaw.java --mongo mongodb://host:port/db   # Custom MongoDB URI
 //
@@ -52,6 +52,18 @@ public class javaclaw {
 
     public static void main(String... args) {
         parseArgs(args);
+
+        // Bridge env vars to system properties (CLI --api-key takes precedence since parseArgs sets sysprop first)
+        String envAnthropicKey = System.getenv("ANTHROPIC_API_KEY");
+        if (envAnthropicKey != null && !envAnthropicKey.isBlank() && System.getProperty("spring.ai.anthropic.api-key") == null) {
+            System.setProperty("spring.ai.anthropic.api-key", envAnthropicKey);
+            System.out.println("  Anthropic API key set from ANTHROPIC_API_KEY env var.");
+        }
+        String envOpenaiKey = System.getenv("OPENAI_API_KEY");
+        if (envOpenaiKey != null && !envOpenaiKey.isBlank() && System.getProperty("spring.ai.openai.api-key") == null) {
+            System.setProperty("spring.ai.openai.api-key", envOpenaiKey);
+            System.out.println("  OpenAI API key set from OPENAI_API_KEY env var.");
+        }
 
         System.setProperty("spring.application.name", "javaclaw");
         System.setProperty("spring.data.mongodb.uri", mongoUri);
@@ -98,7 +110,7 @@ public class javaclaw {
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--testmode" -> System.setProperty("javaclaw.llm.provider", "test");
+                case "--testMode" -> System.setProperty("javaclaw.llm.provider", "test");
                 case "--scenario" -> {
                     if (i + 1 < args.length) {
                         String scenarioArg = args[++i];
@@ -130,6 +142,7 @@ public class javaclaw {
                         }
                     }
                 }
+                case "--tutorialMode" -> System.setProperty("javaclaw.tutorial.enabled", "true");
                 case "--mongo" -> { if (i + 1 < args.length) mongoUri = args[++i]; }
                 case "--port" -> { if (i + 1 < args.length) port = Integer.parseInt(args[++i]); }
             }

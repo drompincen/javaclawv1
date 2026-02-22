@@ -4,6 +4,13 @@
 # Requires real LLM for pipeline — CRUD sections work in any mode.
 set -euo pipefail
 
+# WSL detection: use curl.exe to reach Windows-hosted server
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  CURL="curl.exe"
+else
+  CURL="curl"
+fi
+
 BASE_URL=${BASE_URL:-http://localhost:8080}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -15,10 +22,10 @@ fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 # --- Find or Create Project ---
 section "1. Find or Create Project"
 PROJECT_NAME="Tutorial Payment Gateway"
-PROJECT_ID=$(curl -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+PROJECT_ID=$($CURL -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-  PROJECT=$(curl -s -X POST "$BASE_URL/api/projects" \
+  PROJECT=$($CURL -s -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
     -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
@@ -33,7 +40,7 @@ section "2. Seed Team Resources"
 ROSTER="$SCRIPT_DIR/sample-data/team-roster.json"
 for i in 0 1 2; do
   MEMBER=$(jq ".[$i] + {projectId: \"$PROJECT_ID\"}" "$ROSTER")
-  RES=$(curl -s -X POST "$BASE_URL/api/resources" \
+  RES=$($CURL -s -X POST "$BASE_URL/api/resources" \
     -H 'Content-Type: application/json' \
     -d "$MEMBER")
   NAME=$(echo "$RES" | jq -r '.name')
@@ -45,7 +52,7 @@ done
 section "3. Seed Jira Tickets"
 create_ticket() {
   local TITLE="$1" DESC="$2" PRIO="$3"
-  TICKET=$(curl -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/tickets" \
+  TICKET=$($CURL -s -X POST "$BASE_URL/api/projects/$PROJECT_ID/tickets" \
     -H 'Content-Type: application/json' \
     -d "$(jq -n --arg t "$TITLE" --arg d "$DESC" --arg p "$PRIO" \
       '{title: $t, description: $d, priority: $p}')")
@@ -64,7 +71,7 @@ TICKET_COUNT=7
 
 # --- Verify Tickets ---
 section "4. Verify Tickets"
-TICKETS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
+TICKETS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/tickets")
 TOTAL=$(echo "$TICKETS" | jq 'length')
 ok "Project has $TOTAL ticket(s)"
 echo "$TICKETS" | jq -r '.[] | "  [\(.status)] \(.title)"'
@@ -74,7 +81,7 @@ section "5. Submit Meeting Notes to Intake Pipeline"
 NOTES=$(cat "$SCRIPT_DIR/sample-data/meeting-notes-payments.txt")
 PAYLOAD=$(jq -n --arg pid "$PROJECT_ID" --arg content "$NOTES" \
   '{projectId: $pid, content: $content}')
-RESP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
+RESP=$($CURL -s -w '\n%{http_code}' -X POST "$BASE_URL/api/intake/pipeline" \
   -H 'Content-Type: application/json' \
   -d "$PAYLOAD")
 HTTP_CODE=$(echo "$RESP" | tail -1)
@@ -84,7 +91,7 @@ HTTP_CODE=$(echo "$RESP" | tail -1)
 section "6. Waiting for Threads"
 ATTEMPTS=0; MAX_ATTEMPTS=30
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-  THREADS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
+  THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
   T_COUNT=$(echo "$THREADS" | jq 'length')
   [ "$T_COUNT" -gt 0 ] && break
   ATTEMPTS=$((ATTEMPTS + 1))
@@ -100,7 +107,7 @@ sleep 15
 
 # --- Check Blindspots ---
 section "8. Check Blindspots"
-BLINDSPOTS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/blindspots")
+BLINDSPOTS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/blindspots")
 B_COUNT=$(echo "$BLINDSPOTS" | jq 'length')
 if [ "$B_COUNT" -gt 0 ]; then
   ok "$B_COUNT blindspot(s) detected"
@@ -111,18 +118,18 @@ fi
 
 # --- Check Delta Packs ---
 section "9. Check Delta Packs"
-DELTAS=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/delta-packs")
+DELTAS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/delta-packs")
 D_COUNT=$(echo "$DELTAS" | jq 'length')
 if [ "$D_COUNT" -gt 0 ]; then
   ok "$D_COUNT delta pack(s)"
-  echo "$DELTAS" | jq -r '.[] | "  \(.summary[:80])"'
+  echo "$DELTAS" | jq -r '.[] | "  \(.summary | if type == "string" then .[:80] else "\(.totalDeltas // 0) deltas" end)"'
 else
   warn "No delta packs yet — reconciliation may still be running"
 fi
 
 # --- Check Objectives ---
 section "10. Check Objectives"
-OBJECTIVES=$(curl -s "$BASE_URL/api/projects/$PROJECT_ID/objectives")
+OBJECTIVES=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/objectives")
 O_COUNT=$(echo "$OBJECTIVES" | jq 'length')
 if [ "$O_COUNT" -gt 0 ]; then
   ok "$O_COUNT objective(s) created"
@@ -143,5 +150,10 @@ echo "  Delta Packs: ${D_COUNT:-0}"
 echo ""
 echo "  Key insight: Joe is assigned 5 of 7 tickets (22 story points)."
 echo "  The capacity analysis should flag this as an overload risk."
+
+# --- Teardown ---
+section "Teardown"
+$CURL -s -X DELETE "$BASE_URL/api/projects/$PROJECT_ID/data" -o $DEVNULL
+ok "Cleaned project data for next tutorial"
 
 echo -e "\n${GREEN}DONE${NC} — Tutorial 03 complete."

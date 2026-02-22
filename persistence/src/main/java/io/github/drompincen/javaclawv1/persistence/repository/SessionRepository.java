@@ -11,4 +11,7 @@ public interface SessionRepository extends MongoRepository<SessionDocument, Stri
     List<SessionDocument> findAllByOrderByUpdatedAtDesc();
     List<SessionDocument> findByThreadId(String threadId);
     List<SessionDocument> findByThreadIdIsNullOrderByUpdatedAtDesc();
+    List<SessionDocument> findByProjectId(String projectId);
+
+    void deleteByProjectId(String projectId);
 }

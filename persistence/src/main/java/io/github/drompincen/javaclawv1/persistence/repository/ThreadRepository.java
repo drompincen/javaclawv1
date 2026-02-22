@@ -8,4 +8,6 @@ import java.util.List;
 public interface ThreadRepository extends MongoRepository<ThreadDocument, String> {
     List<ThreadDocument> findByProjectIdsOrderByUpdatedAtDesc(String projectId);
     List<ThreadDocument> findByTitleIgnoreCaseAndProjectIdsContaining(String title, String projectId);
+
+    void deleteByProjectIdsContaining(String projectId);
 }

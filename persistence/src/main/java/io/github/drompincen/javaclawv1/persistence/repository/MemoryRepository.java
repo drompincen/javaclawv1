@@ -33,4 +33,6 @@ public interface MemoryRepository extends MongoRepository<MemoryDocument, String
 
     @Query("{'$or': [{'scope': 'GLOBAL'}, {'scope': 'PROJECT', 'projectId': ?0}]}")
     List<MemoryDocument> findRelevantMemories(String projectId);
+
+    void deleteByProjectId(String projectId);
 }

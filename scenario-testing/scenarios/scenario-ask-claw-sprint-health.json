@@ -1,0 +1,415 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Ask Claw Sprint Health Test",
+  "description": "E2E: Seed comprehensive project data (objectives, tickets, resources, blindspots, phases, milestones), then ask 'give me the sprint health' and verify the LLM context contains all categories",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed comprehensive sprint data",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/threads",
+          "body": {
+            "title": "Auth Service Redesign",
+            "content": "Redesigning auth service to support OAuth2 and SAML. JWT tokens with 15-min expiry decided.",
+            "summary": "Auth service OAuth2/SAML architecture"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 10",
+            "outcome": "Deliver OAuth2 integration for auth service",
+            "measurableSignal": "OAuth2 flow passes integration tests",
+            "status": "COMMITTED",
+            "risks": ["Token rotation complexity", "Dan overloaded"],
+            "coveragePercent": 40,
+            "startDate": "2026-02-17T00:00:00Z",
+            "endDate": "2026-03-03T00:00:00Z"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/objectives",
+          "body": {
+            "sprintName": "Sprint 10",
+            "outcome": "Complete SAML federation setup",
+            "measurableSignal": "SAML SSO working with test IdP",
+            "status": "PROPOSED",
+            "risks": ["Blocked on enterprise IdP sandbox access"],
+            "coveragePercent": 10
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "AUTH-301: OAuth2 token endpoint",
+            "description": "Implement /oauth/token endpoint with PKCE support",
+            "priority": "HIGH",
+            "owner": "Dan",
+            "storyPoints": 8
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "AUTH-302: JWT refresh flow",
+            "description": "Implement refresh token rotation with sliding window",
+            "priority": "HIGH",
+            "owner": "Dan",
+            "storyPoints": 5
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "AUTH-303: SAML assertion parser",
+            "description": "Parse SAML assertions from enterprise IdPs",
+            "priority": "MEDIUM",
+            "storyPoints": 5
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "AUTH-304: Session management refactor",
+            "description": "Refactor session store to support distributed sessions",
+            "priority": "HIGH",
+            "owner": "Eve",
+            "storyPoints": 13
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "AUTH-305: Auth integration tests",
+            "description": "End-to-end integration tests for OAuth2 and SAML flows",
+            "priority": "HIGH",
+            "storyPoints": 5
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Dan",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.7,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Eve",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 1.0,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Frank",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.5,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/blindspots",
+          "body": {
+            "title": "No load test for auth service",
+            "description": "Auth service has no performance benchmarks despite being critical path",
+            "category": "MISSING_TEST_SIGNAL",
+            "severity": "HIGH",
+            "status": "OPEN"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/blindspots",
+          "body": {
+            "title": "SAML ticket unassigned",
+            "description": "AUTH-303 has no owner and SAML objective is PROPOSED with only 10% coverage",
+            "category": "UNASSIGNED_WORK",
+            "severity": "MEDIUM",
+            "status": "OPEN"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/phases",
+          "body": {
+            "name": "Implementation",
+            "status": "IN_PROGRESS",
+            "sortOrder": 1,
+            "startDate": "2026-02-17T00:00:00Z",
+            "endDate": "2026-03-03T00:00:00Z",
+            "entryCriteria": ["Design approved"],
+            "exitCriteria": ["All tests pass", "Security review complete"]
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/milestones",
+          "body": {
+            "name": "OAuth2 Go-Live",
+            "status": "ON_TRACK",
+            "targetDate": "2026-03-03T00:00:00Z",
+            "owner": "Dan"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/checklists",
+          "body": {
+            "name": "Auth Service Launch Readiness",
+            "status": "IN_PROGRESS",
+            "items": [
+              {"itemId": "c1", "text": "OAuth2 endpoints working", "checked": true},
+              {"itemId": "c2", "text": "Refresh token rotation tested", "checked": false},
+              {"itemId": "c3", "text": "Security audit complete", "checked": false},
+              {"itemId": "c4", "text": "Load test passing", "checked": false}
+            ]
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "objectives",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 2}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 5}
+          },
+          {
+            "collection": "resources",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 3}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ask Claw: give me the sprint health",
+      "type": "seed",
+      "agentResponses": [
+        {
+          "agentName": "generalist",
+          "responseFallback": "# Sprint 10 Health Report\n\n## Overall Status: AT RISK\n\n### Objectives (2)\n1. **Deliver OAuth2 integration** — COMMITTED, 40% coverage, 2 tickets assigned to Dan (13 SP)\n2. **Complete SAML federation setup** — PROPOSED, 10% coverage, blocked on IdP sandbox access\n\n### Resource Load\n- **Dan**: 2 tickets (13 SP), 28 effective hours — overloaded\n- **Eve**: 1 ticket (13 SP), 40 effective hours — carrying heavy refactor\n- **Frank**: 0 tickets, 20 effective hours — completely idle\n\n### Unassigned Work\n- AUTH-303 (SAML assertion parser, 5 SP) — UNASSIGNED\n- AUTH-305 (Integration tests, 5 SP) — UNASSIGNED\n- 2 of 5 tickets (40%) have no owner\n\n### Blindspots (2)\n- No load test for auth service (HIGH severity)\n- SAML ticket unassigned (MEDIUM severity)\n\n### Phase: Implementation — IN_PROGRESS (Feb 17 – Mar 3)\n- Checklist: Auth Service Launch Readiness — 1/4 items checked (25%)\n\n### Milestone: OAuth2 Go-Live — ON_TRACK, target Mar 3\n\n### Immediate Actions\n1. Assign AUTH-303 to Frank (idle, 20h available)\n2. Assign AUTH-305 to Frank or Eve\n3. Create load test plan for auth service\n4. Confirm enterprise IdP sandbox access for SAML work"
+        }
+      ],
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/ask",
+          "body": {
+            "projectId": "{{projectId}}",
+            "question": "give me the sprint health"
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "OBJECTIVES"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Sprint 10"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "COMMITTED"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "PROPOSED"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "TICKETS"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "AUTH-301.*OAuth2"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=Dan"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "assignee=UNASSIGNED"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "BLINDSPOTS"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "No load test for auth service"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "RESOURCES"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Dan"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Frank"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "RESOURCE CAPACITY SUMMARY"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "PHASES"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Implementation.*IN_PROGRESS"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "MILESTONES"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "OAuth2 Go-Live"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "CHECKLISTS"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Auth Service Launch Readiness"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "ASSIGNMENT SUMMARY"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "give me the sprint health"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

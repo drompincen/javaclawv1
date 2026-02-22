@@ -168,7 +168,7 @@ class ScenarioAssertsTest {
 
     @Test
     void mongoCountGte_sufficient_passes() {
-        when(mongoTemplate.count(any(Query.class), eq("tickets"))).thenReturn(3L);
+        when(mongoTemplate.count(any(Query.class), eq("things"))).thenReturn(3L);
 
         ScenarioConfigV2.MongoAssertion ma = new ScenarioConfigV2.MongoAssertion(
                 "tickets",
@@ -188,7 +188,7 @@ class ScenarioAssertsTest {
 
     @Test
     void mongoCountGte_insufficient_fails() {
-        when(mongoTemplate.count(any(Query.class), eq("tickets"))).thenReturn(1L);
+        when(mongoTemplate.count(any(Query.class), eq("things"))).thenReturn(1L);
 
         ScenarioConfigV2.MongoAssertion ma = new ScenarioConfigV2.MongoAssertion(
                 "tickets",

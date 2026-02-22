@@ -194,3 +194,17 @@ export const ask = {
     catch { return null; }
   }
 };
+
+export const config = {
+  getProvider: () => get('/api/config/provider'),
+  getKeys:     () => get('/api/config/keys'),
+  setKeys:     (data) => post('/api/config/keys', data),
+};
+
+export const milestones = {
+  list:   (pid)        => get(`${projectPath(pid)}/milestones`),
+  get:    (pid, id)    => get(`${projectPath(pid)}/milestones/${id}`),
+  create: (pid, data)  => post(`${projectPath(pid)}/milestones`, data),
+  update: (pid, id, d) => put(`${projectPath(pid)}/milestones/${id}`, d),
+  delete: (pid, id)    => del(`${projectPath(pid)}/milestones/${id}`),
+};

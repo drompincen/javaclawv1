@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 2,
+  "projectName": "Ask Claw Resources Test",
+  "description": "E2E: Seed resources with varying availability, then ask 'how many resources on this project' and verify the LLM context lists all resources with capacity data",
+  "defaults": {
+    "maxWaitMs": 30000
+  },
+  "steps": [
+    {
+      "name": "Seed resources with varying capacity and tickets",
+      "type": "seed",
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Sarah Kim",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 1.0,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Mike Johnson",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.6,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Lisa Park",
+            "role": "DESIGNER",
+            "capacity": 40,
+            "availability": 0.5,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/resources",
+          "body": {
+            "name": "Tom Davis",
+            "role": "ENGINEER",
+            "capacity": 40,
+            "availability": 0.8,
+            "projectId": "{{projectId}}"
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "RES-101: Build search API",
+            "priority": "HIGH",
+            "owner": "Sarah Kim",
+            "storyPoints": 5
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "RES-102: Database migration",
+            "priority": "HIGH",
+            "owner": "Mike Johnson",
+            "storyPoints": 8
+          }
+        },
+        {
+          "method": "POST",
+          "url": "/api/projects/{{projectId}}/tickets",
+          "body": {
+            "title": "RES-103: UI mockups",
+            "priority": "MEDIUM",
+            "owner": "Lisa Park",
+            "storyPoints": 3
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "resources",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 4}
+          },
+          {
+            "collection": "tickets",
+            "filter": {"projectId": "{{projectId}}"},
+            "assert": {"countGte": 3}
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ask Claw: how many resources on this project",
+      "type": "seed",
+      "agentResponses": [
+        {
+          "agentName": "generalist",
+          "responseFallback": "## Resources on This Project\n\nThere are **4 resources** on this project:\n\n1. **Sarah Kim** — Engineer, 100% availability, 40 effective hours, 1 ticket (5 SP)\n2. **Mike Johnson** — Engineer, 60% availability, 24 effective hours, 1 ticket (8 SP)\n3. **Lisa Park** — Designer, 50% availability, 20 effective hours, 1 ticket (3 SP)\n4. **Tom Davis** — Engineer, 80% availability, 32 effective hours, 0 tickets assigned\n\n### Key Observation\nTom Davis has no tickets assigned despite 32 effective hours of capacity available."
+        }
+      ],
+      "seedActions": [
+        {
+          "method": "POST",
+          "url": "/api/ask",
+          "body": {
+            "projectId": "{{projectId}}",
+            "question": "how many resources on this project"
+          }
+        }
+      ],
+      "expects": {
+        "mongo": [
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Sarah Kim"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Mike Johnson"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Lisa Park"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "Tom Davis"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "RESOURCES"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "RESOURCE CAPACITY SUMMARY"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "effectiveHours=40"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "effectiveHours=24"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "effectiveHours=20"
+            }
+          },
+          {
+            "collection": "testPrompts",
+            "filter": {"agentId": "generalist"},
+            "assert": {
+              "anyMatchField": "prompt",
+              "anyMatchPattern": "how many resources"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

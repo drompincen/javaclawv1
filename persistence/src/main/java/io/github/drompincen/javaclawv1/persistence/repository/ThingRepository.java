@@ -18,4 +18,6 @@ public interface ThingRepository extends MongoRepository<ThingDocument, String> 
     Optional<ThingDocument> findByIdAndThingCategory(String id, ThingCategory thingCategory);
 
     void deleteByProjectIdAndThingCategory(String projectId, ThingCategory thingCategory);
+
+    void deleteByProjectId(String projectId);
 }
