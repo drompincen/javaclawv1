@@ -12,3 +12,4 @@ target/
 node_modules/
 .env
 .claude/settings.local.json
+uploads/
