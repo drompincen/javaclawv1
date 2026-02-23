@@ -39,6 +39,34 @@ const VIEW_MAP = {
 
 let eventCount = 0;
 
+// ── UI Preferences (font size + theme) ──
+const DEFAULT_FONT_SIZE = 12;
+const MIN_FONT_SIZE = 8;
+const MAX_FONT_SIZE = 20;
+
+function applyFontSize(size) {
+  document.documentElement.style.setProperty('--font-size', size + 'px');
+  const indicator = document.getElementById('fontSizeIndicator');
+  if (indicator) indicator.textContent = size + 'px';
+}
+
+function applyTheme(theme) {
+  document.body.classList.toggle('darcula', theme === 'darcula');
+  const indicator = document.getElementById('themeIndicator');
+  if (indicator) indicator.textContent = theme === 'darcula' ? 'darcula' : 'green-on-black';
+}
+
+function initUIPrefs() {
+  const savedSize = parseInt(localStorage.getItem('jc-font-size'), 10);
+  if (savedSize >= MIN_FONT_SIZE && savedSize <= MAX_FONT_SIZE) {
+    applyFontSize(savedSize);
+  }
+  const savedTheme = localStorage.getItem('jc-theme');
+  if (savedTheme === 'darcula') {
+    applyTheme('darcula');
+  }
+}
+
 // ── Provider badge ──
 async function refreshProviderBadge() {
   const badge = document.getElementById('providerBadge');
@@ -111,6 +139,7 @@ function showApiKeyModal() {
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
+  initUIPrefs();
   initNav();
   initAgentPanel();
   initTimerPanel();  // async — runs in background, does not block init
@@ -231,6 +260,40 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       e.preventDefault();
       createNewProject();
+    }
+    // Font resize: Ctrl + = / Ctrl + - / Ctrl + 0
+    if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === '=' || e.key === '+')) {
+      e.preventDefault();
+      const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--font-size'), 10) || DEFAULT_FONT_SIZE;
+      const next = Math.min(cur + 1, MAX_FONT_SIZE);
+      applyFontSize(next);
+      localStorage.setItem('jc-font-size', next);
+      toast('font ' + next + 'px');
+    }
+    if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === '-') {
+      e.preventDefault();
+      const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--font-size'), 10) || DEFAULT_FONT_SIZE;
+      const next = Math.max(cur - 1, MIN_FONT_SIZE);
+      applyFontSize(next);
+      localStorage.setItem('jc-font-size', next);
+      toast('font ' + next + 'px');
+    }
+    if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === '0') {
+      e.preventDefault();
+      applyFontSize(DEFAULT_FONT_SIZE);
+      localStorage.setItem('jc-font-size', DEFAULT_FONT_SIZE);
+      toast('font reset ' + DEFAULT_FONT_SIZE + 'px');
+    }
+    // Darcula theme toggle: Ctrl + D (when not in text field)
+    if (e.key === 'd' && e.ctrlKey && !e.altKey && !e.metaKey) {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      const isDarcula = document.body.classList.contains('darcula');
+      const next = isDarcula ? 'default' : 'darcula';
+      applyTheme(next);
+      localStorage.setItem('jc-theme', next);
+      toast(next === 'darcula' ? 'darcula theme' : 'green-on-black theme');
     }
   });
 

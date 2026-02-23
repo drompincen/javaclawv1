@@ -4,12 +4,8 @@
 # Requires real LLM or will time out — designed for demos and documentation.
 set -euo pipefail
 
-# WSL detection: use curl.exe to reach Windows-hosted server
-if grep -qi microsoft /proc/version 2>/dev/null; then
-  CURL="curl.exe"
-else
-  CURL="curl"
-fi
+CURL="curl"
+DEVNULL="/dev/null"
 
 BASE_URL=${BASE_URL:-http://localhost:8080}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -142,5 +143,26 @@ class CreateChecklistToolTest {
         ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
         verify(thingService).createThing(eq("proj-1"), eq(ThingCategory.CHECKLIST), payloadCaptor.capture());
         assertThat(payloadCaptor.getValue().get("sourceThreadId")).isEqualTo("thread-xyz");
+    }
+
+    @Test
+    void dedupReturnsExistingChecklist() {
+        ThingDocument existing = new ThingDocument();
+        existing.setId("existing-checklist-id");
+        existing.setThingCategory(ThingCategory.CHECKLIST);
+        when(thingService.findByProjectCategoryAndNameIgnoreCase("proj-1", ThingCategory.CHECKLIST, "Sprint Checklist"))
+                .thenReturn(Optional.of(existing));
+
+        ObjectNode input = MAPPER.createObjectNode();
+        input.put("projectId", "proj-1");
+        input.put("name", "Sprint Checklist");
+        input.putArray("items").addObject().put("text", "item 1");
+
+        ToolResult result = tool.execute(ctx, input, stream);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output().get("checklistId").asText()).isEqualTo("existing-checklist-id");
+        assertThat(result.output().get("status").asText()).isEqualTo("already_exists");
+        verify(thingService, never()).createThing(any(), any(), any());
     }
 }

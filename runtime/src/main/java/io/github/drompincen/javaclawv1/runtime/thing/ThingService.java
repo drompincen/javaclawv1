@@ -138,6 +138,18 @@ public class ThingService {
         return Optional.ofNullable(result);
     }
 
+    /** Find first thing by project, category, and case-insensitive match on an arbitrary payload field. */
+    public Optional<ThingDocument> findByProjectCategoryAndPayloadFieldIgnoreCase(
+            String projectId, ThingCategory category, String field, String value) {
+        Query query = new Query()
+                .addCriteria(Criteria.where("projectId").is(projectId))
+                .addCriteria(Criteria.where("thingCategory").is(category))
+                .addCriteria(Criteria.where("payload." + field).regex(
+                        "^" + Pattern.quote(value) + "$", "i"));
+        ThingDocument result = mongoTemplate.findOne(query, ThingDocument.class);
+        return Optional.ofNullable(result);
+    }
+
     /** Find first thing by project, category, and case-insensitive payload.name match. */
     public Optional<ThingDocument> findByProjectCategoryAndNameIgnoreCase(
             String projectId, ThingCategory category, String name) {

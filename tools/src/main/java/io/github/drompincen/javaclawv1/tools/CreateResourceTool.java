@@ -58,6 +58,17 @@ public class CreateResourceTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (name == null || name.isBlank()) return ToolResult.failure("'name' is required");
 
+        // Dedup: skip if resource with same name already exists for this project
+        Optional<ThingDocument> existing = thingService.findByProjectCategoryAndNameIgnoreCase(
+                projectId, ThingCategory.RESOURCE, name);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("resourceId", existing.get().getId());
+            result.put("status", "already_exists");
+            result.put("projectId", projectId);
+            return ToolResult.success(result);
+        }
+
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("name", name);
 

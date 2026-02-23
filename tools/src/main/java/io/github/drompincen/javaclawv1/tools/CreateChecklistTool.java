@@ -68,6 +68,17 @@ public class CreateChecklistTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (name == null || name.isBlank()) return ToolResult.failure("'name' is required");
 
+        // Dedup: skip if checklist with same name already exists for this project
+        Optional<ThingDocument> existing = thingService.findByProjectCategoryAndNameIgnoreCase(
+                projectId, ThingCategory.CHECKLIST, name);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("checklistId", existing.get().getId());
+            result.put("status", "already_exists");
+            result.put("projectId", projectId);
+            return ToolResult.success(result);
+        }
+
         String templateId = input.path("templateId").asText(null);
         String phaseId = input.path("phaseId").asText(null);
 

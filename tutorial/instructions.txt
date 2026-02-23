@@ -1,16 +1,15 @@
-clean up the mongodb contents before running but do not delete the agents collection
-run the scenarios and check the results in both rest apis and mongodb
-remember that the server will be started by me using a real llm api behind the agents
+IMPORTANT: All scripts MUST be run from WSL (Linux), NEVER from Windows/PowerShell/cmd.exe.
+Do NOT use powershell.exe, cmd.exe, or any Windows interop commands in scripts.
+The ANTHROPIC_API_KEY is set in ~/.bashrc — source it if not already in the environment.
 
-IMPORTANT: Tutorial tests MUST use the real LLM (Anthropic/OpenAI) — NEVER testmode.
-Before running any tutorial test:
-  1. Verify LLM connectivity: GET /api/config/provider must NOT return "No API Key"
-  2. If no API key is found, FAIL immediately with a clear error message
-  3. Do NOT run tests with --testMode — tutorial tests validate real LLM grounding
-  4. The ANTHROPIC_API_KEY must be set at the OS level or via --api-key / Ctrl-K
-  5. If the key is set at the OS level but not visible in the current terminal,
-     read it via: powershell -Command [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')
-     and push it to the server via POST /api/config/keys
+Before running tutorials:
+  1. Clean up MongoDB contents (but do NOT delete the agents collection)
+  2. Start the server: cd gateway && mvn spring-boot:run (from WSL)
+     Wait for "Started JavaclawApplication" or equivalent in the log before proceeding.
+  3. Verify the API key: ANTHROPIC_API_KEY must be in the environment (check ~/.bashrc)
+  4. Verify LLM connectivity: GET /api/config/provider must NOT return "No API Key"
+  5. If no API key is found, FAIL immediately with a clear error message
+  6. Do NOT run tutorials with --testMode — tutorial tests validate real LLM grounding
 
 Scenario tests (run-scenarios.sh) use --testMode with scripted responses.
-Tutorial tests (run-tutorial-tests.sh) use real LLM and MUST fail without connectivity.
+Tutorial tests use real LLM and MUST fail without connectivity.

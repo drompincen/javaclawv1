@@ -397,6 +397,7 @@ public class AgentBootstrapService {
                - OWNER_MISMATCH: different owners across sources
                - DATE_DRIFT: misaligned dates between objectives and milestones
                - STALE_ARTIFACT: items not updated in 14+ days
+               - DUPLICATE_ENTRY: multiple records with the same name/title/outcome in the same project
             3. Use `create_delta_pack` to record all findings
             4. Use `create_blindspot` for critical findings that need attention
 

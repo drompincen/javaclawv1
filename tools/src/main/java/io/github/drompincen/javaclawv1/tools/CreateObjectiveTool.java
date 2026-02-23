@@ -10,9 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public class CreateObjectiveTool implements Tool {
 
@@ -56,6 +54,17 @@ public class CreateObjectiveTool implements Tool {
         String title = input.path("title").asText(null);
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (title == null || title.isBlank()) return ToolResult.failure("'title' is required");
+
+        // Dedup: skip if objective with same outcome already exists for this project
+        Optional<ThingDocument> existing = thingService.findByProjectCategoryAndPayloadFieldIgnoreCase(
+                projectId, ThingCategory.OBJECTIVE, "outcome", title);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("objectiveId", existing.get().getId());
+            result.put("status", "already_exists");
+            result.put("projectId", projectId);
+            return ToolResult.success(result);
+        }
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("outcome", title);

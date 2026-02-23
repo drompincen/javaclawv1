@@ -488,8 +488,7 @@ public class IntakePipelineService {
         if (routeToPlan) {
             sb.append("### Objectives (IMPORTANT — create for EACH sprint objective or OKR)\n")
               .append("Call `create_objective` for EACH objective, goal, or OKR found in the content.\n")
-              .append("ALWAYS create new objective records even if similar objectives already exist in the project.\n")
-              .append("Each intake creates its own set of records — do NOT deduplicate.\n")
+              .append("The create tools handle dedup automatically — just call them and duplicates will be skipped.\n")
               .append("  args={\"projectId\": \"").append(projectId).append("\", ")
               .append("\"title\": \"Objective outcome description\", ")
               .append("\"description\": \"Measurable signal / success criteria\", ")

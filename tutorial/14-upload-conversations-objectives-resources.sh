@@ -6,21 +6,12 @@
 # Requires real LLM — agents parse unstructured/semi-structured content into domain objects.
 set -euo pipefail
 
-# WSL detection: use curl.exe to reach Windows-hosted server
-if grep -qi microsoft /proc/version 2>/dev/null; then
-  CURL="curl.exe"
-else
-  CURL="curl"
-fi
+CURL="curl"
+DEVNULL="/dev/null"
 
 BASE_URL=${BASE_URL:-http://localhost:8080}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# For curl.exe file uploads, convert WSL path to Windows path
-if [ "$CURL" = "curl.exe" ]; then
-  UPLOAD_DIR="$(wslpath -w "$SCRIPT_DIR/sample-data")"
-else
-  UPLOAD_DIR="$SCRIPT_DIR/sample-data"
-fi
+UPLOAD_DIR="$SCRIPT_DIR/sample-data"
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
 section() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
 ok()      { echo -e "${GREEN}  OK${NC} $1"; }

@@ -66,6 +66,17 @@ public class CreateReminderTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (message == null || message.isBlank()) return ToolResult.failure("'message' is required");
 
+        // Dedup: skip if reminder with same message already exists for this project
+        Optional<ThingDocument> existing = thingService.findByProjectCategoryAndPayloadFieldIgnoreCase(
+                projectId, ThingCategory.REMINDER, "message", message);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("reminderId", existing.get().getId());
+            result.put("status", "already_exists");
+            result.put("projectId", projectId);
+            return ToolResult.success(result);
+        }
+
         String typeStr = input.path("type").asText("TIME_BASED");
         ReminderDto.ReminderType type;
         try {

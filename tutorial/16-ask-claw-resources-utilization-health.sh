@@ -6,12 +6,8 @@ set -eu
 
 BASE_URL=${BASE_URL:-http://localhost:8080}
 
-# WSL detection: use curl.exe to reach Windows-hosted server
-if grep -qi microsoft /proc/version 2>/dev/null; then
-  CURL="curl.exe"
-else
-  CURL="curl"
-fi
+CURL="curl"
+DEVNULL="/dev/null"
 
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
 PASS=0; FAIL_COUNT=0
@@ -27,19 +23,7 @@ if [ -z "$PROVIDER" ]; then
   die "Server not reachable at $BASE_URL — start the server first"
 fi
 if echo "$PROVIDER" | grep -qi "no api key\|none"; then
-  # Try to pull key from Windows OS env and push to server
-  if command -v cmd.exe &>/dev/null; then
-    KEY=$(cmd.exe /c "powershell -Command [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')" 2>/dev/null | tr -d '\r\n' || true)
-    if [ -n "$KEY" ] && [ "$KEY" != "" ]; then
-      $CURL -sf -X POST "$BASE_URL/api/config/keys" \
-        -H 'Content-Type: application/json' \
-        -d "{\"anthropicKey\":\"$KEY\"}" > /dev/null
-      PROVIDER=$($CURL -sf "$BASE_URL/api/config/provider" | jq -r '.provider // empty')
-    fi
-  fi
-  if echo "$PROVIDER" | grep -qi "no api key\|none"; then
-    die "No LLM API key configured. Set ANTHROPIC_API_KEY env var or use --api-key / Ctrl-K. Tutorial tests REQUIRE a real LLM."
-  fi
+  die "No LLM API key configured. Set ANTHROPIC_API_KEY in ~/.bashrc and restart the server. Tutorial tests REQUIRE a real LLM."
 fi
 ok "LLM provider: $PROVIDER"
 
