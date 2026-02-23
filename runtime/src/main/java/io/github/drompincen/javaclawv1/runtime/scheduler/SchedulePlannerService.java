@@ -61,6 +61,9 @@ public class SchedulePlannerService {
             ZonedDateTime zdt = ZonedDateTime.of(today, time, tz);
             Instant scheduledAt = zdt.toInstant();
 
+            // Don't backfill past time slots — prevents agents from firing on restart
+            if (scheduledAt.isBefore(Instant.now())) continue;
+
             String idempotencyKey = dateKey + "|" + schedule.getAgentId() + "|"
                     + (schedule.getProjectId() != null ? schedule.getProjectId() : "GLOBAL")
                     + "|" + scheduledAt;
