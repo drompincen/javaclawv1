@@ -706,6 +706,21 @@ public class AgentGraphBuilder {
     }
 
     public ToolResult executeTool(AgentState state, String toolName, JsonNode input) {
+        // Enforce agent's allowedTools list
+        String agentId = state.getCurrentAgentId();
+        if (agentId != null) {
+            Optional<AgentDocument> agentOpt = agentRepository.findById(agentId);
+            if (agentOpt.isPresent()) {
+                List<String> allowed = agentOpt.get().getAllowedTools();
+                if (allowed != null && !allowed.isEmpty()
+                        && !allowed.contains("*") && !allowed.contains(toolName)) {
+                    log.warn("[{}] Blocked disallowed tool call: {}", agentId, toolName);
+                    return ToolResult.failure("Tool '" + toolName
+                            + "' is not allowed for agent '" + agentId + "'");
+                }
+            }
+        }
+
         // Check tool mock registry first (V2 scenario testing)
         if (toolMockRegistry != null) {
             Optional<ToolResult> mockResult = toolMockRegistry.tryMatch(toolName, input);

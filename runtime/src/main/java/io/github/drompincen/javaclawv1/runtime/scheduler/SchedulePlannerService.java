@@ -61,6 +61,9 @@ public class SchedulePlannerService {
             ZonedDateTime zdt = ZonedDateTime.of(today, time, tz);
             Instant scheduledAt = zdt.toInstant();
 
+            // Don't backfill past time slots — prevents agents from firing on restart
+            if (scheduledAt.isBefore(Instant.now())) continue;
+
             String idempotencyKey = dateKey + "|" + schedule.getAgentId() + "|"
                     + (schedule.getProjectId() != null ? schedule.getProjectId() : "GLOBAL")
                     + "|" + scheduledAt;
@@ -142,12 +145,12 @@ public class SchedulePlannerService {
             }
             case INTERVAL -> {
                 if (schedule.getIntervalMinutes() == null || schedule.getIntervalMinutes() <= 0) yield List.of();
+                int intervalMin = schedule.getIntervalMinutes();
                 List<LocalTime> times = new ArrayList<>();
-                LocalTime t = LocalTime.MIDNIGHT;
-                while (t.isBefore(LocalTime.of(23, 59))) {
-                    times.add(t);
-                    t = t.plusMinutes(schedule.getIntervalMinutes());
-                    if (t.isBefore(times.get(times.size() - 1))) break; // Wrapped past midnight
+                int minuteOfDay = 0;
+                while (minuteOfDay < 24 * 60) {
+                    times.add(LocalTime.of(minuteOfDay / 60, minuteOfDay % 60));
+                    minuteOfDay += intervalMin;
                 }
                 yield times;
             }
