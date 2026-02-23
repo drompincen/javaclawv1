@@ -233,7 +233,205 @@ class TestResourcesBusyFree(unittest.TestCase):
                        "should use pill good/bad classes")
 
 
-# ── 8. Structural integrity ──────────────────────────────────────────────
+# ── 8. Font resize ──────────────────────────────────────────────────────
+
+class TestFontResize(unittest.TestCase):
+    def setUp(self):
+        self.src = read('js/app.js')
+        self.css = read('css/cockpit.css')
+        self.html = read('index.html')
+
+    def test_constants_defined(self):
+        self.assertIn('DEFAULT_FONT_SIZE', self.src,
+                       "app.js must define DEFAULT_FONT_SIZE")
+        self.assertIn('MIN_FONT_SIZE', self.src,
+                       "app.js must define MIN_FONT_SIZE")
+        self.assertIn('MAX_FONT_SIZE', self.src,
+                       "app.js must define MAX_FONT_SIZE")
+
+    def test_min_max_bounds(self):
+        self.assertIn('MIN_FONT_SIZE = 8', self.src, "MIN must be 8")
+        self.assertIn('MAX_FONT_SIZE = 20', self.src, "MAX must be 20")
+        self.assertIn('DEFAULT_FONT_SIZE = 12', self.src, "DEFAULT must be 12")
+
+    def test_apply_font_size_function(self):
+        self.assertIn('function applyFontSize', self.src,
+                       "must define applyFontSize function")
+
+    def test_sets_css_variable(self):
+        self.assertIn("'--font-size'", self.src,
+                       "applyFontSize must set --font-size CSS variable")
+
+    def test_ctrl_plus_increases(self):
+        self.assertRegex(self.src, r"e\.key\s*===\s*'='.*e\.key\s*===\s*'\+'",
+                         "must handle Ctrl+= and Ctrl++ for increase")
+
+    def test_ctrl_minus_decreases(self):
+        self.assertIn("e.key === '-'", self.src,
+                       "must handle Ctrl+- for decrease")
+
+    def test_ctrl_zero_resets(self):
+        self.assertIn("e.key === '0'", self.src,
+                       "must handle Ctrl+0 for reset")
+
+    def test_persists_to_localstorage(self):
+        self.assertIn("localStorage.setItem('jc-font-size'", self.src,
+                       "must persist font size to localStorage")
+
+    def test_restores_from_localstorage(self):
+        self.assertIn("localStorage.getItem('jc-font-size'", self.src,
+                       "must restore font size from localStorage on init")
+
+    def test_css_variable_defined(self):
+        self.assertIn('--font-size: 12px', self.css,
+                       "CSS must define --font-size variable with default 12px")
+
+    def test_font_size_indicator_in_html(self):
+        self.assertIn('id="fontSizeIndicator"', self.html,
+                       "index.html must have fontSizeIndicator element")
+
+    def test_footer_mentions_font_shortcut(self):
+        self.assertIn('Ctrl+/- font', self.html,
+                       "footer must mention Ctrl+/- font shortcut")
+
+    def test_clamps_to_max(self):
+        self.assertIn('Math.min', self.src,
+                       "font increase must clamp to MAX_FONT_SIZE")
+
+    def test_clamps_to_min(self):
+        self.assertIn('Math.max', self.src,
+                       "font decrease must clamp to MIN_FONT_SIZE")
+
+
+# ── 9. Darcula theme toggle ─────────────────────────────────────────────
+
+class TestDarculaTheme(unittest.TestCase):
+    def setUp(self):
+        self.src = read('js/app.js')
+        self.css = read('css/cockpit.css')
+        self.html = read('index.html')
+
+    def test_apply_theme_function(self):
+        self.assertIn('function applyTheme', self.src,
+                       "app.js must define applyTheme function")
+
+    def test_toggles_darcula_class(self):
+        self.assertIn("'darcula'", self.src,
+                       "applyTheme must toggle 'darcula' class on body")
+
+    def test_ctrl_d_shortcut(self):
+        # Ctrl+D triggers theme toggle
+        self.assertRegex(self.src, r"e\.key\s*===\s*'d'.*e\.ctrlKey",
+                         "must handle Ctrl+D for theme toggle")
+
+    def test_skips_text_fields(self):
+        # Ctrl+D should not fire in INPUT/TEXTAREA/SELECT
+        lines = self.src.split('\n')
+        in_ctrl_d = False
+        found_guard = False
+        for line in lines:
+            if "'d'" in line and 'ctrlKey' in line:
+                in_ctrl_d = True
+            if in_ctrl_d and ('INPUT' in line or 'TEXTAREA' in line):
+                found_guard = True
+                break
+        self.assertTrue(found_guard,
+                        "Ctrl+D handler must skip text input fields")
+
+    def test_persists_to_localstorage(self):
+        self.assertIn("localStorage.setItem('jc-theme'", self.src,
+                       "must persist theme to localStorage")
+
+    def test_restores_from_localstorage(self):
+        self.assertIn("localStorage.getItem('jc-theme'", self.src,
+                       "must restore theme from localStorage on init")
+
+    def test_css_darcula_overrides(self):
+        self.assertIn('body.darcula', self.css,
+                       "CSS must define body.darcula overrides")
+
+    def test_darcula_redefines_variables(self):
+        # body.darcula block should redefine --bg, --text, etc.
+        match = re.search(r'body\.darcula\s*\{([^}]+)\}', self.css)
+        self.assertIsNotNone(match, "body.darcula rule must exist")
+        block = match.group(1)
+        self.assertIn('--bg:', block, "darcula must override --bg")
+        self.assertIn('--text:', block, "darcula must override --text")
+        self.assertIn('--accent:', block, "darcula must override --accent")
+
+    def test_theme_indicator_in_html(self):
+        self.assertIn('id="themeIndicator"', self.html,
+                       "index.html must have themeIndicator element")
+
+    def test_footer_mentions_darcula_shortcut(self):
+        self.assertIn('Ctrl+D darcula', self.html,
+                       "footer must mention Ctrl+D darcula shortcut")
+
+    def test_init_ui_prefs_called(self):
+        self.assertIn('initUIPrefs()', self.src,
+                       "DOMContentLoaded must call initUIPrefs()")
+
+
+# ── 10. F1 help modal: Display & Theme sections ────────────────────────
+
+class TestF1HelpModal(unittest.TestCase):
+    def setUp(self):
+        self.html = read('index.html')
+
+    def test_help_overlay_exists(self):
+        self.assertIn('id="helpOverlay"', self.html,
+                       "help modal overlay must exist")
+
+    def test_display_section_exists(self):
+        self.assertIn('>Display<', self.html,
+                       "F1 help must have a Display section")
+
+    def test_theme_section_exists(self):
+        self.assertIn('>Theme<', self.html,
+                       "F1 help must have a Theme section")
+
+    def test_ctrl_plus_in_help(self):
+        self.assertIn('Ctrl + +', self.html,
+                       "help must list Ctrl + + shortcut")
+
+    def test_ctrl_minus_in_help(self):
+        self.assertIn('Ctrl + -', self.html,
+                       "help must list Ctrl + - shortcut")
+
+    def test_ctrl_zero_in_help(self):
+        self.assertIn('Ctrl + 0', self.html,
+                       "help must list Ctrl + 0 shortcut")
+
+    def test_ctrl_d_in_help(self):
+        self.assertIn('Ctrl + D', self.html,
+                       "help must list Ctrl + D shortcut")
+
+    def test_increase_font_desc(self):
+        self.assertIn('Increase font size', self.html,
+                       "help must describe Ctrl++ as Increase font size")
+
+    def test_decrease_font_desc(self):
+        self.assertIn('Decrease font size', self.html,
+                       "help must describe Ctrl+- as Decrease font size")
+
+    def test_reset_font_desc(self):
+        self.assertIn('Reset font size', self.html,
+                       "help must describe Ctrl+0 as Reset font size")
+
+    def test_darcula_desc(self):
+        self.assertIn('Toggle Darcula mode', self.html,
+                       "help must describe Ctrl+D as Toggle Darcula mode")
+
+    def test_font_size_indicator_in_help(self):
+        self.assertIn('id="fontSizeIndicator"', self.html,
+                       "help modal must show live font size indicator")
+
+    def test_theme_indicator_in_help(self):
+        self.assertIn('id="themeIndicator"', self.html,
+                       "help modal must show live theme indicator")
+
+
+# ── 11. Structural integrity ──────────────────────────────────────────────
 
 class TestStructuralIntegrity(unittest.TestCase):
     """Verify no syntax-breaking issues in modified files."""

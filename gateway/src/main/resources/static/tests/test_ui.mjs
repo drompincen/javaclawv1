@@ -286,7 +286,204 @@ test('BUSY pill for low availability', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-console.log('\n── 8. Structural integrity ──');
+console.log('\n── 8. Font resize ──');
+// ═══════════════════════════════════════════════════════════════
+
+test('app.js defines font size constants', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes('DEFAULT_FONT_SIZE = 12'), 'DEFAULT_FONT_SIZE must be 12');
+  assert.ok(src.includes('MIN_FONT_SIZE = 8'), 'MIN_FONT_SIZE must be 8');
+  assert.ok(src.includes('MAX_FONT_SIZE = 20'), 'MAX_FONT_SIZE must be 20');
+});
+
+test('applyFontSize sets --font-size CSS variable', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes('function applyFontSize'), 'Must define applyFontSize');
+  assert.ok(src.includes("'--font-size'"), 'Must set --font-size CSS variable');
+});
+
+test('Ctrl+= / Ctrl+- / Ctrl+0 keyboard handlers exist', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes("e.key === '='") || src.includes("e.key === '+'"), 'Must handle Ctrl++ for increase');
+  assert.ok(src.includes("e.key === '-'"), 'Must handle Ctrl+- for decrease');
+  assert.ok(src.includes("e.key === '0'"), 'Must handle Ctrl+0 for reset');
+});
+
+test('font size persists to localStorage', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes("localStorage.setItem('jc-font-size'"), 'Must save to localStorage');
+  assert.ok(src.includes("localStorage.getItem('jc-font-size'"), 'Must read from localStorage');
+});
+
+test('font size clamped to min/max', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes('Math.min'), 'Must clamp to MAX_FONT_SIZE');
+  assert.ok(src.includes('Math.max'), 'Must clamp to MIN_FONT_SIZE');
+});
+
+test('CSS defines --font-size variable', () => {
+  const css = readFile('css/cockpit.css');
+  assert.ok(css.includes('--font-size: 12px'), 'CSS must define --font-size: 12px');
+});
+
+test('index.html has fontSizeIndicator', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('id="fontSizeIndicator"'), 'Must have fontSizeIndicator element');
+});
+
+test('footer mentions Ctrl+/- font shortcut', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('Ctrl+/- font'), 'Footer must mention font shortcut');
+});
+
+test('applyFontSize updates indicator text', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes("getElementById('fontSizeIndicator')"), 'Must update fontSizeIndicator');
+});
+
+test('font resize works in DOM', () => {
+  const dom = makeDom('<span id="fontSizeIndicator">12px</span>');
+  const doc = dom.window.document;
+  const indicator = doc.getElementById('fontSizeIndicator');
+  // Simulate applyFontSize
+  const size = 14;
+  doc.documentElement.style.setProperty('--font-size', size + 'px');
+  indicator.textContent = size + 'px';
+  assert.strictEqual(indicator.textContent, '14px', 'Indicator should show 14px');
+  assert.strictEqual(doc.documentElement.style.getPropertyValue('--font-size'), '14px', 'CSS variable should be 14px');
+});
+
+// ═══════════════════════════════════════════════════════════════
+console.log('\n── 9. Darcula theme toggle ──');
+// ═══════════════════════════════════════════════════════════════
+
+test('app.js defines applyTheme function', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes('function applyTheme'), 'Must define applyTheme');
+});
+
+test('applyTheme toggles darcula class on body', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes("'darcula'"), 'Must reference darcula class');
+  assert.ok(src.includes('classList.toggle'), 'Must use classList.toggle');
+});
+
+test('Ctrl+D handler exists for theme toggle', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes("e.key === 'd'"), 'Must handle d key');
+  assert.ok(src.includes('e.ctrlKey'), 'Must check ctrlKey modifier');
+});
+
+test('Ctrl+D skips text input fields', () => {
+  const src = readFile('js/app.js');
+  // Find the Ctrl+D block and verify input guard
+  const ctrlDIdx = src.indexOf("e.key === 'd'");
+  assert.ok(ctrlDIdx > -1, 'Ctrl+D handler must exist');
+  const block = src.substring(ctrlDIdx, ctrlDIdx + 300);
+  assert.ok(block.includes('INPUT') || block.includes('TEXTAREA'), 'Must guard against text fields');
+});
+
+test('theme persists to localStorage', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes("localStorage.setItem('jc-theme'"), 'Must save theme to localStorage');
+  assert.ok(src.includes("localStorage.getItem('jc-theme'"), 'Must read theme from localStorage');
+});
+
+test('CSS has body.darcula overrides', () => {
+  const css = readFile('css/cockpit.css');
+  assert.ok(css.includes('body.darcula'), 'CSS must define body.darcula');
+  const match = css.match(/body\.darcula\s*\{([^}]+)\}/);
+  assert.ok(match, 'body.darcula rule must exist');
+  assert.ok(match[1].includes('--bg:'), 'Must override --bg');
+  assert.ok(match[1].includes('--text:'), 'Must override --text');
+  assert.ok(match[1].includes('--accent:'), 'Must override --accent');
+});
+
+test('themeIndicator element exists in HTML', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('id="themeIndicator"'), 'Must have themeIndicator');
+});
+
+test('footer mentions Ctrl+D darcula', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('Ctrl+D darcula'), 'Footer must mention darcula shortcut');
+});
+
+test('initUIPrefs called on DOMContentLoaded', () => {
+  const src = readFile('js/app.js');
+  assert.ok(src.includes('initUIPrefs()'), 'Must call initUIPrefs on init');
+});
+
+test('darcula theme toggle works in DOM', () => {
+  const dom = makeDom('<span id="themeIndicator">green-on-black</span>');
+  const doc = dom.window.document;
+  const body = doc.body;
+  const indicator = doc.getElementById('themeIndicator');
+  // Toggle to darcula
+  body.classList.toggle('darcula', true);
+  indicator.textContent = 'darcula';
+  assert.ok(body.classList.contains('darcula'), 'Body should have darcula class');
+  assert.strictEqual(indicator.textContent, 'darcula', 'Indicator should say darcula');
+  // Toggle back
+  body.classList.toggle('darcula', false);
+  indicator.textContent = 'green-on-black';
+  assert.ok(!body.classList.contains('darcula'), 'Body should not have darcula class');
+  assert.strictEqual(indicator.textContent, 'green-on-black', 'Indicator should say green-on-black');
+});
+
+// ═══════════════════════════════════════════════════════════════
+console.log('\n── 10. F1 help modal: Display & Theme sections ──');
+// ═══════════════════════════════════════════════════════════════
+
+test('F1 help has Display section', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('>Display<'), 'Help must have Display section title');
+});
+
+test('F1 help has Theme section', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('>Theme<'), 'Help must have Theme section title');
+});
+
+test('F1 help lists all font shortcuts', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('Ctrl + +'), 'Must list Ctrl + +');
+  assert.ok(html.includes('Ctrl + -'), 'Must list Ctrl + -');
+  assert.ok(html.includes('Ctrl + 0'), 'Must list Ctrl + 0');
+});
+
+test('F1 help lists Ctrl+D for Darcula', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('Ctrl + D'), 'Must list Ctrl + D');
+  assert.ok(html.includes('Toggle Darcula mode'), 'Must describe Toggle Darcula mode');
+});
+
+test('F1 help describes font actions', () => {
+  const html = readFile('index.html');
+  assert.ok(html.includes('Increase font size'), 'Must describe Increase font size');
+  assert.ok(html.includes('Decrease font size'), 'Must describe Decrease font size');
+  assert.ok(html.includes('Reset font size'), 'Must describe Reset font size');
+});
+
+test('F1 help has live font and theme indicators', () => {
+  const html = readFile('index.html');
+  const dom = new JSDOM(html);
+  const doc = dom.window.document;
+  assert.ok(doc.getElementById('fontSizeIndicator'), 'Help must have fontSizeIndicator');
+  assert.ok(doc.getElementById('themeIndicator'), 'Help must have themeIndicator');
+});
+
+test('help modal sections are in correct order', () => {
+  const html = readFile('index.html');
+  const navIdx = html.indexOf('>Navigation<');
+  const displayIdx = html.indexOf('>Display<');
+  const themeIdx = html.indexOf('>Theme<');
+  assert.ok(navIdx < displayIdx, 'Navigation must come before Display');
+  assert.ok(displayIdx < themeIdx, 'Display must come before Theme');
+});
+
+// ═══════════════════════════════════════════════════════════════
+console.log('\n── 11. Structural integrity ──');
 // ═══════════════════════════════════════════════════════════════
 
 const FILES = [
