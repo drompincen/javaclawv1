@@ -143,8 +143,8 @@
 
   <!-- ── Footer ── -->
   <div class="footer">
-    <div>F1 Help &bull; F3 Run controller &bull; F7 Focus intake &bull; "use project &lt;name&gt;"</div>
-    <div><span id="tokenCount">&#x1FA99; 0 tokens | 0 calls | avg 0ms</span> &bull; keyboard-first &bull; green-on-black</div>
+    <div>F1 Help &bull; F3 Run controller &bull; F7 Focus intake &bull; Ctrl+D darcula &bull; "use project &lt;name&gt;"</div>
+    <div><span id="tokenCount">&#x1FA99; 0 tokens | 0 calls | avg 0ms</span> &bull; keyboard-first &bull; Ctrl+/- font</div>
   </div>
 
 </div>
@@ -177,6 +177,21 @@
       <div class="help-section-title">Views</div>
       <div class="help-row"><span class="help-key">Click row</span><span class="help-desc">Select / expand detail</span></div>
       <div class="help-row"><span class="help-key">Click again</span><span class="help-desc">Deselect / collapse</span></div>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Display</div>
+      <div class="help-row"><span class="help-key">Ctrl + +</span><span class="help-desc">Increase font size</span></div>
+      <div class="help-row"><span class="help-key">Ctrl + -</span><span class="help-desc">Decrease font size</span></div>
+      <div class="help-row"><span class="help-key">Ctrl + 0</span><span class="help-desc">Reset font size</span></div>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">Theme</div>
+      <div class="help-row"><span class="help-key">Ctrl + D</span><span class="help-desc">Toggle Darcula mode</span></div>
+    </div>
+    <div class="hr"></div>
+    <div style="display:flex;justify-content:space-between;font-size:var(--font-size);color:var(--muted)">
+      <span>font: <span id="fontSizeIndicator">12px</span></span>
+      <span>theme: <span id="themeIndicator">green-on-black</span></span>
     </div>
     <div style="text-align:right;margin-top:10px"><button class="btn ghost" id="helpClose">Close (Esc)</button></div>
   </div>
