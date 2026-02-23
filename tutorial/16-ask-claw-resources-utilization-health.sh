@@ -23,19 +23,7 @@ if [ -z "$PROVIDER" ]; then
   die "Server not reachable at $BASE_URL — start the server first"
 fi
 if echo "$PROVIDER" | grep -qi "no api key\|none"; then
-  # Try to pull key from Windows OS env and push to server
-  if command -v cmd.exe &>/dev/null; then
-    KEY=$(cmd.exe /c "powershell -Command [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')" 2>/dev/null | tr -d '\r\n' || true)
-    if [ -n "$KEY" ] && [ "$KEY" != "" ]; then
-      $CURL -sf -X POST "$BASE_URL/api/config/keys" \
-        -H 'Content-Type: application/json' \
-        -d "{\"anthropicKey\":\"$KEY\"}" > /dev/null
-      PROVIDER=$($CURL -sf "$BASE_URL/api/config/provider" | jq -r '.provider // empty')
-    fi
-  fi
-  if echo "$PROVIDER" | grep -qi "no api key\|none"; then
-    die "No LLM API key configured. Set ANTHROPIC_API_KEY env var or use --api-key / Ctrl-K. Tutorial tests REQUIRE a real LLM."
-  fi
+  die "No LLM API key configured. Set ANTHROPIC_API_KEY in ~/.bashrc and restart the server. Tutorial tests REQUIRE a real LLM."
 fi
 ok "LLM provider: $PROVIDER"
 

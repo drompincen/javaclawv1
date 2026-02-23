@@ -192,11 +192,9 @@ public class DefaultLlmService implements LlmService {
                 .filter(text -> !text.isEmpty())
                 .onErrorResume(e -> {
                     if (isRetryableError(e)) {
-                        log.warn("Stream hit retryable error, falling back to blocking+retry: {}", e.getMessage());
+                        log.warn("Stream hit retryable error, retrying via collectStream: {}", e.getMessage());
                         try {
-                            org.springframework.ai.chat.model.ChatResponse chatResp =
-                                    callWithRetry(() -> model.call(prompt));
-                            String text = chatResp.getResult().getOutput().getText();
+                            String text = collectStream(model, prompt);
                             return Flux.just(text != null ? text : "");
                         } catch (Exception ex) {
                             return Flux.error(ex);
@@ -214,8 +212,43 @@ public class DefaultLlmService implements LlmService {
         }
         log.debug("Blocking response via {}", resolveProvider());
         Prompt prompt = buildPrompt(state);
-        var response = callWithRetry(() -> model.call(prompt));
-        return response.getResult().getOutput().getText();
+        // Use streaming and collect — model.call() fails with Spring AI 1.0.0-M6
+        // due to deserialization mismatch with current Anthropic API response format
+        return collectStream(model, prompt);
+    }
+
+    /** Stream the response and collect all chunks into a single string, with retry. */
+    private String collectStream(ChatModel model, Prompt prompt) {
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                StringBuilder sb = new StringBuilder();
+                model.stream(prompt)
+                        .map(response -> {
+                            if (response.getResult() != null && response.getResult().getOutput() != null) {
+                                String text = response.getResult().getOutput().getText();
+                                return text != null ? text : "";
+                            }
+                            return "";
+                        })
+                        .filter(text -> !text.isEmpty())
+                        .doOnNext(sb::append)
+                        .blockLast();
+                return sb.toString();
+            } catch (Exception e) {
+                if (isRetryableError(e) && attempt < MAX_RETRIES - 1) {
+                    long delay = BACKOFF_MS[attempt];
+                    log.warn("Retryable error (attempt {}/{}), retrying in {}ms: {}",
+                            attempt + 1, MAX_RETRIES, delay, e.getMessage());
+                    try { Thread.sleep(delay); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
+        throw new IllegalStateException("Exhausted retries");
     }
 
     private static final int MAX_RETRIES = 3;
