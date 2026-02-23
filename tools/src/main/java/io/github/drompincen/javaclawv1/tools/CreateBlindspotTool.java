@@ -60,6 +60,17 @@ public class CreateBlindspotTool implements Tool {
         if (projectId == null || projectId.isBlank()) return ToolResult.failure("'projectId' is required");
         if (title == null || title.isBlank()) return ToolResult.failure("'title' is required");
 
+        // Dedup: skip if blindspot with same title already exists for this project
+        Optional<ThingDocument> existing = thingService.findByProjectCategoryAndTitleIgnoreCase(
+                projectId, ThingCategory.BLINDSPOT, title);
+        if (existing.isPresent()) {
+            ObjectNode result = MAPPER.createObjectNode();
+            result.put("blindspotId", existing.get().getId());
+            result.put("status", "already_exists");
+            result.put("projectId", projectId);
+            return ToolResult.success(result);
+        }
+
         BlindspotCategory category;
         try {
             category = BlindspotCategory.valueOf(input.path("category").asText("").toUpperCase());

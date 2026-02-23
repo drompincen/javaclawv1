@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -54,6 +55,9 @@ public class AskController {
         String enrichedPrompt = """
                 You are answering questions about a project. Use ONLY the project data below to answer.
                 Be specific, cite data points, and mention risks or issues you see.
+                If you notice duplicate entries (same name/title/outcome across records), call them out.
+                When the user asks to remove duplicates, list the specific duplicate IDs and advise \
+                using the POST /api/ask/dedup?projectId=<id> endpoint to clean them up programmatically.
 
                 """ + context + """
 
@@ -87,6 +91,66 @@ public class AskController {
         return ResponseEntity.ok(Map.of(
                 "answer", answer != null ? answer : "",
                 "sources", sources
+        ));
+    }
+
+    @PostMapping("/dedup")
+    public ResponseEntity<?> dedup(@RequestParam String projectId) {
+        if (projectId == null || projectId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "projectId is required"));
+        }
+
+        Map<ThingCategory, List<ThingDocument>> grouped = thingService.findByProjectGrouped(projectId);
+        Map<String, List<String>> removed = new LinkedHashMap<>();
+        int totalRemoved = 0;
+
+        // Category -> identity field mapping
+        Map<ThingCategory, String> identityFields = Map.of(
+                ThingCategory.RESOURCE, "name",
+                ThingCategory.CHECKLIST, "name",
+                ThingCategory.BLINDSPOT, "title",
+                ThingCategory.TICKET, "title",
+                ThingCategory.OBJECTIVE, "outcome",
+                ThingCategory.REMINDER, "message"
+        );
+
+        for (var entry : identityFields.entrySet()) {
+            ThingCategory category = entry.getKey();
+            String field = entry.getValue();
+            List<ThingDocument> things = grouped.getOrDefault(category, List.of());
+
+            // Group by identity field value (case-insensitive)
+            Map<String, List<ThingDocument>> byIdentity = new LinkedHashMap<>();
+            for (ThingDocument thing : things) {
+                Object val = thing.getPayload() != null ? thing.getPayload().get(field) : null;
+                if (val == null) continue;
+                String key = val.toString().toLowerCase();
+                byIdentity.computeIfAbsent(key, k -> new ArrayList<>()).add(thing);
+            }
+
+            List<String> categoryRemoved = new ArrayList<>();
+            for (var group : byIdentity.values()) {
+                if (group.size() <= 1) continue;
+                // Sort by createDate ascending — keep the oldest
+                group.sort(Comparator.comparing(
+                        t -> t.getCreateDate() != null ? t.getCreateDate() : Instant.MAX));
+                for (int i = 1; i < group.size(); i++) {
+                    ThingDocument dup = group.get(i);
+                    thingService.deleteById(dup.getId());
+                    Object idVal = dup.getPayload().get(field);
+                    categoryRemoved.add(dup.getId() + " (" + (idVal != null ? idVal : "?") + ")");
+                    totalRemoved++;
+                }
+            }
+            if (!categoryRemoved.isEmpty()) {
+                removed.put(category.name(), categoryRemoved);
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "projectId", projectId,
+                "totalRemoved", totalRemoved,
+                "removed", removed
         ));
     }
 

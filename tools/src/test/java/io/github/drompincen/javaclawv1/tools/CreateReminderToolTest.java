@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import io.github.drompincen.javaclawv1.protocol.api.ToolRiskProfile;
@@ -159,5 +160,26 @@ class CreateReminderToolTest {
         ToolResult result = tool.execute(ctx, input, stream);
         assertThat(result.success()).isFalse();
         assertThat(result.error()).contains("Invalid triggerAt format");
+    }
+
+    @Test
+    void dedupReturnsExistingReminder() {
+        ThingDocument existing = new ThingDocument();
+        existing.setId("existing-reminder-id");
+        existing.setThingCategory(ThingCategory.REMINDER);
+        when(thingService.findByProjectCategoryAndPayloadFieldIgnoreCase(
+                "proj-1", ThingCategory.REMINDER, "message", "Review sprint goals"))
+                .thenReturn(Optional.of(existing));
+
+        ObjectNode input = MAPPER.createObjectNode();
+        input.put("projectId", "proj-1");
+        input.put("message", "Review sprint goals");
+
+        ToolResult result = tool.execute(ctx, input, stream);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output().get("reminderId").asText()).isEqualTo("existing-reminder-id");
+        assertThat(result.output().get("status").asText()).isEqualTo("already_exists");
+        verify(thingService, never()).createThing(any(), any(), any());
     }
 }
