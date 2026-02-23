@@ -6,12 +6,8 @@ set -eu
 
 BASE_URL=${BASE_URL:-http://localhost:8080}
 
-# WSL detection: use curl.exe to reach Windows-hosted server
-if grep -qi microsoft /proc/version 2>/dev/null; then
-  CURL="curl.exe"
-else
-  CURL="curl"
-fi
+CURL="curl"
+DEVNULL="/dev/null"
 
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
 PASS=0; FAIL_COUNT=0

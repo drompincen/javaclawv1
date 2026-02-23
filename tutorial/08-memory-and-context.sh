@@ -4,12 +4,8 @@
 # Works in any mode (all CRUD).
 set -euo pipefail
 
-# WSL detection: use curl.exe to reach Windows-hosted server
-if grep -qi microsoft /proc/version 2>/dev/null; then
-  CURL="curl.exe"
-else
-  CURL="curl"
-fi
+CURL="curl"
+DEVNULL="/dev/null"
 
 BASE_URL=${BASE_URL:-http://localhost:8080}
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'

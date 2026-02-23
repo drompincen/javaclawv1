@@ -74,18 +74,7 @@ echo " Port: $PORT"
 echo "============================================================"
 echo ""
 
-# Detect if running in WSL or native Windows
-if command -v cmd.exe &>/dev/null && [ -z "$USE_JBANG" ]; then
-  # Windows (via cmd.exe)
-  SCENARIO_ARGS_WIN=""
-  for S in "${SCENARIOS[@]}"; do
-    SCENARIO_ARGS_WIN="$SCENARIO_ARGS_WIN --scenario scenario-testing\\scenarios\\${S}.json"
-  done
-  cmd.exe /c "jbang.cmd --fresh javaclaw.java --testMode --port $PORT $SCENARIO_ARGS_WIN"
-else
-  # WSL / Linux native
-  jbang javaclaw.java --testMode --port $PORT $SCENARIO_ARGS
-fi
+jbang javaclaw.java --testMode --port $PORT $SCENARIO_ARGS
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then

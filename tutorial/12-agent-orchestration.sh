@@ -4,14 +4,8 @@
 # Requires testMode or real LLM — agents must respond to create artifacts.
 set -euo pipefail
 
-# WSL detection: use curl.exe to reach Windows-hosted server
-if grep -qi microsoft /proc/version 2>/dev/null; then
-  CURL="curl.exe"
-  DEVNULL="NUL"
-else
-  CURL="curl"
-  DEVNULL="/dev/null"
-fi
+CURL="curl"
+DEVNULL="/dev/null"
 
 BASE_URL=${BASE_URL:-http://localhost:8080}
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; NC='\033[0m'
