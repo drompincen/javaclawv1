@@ -1,12 +1,8 @@
-package io.github.drompincen.javaclawv1.persistence;
+package io.github.drompincen.javaclawv1.gateway.test;
 
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
 
 @Configuration
-@EnableAutoConfiguration
-@EnableMongoRepositories(basePackages = "io.github.drompincen.javaclawv1.persistence.repository")
 public class TestMongoConfiguration {
 
     static {

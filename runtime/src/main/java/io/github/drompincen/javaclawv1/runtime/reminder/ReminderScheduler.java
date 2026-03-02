@@ -6,6 +6,7 @@ import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
 import io.github.drompincen.javaclawv1.protocol.event.EventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -17,6 +18,9 @@ import java.util.Map;
 @Component
 @EnableScheduling
 public class ReminderScheduler {
+
+    @Value("${javaclaw.scheduler.enabled:true}")
+    private boolean schedulerEnabled = true;
 
     private static final Logger log = LoggerFactory.getLogger(ReminderScheduler.class);
 
@@ -30,6 +34,7 @@ public class ReminderScheduler {
 
     @Scheduled(fixedDelay = 60000)
     public void checkReminders() {
+        if (!schedulerEnabled) return;
         List<ThingDocument> dueReminders = thingService.findDueReminders(Instant.now());
 
         for (ThingDocument reminder : dueReminders) {

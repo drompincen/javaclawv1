@@ -1,0 +1,25 @@
+de:
+  flapdoodle:
+    mongodb:
+      embedded:
+        version: 7.0.4
+
+spring:
+  data:
+    mongodb:
+      host: 127.0.0.1
+      database: javaclaw-scenario-test
+      auto-index-creation: true
+
+javaclaw:
+  llm:
+    provider: test
+  scenario:
+    autorun: false
+  scheduler:
+    enabled: false
+
+logging:
+  level:
+    de.flapdoodle: WARN
+    org.springframework.data.mongodb: INFO

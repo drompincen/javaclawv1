@@ -84,20 +84,20 @@ class SchedulePlannerServiceTest {
     }
 
     /**
-     * Regression test for the restart bug: cron agents scheduled for 09:00 UTC
+     * Regression test for the restart bug: cron agents scheduled for past times
      * would fire immediately on app restart because past slots were not skipped.
-     * This test simulates all 4 weekday agents that were affected.
+     * Uses 00:01 UTC which is always in the past (except at midnight UTC).
      */
     @Test
     void restartScenario_allPastAgents_noneCreated() {
         for (String agentId : List.of("reconcile-agent", "resource-agent",
                 "objective-agent", "checklist-agent")) {
             AgentScheduleDocument schedule = makeSchedule("default-" + agentId, agentId,
-                    ScheduleType.FIXED_TIMES, null, List.of("09:00"), null);
+                    ScheduleType.FIXED_TIMES, null, List.of("00:01"), null);
             service.generateFutureExecutions(schedule);
         }
 
-        // 09:00 UTC is always in the past — nothing should be saved for any agent
+        // 00:01 UTC is always in the past — nothing should be saved for any agent
         verify(futureExecutionRepository, never()).save(any());
     }
 

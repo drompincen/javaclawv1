@@ -3,6 +3,8 @@
 
 Hands-on walkthrough of the JavaClaw platform — an AI assistant for engineering managers.
 
+> **Manual Only** — Tutorial tests require a running Docker MongoDB instance and a real LLM API key (ANTHROPIC_API_KEY). They are **not** part of `mvn test` or CI. For automated testing without external dependencies, use the scenario tests: `./mvnw test -pl gateway -Dtest=ScenarioIntegrationTest`.
+
 ## Prerequisites
 
 | Requirement | Version | Check |

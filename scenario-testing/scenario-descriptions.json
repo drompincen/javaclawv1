@@ -4,6 +4,12 @@
     "totalScenarios": 53,
     "totalEstimatedInputTokens": 5685,
     "note": "Token estimates are raw userQuery+pipelineContent chars/4. Actual LLM consumption is 3-10x higher due to system prompts, hydrated DB context, and conversation history.",
+    "maven": {
+      "testClass": "io.github.drompincen.javaclawv1.gateway.ScenarioIntegrationTest",
+      "uiTestClass": "io.github.drompincen.javaclawv1.gateway.ScenarioUiIntegrationTest",
+      "profile": "scenario",
+      "runCommand": "./mvnw test -pl gateway -Dtest=ScenarioIntegrationTest"
+    },
     "groups": {
       "1": {
         "name": "Foundations",

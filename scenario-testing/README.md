@@ -9,14 +9,37 @@ Automated tests that validate every tool, agent, and workflow using mock LLM res
 3. The `ScenarioRunner` replays mock responses instead of calling the real LLM
 4. After the agent loop completes, HTTP assertions verify the expected state
 
-## Running All Scenarios
+## Running via Maven (Recommended)
+
+The scenarios run as part of `mvn test` using embedded MongoDB — no Docker or API key needed:
+
+```bash
+# All tests (unit + scenario + UI)
+./mvnw test
+
+# Scenario tests only
+./mvnw test -pl gateway -Dtest=ScenarioIntegrationTest
+
+# UI tests only (requires Chrome)
+./mvnw test -pl gateway -Dtest=ScenarioUiIntegrationTest
+```
+
+Scenarios are parameterized by group (1-4). Each group runs all its scenarios sequentially with MongoDB cleanup between runs.
+
+## Running via JBang (Alternative)
+
+Requires Docker MongoDB running as a replica set:
 
 ```bash
 # From project root — runs all 53 scenarios in a single JVM (~2 min)
 bash scenario-testing/run-scenarios.sh
 
+# Run specific groups:
+bash scenario-testing/run-scenarios.sh --group 1       # Foundations only
+bash scenario-testing/run-scenarios.sh --group 1-2     # Groups 1-2
+
 # Override port (default 18080):
-bash scenario-testing/run-scenarios.sh 19090
+bash scenario-testing/run-scenarios.sh --port 19090
 ```
 
 ## Running a Single Scenario

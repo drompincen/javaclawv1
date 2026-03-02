@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -33,7 +32,6 @@ import java.util.UUID;
  * Auto-exits after all scenarios complete.
  */
 @Component
-@ConditionalOnProperty(name = "javaclaw.scenario.file")
 public class ScenarioRunner implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ScenarioRunner.class);
@@ -65,8 +63,16 @@ public class ScenarioRunner implements ApplicationRunner {
         this.httpClient = HttpClient.newHttpClient();
     }
 
+    @Value("${javaclaw.scenario.autorun:false}")
+    private boolean autorun;
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
+        if (!autorun) {
+            log.debug("[ScenarioRunner] autorun=false — skipping automatic scenario execution");
+            return;
+        }
+
         Thread runner = new Thread(() -> {
             try {
                 // Guard: testMode must be active for scenario testing
@@ -99,6 +105,37 @@ public class ScenarioRunner implements ApplicationRunner {
         }, "ScenarioRunner");
         runner.setDaemon(true);
         runner.start();
+    }
+
+    // ======================== Public API for JUnit ========================
+
+    /**
+     * Load and play a single scenario file. Returns true if all steps passed.
+     * Does NOT call System.exit() — suitable for JUnit tests.
+     */
+    public boolean runSingleScenario(String filePath) {
+        scenarioService.reset();
+        scenarioProjectId = null;
+        stepVariables.clear();
+        scenarioService.loadScenario(filePath);
+
+        if (!scenarioService.isLoaded()) {
+            log.error("[ScenarioRunner] Failed to load scenario: {}", filePath);
+            return false;
+        }
+
+        cleanMongoDB();
+
+        if (scenarioService.isV2()) {
+            return playScenarioV2Internal();
+        } else {
+            return playScenarioV1Internal();
+        }
+    }
+
+    /** Allow JUnit to override the server port (e.g. from @LocalServerPort). */
+    public void setServerPort(int port) {
+        this.serverPort = port;
     }
 
     // ======================== Multi-Scenario Orchestration ========================
@@ -851,7 +888,7 @@ public class ScenarioRunner implements ApplicationRunner {
      * Clean all MongoDB collections except preserved ones (agents).
      * This ensures test isolation between scenario runs.
      */
-    private void cleanMongoDB() {
+    public void cleanMongoDB() {
         try {
             Set<String> collections = mongoTemplate.getCollectionNames();
             int dropped = 0;
