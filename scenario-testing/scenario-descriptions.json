@@ -1,0 +1,1346 @@
+{
+  "_meta": {
+    "generatedDate": "2026-03-01",
+    "totalScenarios": 53,
+    "totalEstimatedInputTokens": 5685,
+    "note": "Token estimates are raw userQuery+pipelineContent chars/4. Actual LLM consumption is 3-10x higher due to system prompts, hydrated DB context, and conversation history.",
+    "groups": {
+      "1": {
+        "name": "Foundations",
+        "description": "Basic agent loop (controller -> specialist -> reviewer), simple tool invocations, text-only responses. No seeded data, no DB assertions. Validates that the core agent conversation engine works.",
+        "count": 13,
+        "estimatedTokens": 611
+      },
+      "2": {
+        "name": "Tools & Single Agents",
+        "description": "V2 schema with MongoDB/HTTP assertions, individual specialist agents (objective, plan, checklist, reconcile, resource), multi-step tool chains, seeded data. Validates each agent and tool in isolation with verified outcomes.",
+        "count": 14,
+        "estimatedTokens": 737
+      },
+      "3": {
+        "name": "Pipelines & Multi-Agent",
+        "description": "Intake pipelines (triage + generalist hydration), multi-agent orchestration, re-intake deduplication, file upload, thread merge, generalist multi-tool sessions. Validates agent chaining and pipeline phases 0-2.",
+        "count": 13,
+        "estimatedTokens": 1565
+      },
+      "4": {
+        "name": "E2E Stories & Context Assembly",
+        "description": "Full 7-phase intake pipelines, multi-source alignment, scheduled/on-demand agents, ask-claw context assembly with testPrompts verification. Validates the complete system end-to-end.",
+        "count": 13,
+        "estimatedTokens": 2772
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "file": "scenario-agent-merge.json",
+      "project": "Agent Auto-Merge Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Agent merges two similar threads using merge_threads tool",
+      "testing": "Thread deduplication via merge_threads tool; verifies merged thread gets lifecycle=MERGED and original count stays at 2",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "pm", "reviewer"],
+      "tools": ["read_threads", "merge_threads"],
+      "artifacts": {
+        "threads": { "seeded": 2, "created": 0, "merged": 1 }
+      },
+      "assertions": {
+        "mongodb": ["threads lifecycle=MERGED countEq 1", "threads total countEq 2"]
+      },
+      "inputChars": 217,
+      "estimatedTokens": 54
+    },
+    {
+      "file": "scenario-all-agents-seeded.json",
+      "project": "All Agents Seeded Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Seed rich project data, then run objective, checklist, and plan agents sequentially",
+      "testing": "Multi-agent orchestration: objective-agent derives objectives, checklist-agent creates checklists, plan-agent creates phases — all from seeded project data",
+      "steps": 4,
+      "stepTypes": ["seed", "chat", "chat", "chat"],
+      "agents": ["controller", "objective-agent", "checklist-agent", "plan-agent", "reviewer"],
+      "tools": ["read_threads", "read_tickets", "create_objective", "create_checklist", "create_phase"],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "tickets": { "seeded": 4 },
+        "resources": { "seeded": 2 },
+        "memories": { "seeded": 1 },
+        "objectives": { "created": 2 },
+        "checklists": { "created": 1 },
+        "phases": { "created": 3 }
+      },
+      "assertions": {
+        "mongodb": ["objectives countGte 2", "checklists countGte 1", "phases countGte 3"]
+      },
+      "inputChars": 1073,
+      "estimatedTokens": 268
+    },
+    {
+      "file": "scenario-ask-claw-capacity.json",
+      "project": "Ask Claw Capacity Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Seed resources with varying capacity/availability and tickets with story points, then ask capacity questions",
+      "testing": "Ask Claw context assembly: verifies LLM prompt contains computed effectiveHours, allocatedSP, RESOURCE CAPACITY SUMMARY, ASSIGNMENT SUMMARY, and assignee fields for each ticket",
+      "steps": 3,
+      "stepTypes": ["seed", "ask", "ask"],
+      "agents": ["generalist"],
+      "tools": [],
+      "artifacts": {
+        "resources": { "seeded": 3 },
+        "tickets": { "seeded": 7 },
+        "objectives": { "seeded": 1 }
+      },
+      "assertions": {
+        "mongodb": ["tickets countGte 7", "resources countGte 3"],
+        "testPrompts": ["effectiveHours=32", "effectiveHours=40", "effectiveHours=20", "RESOURCE CAPACITY SUMMARY", "ASSIGNMENT SUMMARY", "assignee=UNASSIGNED"]
+      },
+      "inputChars": 842,
+      "estimatedTokens": 211
+    },
+    {
+      "file": "scenario-ask-claw-resources.json",
+      "project": "Ask Claw Resources Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Seed resources with varying availability, then ask 'how many resources on this project'",
+      "testing": "Ask Claw context assembly: verifies all 4 resource names, RESOURCES section, RESOURCE CAPACITY SUMMARY, and effectiveHours values appear in LLM prompt",
+      "steps": 2,
+      "stepTypes": ["seed", "ask"],
+      "agents": ["generalist"],
+      "tools": [],
+      "artifacts": {
+        "resources": { "seeded": 4 },
+        "tickets": { "seeded": 3 }
+      },
+      "assertions": {
+        "mongodb": ["resources countGte 4", "tickets countGte 3"],
+        "testPrompts": ["Sarah Kim", "Mike Johnson", "Lisa Park", "Tom Davis", "RESOURCES", "RESOURCE CAPACITY SUMMARY", "effectiveHours=40", "effectiveHours=24", "effectiveHours=20"]
+      },
+      "inputChars": 134,
+      "estimatedTokens": 34
+    },
+    {
+      "file": "scenario-ask-claw-sprint-health.json",
+      "project": "Ask Claw Sprint Health Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Seed comprehensive project data (all entity types), then ask 'give me the sprint health'",
+      "testing": "Ask Claw full context assembly: verifies LLM prompt contains ALL section headers (OBJECTIVES, TICKETS, BLINDSPOTS, RESOURCES, PHASES, MILESTONES, CHECKLISTS, RESOURCE CAPACITY SUMMARY, ASSIGNMENT SUMMARY)",
+      "steps": 2,
+      "stepTypes": ["seed", "ask"],
+      "agents": ["generalist"],
+      "tools": [],
+      "artifacts": {
+        "threads": { "seeded": 1 },
+        "objectives": { "seeded": 2 },
+        "tickets": { "seeded": 5 },
+        "resources": { "seeded": 3 },
+        "blindspots": { "seeded": 2 },
+        "phases": { "seeded": 1 },
+        "milestones": { "seeded": 1 },
+        "checklists": { "seeded": 1 }
+      },
+      "assertions": {
+        "mongodb": ["objectives countGte 2", "tickets countGte 5", "resources countGte 3"],
+        "testPrompts": ["OBJECTIVES", "COMMITTED", "PROPOSED", "TICKETS", "AUTH-301", "BLINDSPOTS", "RESOURCES", "RESOURCE CAPACITY SUMMARY", "PHASES", "MILESTONES", "CHECKLISTS", "ASSIGNMENT SUMMARY"]
+      },
+      "inputChars": 1012,
+      "estimatedTokens": 253
+    },
+    {
+      "file": "scenario-ask-claw-utilization.json",
+      "project": "Ask Claw Utilization Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Seed resources where some have zero assignments, then ask 'tell me who is not utilized'",
+      "testing": "Ask Claw context assembly: verifies ASSIGNMENT SUMMARY shows unassigned resources and computed effectiveHours for underutilized team members",
+      "steps": 2,
+      "stepTypes": ["seed", "ask"],
+      "agents": ["generalist"],
+      "tools": [],
+      "artifacts": {
+        "resources": { "seeded": 3 },
+        "tickets": { "seeded": 4 }
+      },
+      "assertions": {
+        "mongodb": ["resources countGte 3"],
+        "testPrompts": ["Rachel Green", "Joey Tribbiani", "Ross Geller", "RESOURCE CAPACITY SUMMARY", "ASSIGNMENT SUMMARY", "assignee=UNASSIGNED", "effectiveHours=36"]
+      },
+      "inputChars": 227,
+      "estimatedTokens": 57
+    },
+    {
+      "file": "scenario-ask-claw.json",
+      "project": "Ask Claw Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Seed project data into all collections, then POST /api/ask and verify the generalist LLM receives full grounded context",
+      "testing": "Ask Claw end-to-end: seeds every entity type, verifies generalist prompt contains threads, objectives, tickets, blindspots, resources, checklists, phases, milestones, memories, assignee fields, and assignment summary",
+      "steps": 2,
+      "stepTypes": ["seed", "ask"],
+      "agents": ["generalist"],
+      "tools": [],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "objectives": { "seeded": 2 },
+        "tickets": { "seeded": 4 },
+        "blindspots": { "seeded": 2 },
+        "resources": { "seeded": 3 },
+        "checklists": { "seeded": 1 },
+        "phases": { "seeded": 1 },
+        "milestones": { "seeded": 1 },
+        "memories": { "seeded": 2 }
+      },
+      "assertions": {
+        "mongodb": ["threads countGte 2", "objectives countGte 2", "tickets countGte 4", "blindspots countGte 2", "checklists countGte 1", "phases countGte 1", "milestones countGte 1"],
+        "http": ["GET /threads jsonArrayMinSize 2", "GET /objectives jsonArrayMinSize 2", "GET /tickets jsonArrayMinSize 4", "GET /blindspots jsonArrayMinSize 2", "GET /resources jsonArrayMinSize 3"],
+        "testPrompts": ["Evidence Service Design", "Merchant Onboarding Flow", "Sprint 7", "J-201", "assignee=UNASSIGNED", "assignee=Alice", "ASSIGNMENT SUMMARY", "CHECKLISTS", "PHASES", "MILESTONES"]
+      },
+      "inputChars": 1579,
+      "estimatedTokens": 395
+    },
+    {
+      "file": "scenario-checklist-agent.json",
+      "project": "Project Epsilon",
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "Checklist agent: create checklist, report progress, update items",
+      "testing": "Checklist agent creates ORR checklist with 5 items via create_checklist, then reports progress via checklist_progress tool",
+      "steps": 3,
+      "stepTypes": ["context", "chat", "chat"],
+      "agents": ["controller", "checklist-agent", "reviewer"],
+      "tools": ["create_checklist", "checklist_progress"],
+      "artifacts": {
+        "checklists": { "created": 1 }
+      },
+      "assertions": {},
+      "inputChars": 226,
+      "estimatedTokens": 57
+    },
+    {
+      "file": "scenario-coder-exec.json",
+      "project": "JavaClaw v1",
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "Coder agent: write, execute, and clean up Java (JBang) and Python code",
+      "testing": "Code execution lifecycle: write_file creates temp source, shell_exec compiles/runs Java and Python, cleanup removes temp files",
+      "steps": 6,
+      "stepTypes": ["context", "chat", "chat", "chat", "chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["write_file", "shell_exec"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 324,
+      "estimatedTokens": 81
+    },
+    {
+      "file": "scenario-coder.json",
+      "project": "JavaClaw v1",
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "Coder workflow: file reading, architecture explanation",
+      "testing": "Coder agent reads pom.xml via read_file and provides architecture summary from project files",
+      "steps": 3,
+      "stepTypes": ["context", "chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["read_file"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 45,
+      "estimatedTokens": 11
+    },
+    {
+      "file": "scenario-excel-weather.json",
+      "project": null,
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "Excel tool: write/read weather data for 4 cities over January 2026",
+      "testing": "Excel tool operations: write sheets (Tokyo, London, Sao Paulo, Dubai with 31 rows x 5 columns each), list_sheets, read specific sheets, then shell_exec to delete file",
+      "steps": 8,
+      "stepTypes": ["chat", "chat", "chat", "chat", "chat", "chat", "chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["excel", "shell_exec"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 580,
+      "estimatedTokens": 145
+    },
+    {
+      "file": "scenario-exec-time.json",
+      "project": null,
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "Code execution: write time utils in Java and Python, execute, verify output",
+      "testing": "Cross-language code execution: Java time program via write_file+shell_exec, Python time script, then cleanup of temp files",
+      "steps": 3,
+      "stepTypes": ["chat", "chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["write_file", "shell_exec"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 159,
+      "estimatedTokens": 40
+    },
+    {
+      "file": "scenario-extraction-v2.json",
+      "project": "Extraction Test",
+      "schemaVersion": 1,
+      "category": "Pipeline",
+      "description": "Thread extraction: read thread messages and create reminders, checklists, and tickets",
+      "testing": "Multi-artifact extraction from thread: read_thread_messages then create_reminder (standup), create_checklist (sprint tasks, 3 items), create_ticket (bug fix)",
+      "steps": 2,
+      "stepTypes": ["context", "chat"],
+      "agents": ["controller", "thread-extractor", "reviewer"],
+      "tools": ["read_thread_messages", "create_reminder", "create_checklist", "create_ticket"],
+      "artifacts": {
+        "reminders": { "created": 1 },
+        "checklists": { "created": 1 },
+        "tickets": { "created": 1 }
+      },
+      "assertions": {},
+      "inputChars": 268,
+      "estimatedTokens": 67
+    },
+    {
+      "file": "scenario-file-upload.json",
+      "project": "File Upload Scenario",
+      "schemaVersion": 2,
+      "category": "Pipeline",
+      "description": "Tests file upload via multipart POST, verifies uploads collection, then pipeline processes uploaded CSV with mock agents",
+      "testing": "File upload + intake pipeline: CSV upload populates uploads collection with status=INBOX, then pipeline triage+generalist create threads and tickets from CSV rows",
+      "steps": 2,
+      "stepTypes": ["upload", "pipeline"],
+      "agents": ["intake-triage", "generalist"],
+      "tools": ["classify_content", "create_thread", "create_ticket"],
+      "externalFiles": ["testdata/jira-tickets.csv"],
+      "artifacts": {
+        "uploads": { "created": 1 },
+        "threads": { "created": 2 },
+        "tickets": { "created": 3 },
+        "memories": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["uploads status=INBOX countEq 1", "uploads title matches jira-tickets.csv", "memories tags=intake countGte 1", "threads countGte 1", "tickets countEq 3"]
+      },
+      "inputChars": 107,
+      "estimatedTokens": 27
+    },
+    {
+      "file": "scenario-fs-tools-v2.json",
+      "project": "JavaClaw v1",
+      "schemaVersion": 2,
+      "category": "Tools",
+      "description": "V2 Filesystem tools: list_directory and search_files with assertions",
+      "testing": "Filesystem tool invocation: list_directory on project root, search_files for **/*Test*.java, list_directory on tools subdirectory",
+      "steps": 4,
+      "stepTypes": ["context", "tool-call", "tool-call", "tool-call"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["list_directory", "search_files"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 108,
+      "estimatedTokens": 27
+    },
+    {
+      "file": "scenario-fs-tools.json",
+      "project": "JavaClaw v1",
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "Filesystem tools: list_directory and search_files",
+      "testing": "Same as fs-tools-v2 but v1 schema: list_directory and search_files via coder agent",
+      "steps": 4,
+      "stepTypes": ["context", "chat", "chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["list_directory", "search_files"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 108,
+      "estimatedTokens": 27
+    },
+    {
+      "file": "scenario-general.json",
+      "project": null,
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "Generalist workflow: greetings, general knowledge",
+      "testing": "Basic agent conversation: controller routes greeting to generalist, generalist answers general knowledge question — no tools invoked",
+      "steps": 2,
+      "stepTypes": ["chat", "chat"],
+      "agents": ["controller", "generalist", "reviewer"],
+      "tools": [],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 55,
+      "estimatedTokens": 14
+    },
+    {
+      "file": "scenario-generalist-intake.json",
+      "project": "Generalist Intake Hydration Test",
+      "schemaVersion": 2,
+      "category": "Pipeline",
+      "description": "Tests the new generalist hydration pipeline: triage classifies mixed content, then generalist creates all domain objects in a single pass",
+      "testing": "Single-pass generalist hydration: triage routes to threads+tickets+resources, generalist creates 1 thread, 3 tickets, 3 resources in one tool-call burst",
+      "steps": 1,
+      "stepTypes": ["pipeline"],
+      "agents": ["intake-triage", "generalist"],
+      "tools": ["classify_content", "create_thread", "create_ticket", "create_resource"],
+      "artifacts": {
+        "memories": { "created": 1 },
+        "threads": { "created": 1 },
+        "tickets": { "created": 3 },
+        "resources": { "created": 3 }
+      },
+      "assertions": {
+        "mongodb": ["memories tags=intake countGte 1", "threads countGte 1 title matches Authentication", "tickets countGte 3 title matches AUTH-101", "resources countGte 3 name matches Bob"]
+      },
+      "inputChars": 858,
+      "estimatedTokens": 215
+    },
+    {
+      "file": "scenario-generalist-seeded.json",
+      "project": "Generalist Agent Seeded Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Seed rich project data, then ask the generalist to create objectives, project plan, and checklists in one session",
+      "testing": "Generalist multi-tool session: reads seeded threads/tickets/resources, then creates objectives, phases, and checklist via tool calls in a single chat turn",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "generalist", "reviewer"],
+      "tools": ["read_threads", "read_tickets", "read_resources", "create_objective", "create_phase", "create_checklist"],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "tickets": { "seeded": 2 },
+        "resources": { "seeded": 2 },
+        "memories": { "seeded": 1 },
+        "objectives": { "created": 2 },
+        "phases": { "created": 3 },
+        "checklists": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["objectives countGte 2", "phases countGte 3", "checklists countGte 1"]
+      },
+      "inputChars": 580,
+      "estimatedTokens": 145
+    },
+    {
+      "file": "scenario-git-tools.json",
+      "project": "JavaClaw v1",
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "Git tools: git_status and git_diff (read-only, no commits)",
+      "testing": "Read-only git operations: git_status shows working tree, git_diff shows unstaged changes, git_diff staged=true shows staged changes",
+      "steps": 4,
+      "stepTypes": ["context", "chat", "chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["git_status", "git_diff"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 101,
+      "estimatedTokens": 25
+    },
+    {
+      "file": "scenario-http.json",
+      "project": null,
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "HTTP tool: fetch web content via http_get",
+      "testing": "HTTP GET tool: fetches httpbin.org/get test endpoint and api.github.com/rate_limit",
+      "steps": 2,
+      "stepTypes": ["chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["http_get"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 110,
+      "estimatedTokens": 28
+    },
+    {
+      "file": "scenario-intake-pipeline.json",
+      "project": "Project Alpha",
+      "schemaVersion": 1,
+      "category": "Pipeline",
+      "description": "Intake pipeline: triage meeting notes with 3 topics, expect classify_content tool call and structured output",
+      "testing": "Intake triage classification: meeting notes with 3 topics (Payment Service, Evidence Service, ORR) routed via classify_content tool",
+      "steps": 2,
+      "stepTypes": ["context", "chat"],
+      "agents": ["controller", "intake-triage", "reviewer"],
+      "tools": ["classify_content"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 910,
+      "estimatedTokens": 228
+    },
+    {
+      "file": "scenario-intake-triage.json",
+      "project": "Project Alpha",
+      "schemaVersion": 1,
+      "category": "Pipeline",
+      "description": "Intake triage: classify meeting notes and dispatch to downstream agents",
+      "testing": "Triage classification of Sprint 4 Standup notes via classify_content tool",
+      "steps": 2,
+      "stepTypes": ["context", "chat"],
+      "agents": ["controller", "intake-triage", "reviewer"],
+      "tools": ["classify_content"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 298,
+      "estimatedTokens": 75
+    },
+    {
+      "file": "scenario-jbang-exec.json",
+      "project": null,
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "JBang execution tool: compile and run Java programs inline",
+      "testing": "JBang inline Java execution: hello world and sum of 1-100 via jbang_exec tool",
+      "steps": 2,
+      "stepTypes": ["chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["jbang_exec"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 115,
+      "estimatedTokens": 29
+    },
+    {
+      "file": "scenario-memory-v2.json",
+      "project": null,
+      "schemaVersion": 2,
+      "category": "Tools",
+      "description": "V2 Memory tool: store, recall, and delete memories with assertions",
+      "testing": "Memory lifecycle with MongoDB assertions: store (verified by countGte 1), recall (verified by exists), delete",
+      "steps": 3,
+      "stepTypes": ["tool-call", "tool-call", "tool-call"],
+      "agents": ["controller", "generalist", "reviewer"],
+      "tools": ["memory"],
+      "artifacts": {
+        "memories": { "created": 1, "deleted": 1 }
+      },
+      "assertions": {
+        "mongodb": ["memories key=framework-version countGte 1", "memories key=framework-version exists"]
+      },
+      "inputChars": 121,
+      "estimatedTokens": 30
+    },
+    {
+      "file": "scenario-memory.json",
+      "project": null,
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "Memory tool: store, recall, and delete memories across scopes",
+      "testing": "Same as memory-v2 but v1 schema: store/recall/delete lifecycle for framework-version memory key",
+      "steps": 3,
+      "stepTypes": ["chat", "chat", "chat"],
+      "agents": ["controller", "generalist", "reviewer"],
+      "tools": ["memory"],
+      "artifacts": {
+        "memories": { "created": 1, "deleted": 1 }
+      },
+      "assertions": {},
+      "inputChars": 121,
+      "estimatedTokens": 30
+    },
+    {
+      "file": "scenario-objective-agent.json",
+      "project": "Project Gamma",
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "Objective agent: coverage analysis and objective updates",
+      "testing": "Objective agent computes ticket-to-objective coverage via compute_coverage tool, identifies unmapped tickets",
+      "steps": 2,
+      "stepTypes": ["context", "chat"],
+      "agents": ["controller", "objective-agent", "reviewer"],
+      "tools": ["compute_coverage"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 80,
+      "estimatedTokens": 20
+    },
+    {
+      "file": "scenario-plan-agent.json",
+      "project": "Project Delta",
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "Plan agent: create phases and milestones for a project",
+      "testing": "Plan agent creates Design phase with entry/exit criteria via create_phase, then generates plan artifact via generate_plan_artifact",
+      "steps": 3,
+      "stepTypes": ["context", "chat", "chat"],
+      "agents": ["controller", "plan-agent", "reviewer"],
+      "tools": ["create_phase", "generate_plan_artifact"],
+      "artifacts": {
+        "phases": { "created": 1 }
+      },
+      "assertions": {},
+      "inputChars": 224,
+      "estimatedTokens": 56
+    },
+    {
+      "file": "scenario-pm-tools-v2.json",
+      "project": "Sprint Tracker",
+      "schemaVersion": 2,
+      "category": "Tools",
+      "description": "V2 PM tools: create_ticket with assertions",
+      "testing": "Ticket creation with MongoDB verification: first ticket HIGH priority, second ticket LOW priority, countGte assertions after each",
+      "steps": 3,
+      "stepTypes": ["context", "tool-call", "tool-call"],
+      "agents": ["controller", "pm", "reviewer"],
+      "tools": ["create_ticket"],
+      "artifacts": {
+        "tickets": { "created": 2 }
+      },
+      "assertions": {
+        "mongodb": ["tickets countGte 1", "tickets countGte 2"]
+      },
+      "inputChars": 105,
+      "estimatedTokens": 26
+    },
+    {
+      "file": "scenario-pm-tools.json",
+      "project": "Sprint Tracker",
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "PM tools: create_ticket and create_idea via tool calls",
+      "testing": "PM tool invocation: create_ticket for PostgreSQL migration (HIGH), create_idea for dark mode, create_ticket for documentation (LOW)",
+      "steps": 4,
+      "stepTypes": ["context", "chat", "chat", "chat"],
+      "agents": ["controller", "pm", "reviewer"],
+      "tools": ["create_ticket", "create_idea"],
+      "artifacts": {
+        "tickets": { "created": 2 },
+        "ideas": { "created": 1 }
+      },
+      "assertions": {},
+      "inputChars": 153,
+      "estimatedTokens": 38
+    },
+    {
+      "file": "scenario-pm.json",
+      "project": "Sprint Tracker",
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "PM workflow: sprint status, team capacity, ticket creation",
+      "testing": "PM agent text-only responses: sprint status summary, team capacity report, ticket creation confirmation — no tool calls",
+      "steps": 4,
+      "stepTypes": ["context", "chat", "chat", "chat"],
+      "agents": ["controller", "pm", "reviewer"],
+      "tools": [],
+      "artifacts": {
+        "tickets": { "created": 1 }
+      },
+      "assertions": {},
+      "inputChars": 95,
+      "estimatedTokens": 24
+    },
+    {
+      "file": "scenario-python-exec.json",
+      "project": null,
+      "schemaVersion": 1,
+      "category": "Tools",
+      "description": "Python execution tool: run Python scripts inline",
+      "testing": "Python execution via python_exec tool: hello world and fibonacci generator",
+      "steps": 2,
+      "stepTypes": ["chat", "chat"],
+      "agents": ["controller", "coder", "reviewer"],
+      "tools": ["python_exec"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 104,
+      "estimatedTokens": 26
+    },
+    {
+      "file": "scenario-reconcile-agent.json",
+      "project": "Project Beta",
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "Reconcile agent: read project data and create delta pack with findings",
+      "testing": "Reconcile agent reads tickets and objectives, detects COVERAGE_GAP, creates delta_pack via create_delta_pack tool",
+      "steps": 2,
+      "stepTypes": ["context", "chat"],
+      "agents": ["controller", "reconcile-agent", "reviewer"],
+      "tools": ["read_tickets", "read_objectives", "create_delta_pack"],
+      "artifacts": {
+        "delta_packs": { "created": 1 }
+      },
+      "assertions": {},
+      "inputChars": 109,
+      "estimatedTokens": 27
+    },
+    {
+      "file": "scenario-resource-agent.json",
+      "project": "Project Zeta",
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "Resource agent: capacity analysis and assignment suggestions",
+      "testing": "Resource agent reads resources, generates capacity_report, provides suggest_assignments for overloaded/idle team members",
+      "steps": 2,
+      "stepTypes": ["context", "chat"],
+      "agents": ["controller", "resource-agent", "reviewer"],
+      "tools": ["read_resources", "capacity_report", "suggest_assignments"],
+      "artifacts": {},
+      "assertions": {},
+      "inputChars": 90,
+      "estimatedTokens": 23
+    },
+    {
+      "file": "scenario-story-1-full-pipeline.json",
+      "project": "Story 1 Full Pipeline - Joe Overload",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "E2E: Seed 3 resources, then run full pipeline with meeting notes + 7 Jira tickets. Joe is assigned 5/7 tickets and flagged as overloaded.",
+      "testing": "Full 7-phase intake pipeline: memory save, triage routing, generalist hydration (threads+tickets), objective derivation, reconcile (delta_pack), resource analysis (blindspot for Joe capacity overload)",
+      "steps": 2,
+      "stepTypes": ["seed", "pipeline"],
+      "agents": ["intake-triage", "generalist", "objective-agent", "reconcile-agent", "resource-agent"],
+      "tools": ["classify_content", "create_thread", "create_ticket", "compute_coverage", "read_tickets", "read_objectives", "read_phases", "create_delta_pack", "create_blindspot", "read_resources", "capacity_report"],
+      "artifacts": {
+        "resources": { "seeded": 3 },
+        "memories": { "created": 1 },
+        "threads": { "created": 2 },
+        "tickets": { "created": 7 },
+        "delta_packs": { "created": 1 },
+        "blindspots": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["memories tags=intake countGte 1", "threads countEq 2", "tickets countEq 7", "tickets title matches J-201", "delta_packs countGte 1", "blindspots countGte 1"]
+      },
+      "inputChars": 1130,
+      "estimatedTokens": 283
+    },
+    {
+      "file": "scenario-story-1-intake.json",
+      "project": "Story 1 - Memory-First Intake",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Tests memory-first intake: raw content saved as memory, triage classifies 3 topics with routing block, generalist creates 3 threads",
+      "testing": "Intake pipeline phases 0-2: memory save, triage classification (THREAD: yes for 3 topics), generalist creates 3 distinct threads with distilled content",
+      "steps": 1,
+      "stepTypes": ["pipeline"],
+      "agents": ["intake-triage", "generalist"],
+      "tools": ["classify_content", "create_thread"],
+      "artifacts": {
+        "memories": { "created": 1 },
+        "threads": { "created": 3 }
+      },
+      "assertions": {
+        "mongodb": ["memories tags=intake countGte 1", "threads countEq 3", "threads title matches Payment Service Architecture", "threads title matches Evidence Service Design", "threads title matches Operational Readiness", "threads content matches event-driven", "threads content matches S3"]
+      },
+      "inputChars": 810,
+      "estimatedTokens": 203
+    },
+    {
+      "file": "scenario-story-1-reintake.json",
+      "project": "Story 1 - Re-intake Append Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Tests that re-intaking content about an existing thread topic appends content and saves multiple memories",
+      "testing": "Idempotent thread creation: first pipeline creates Evidence Service Design thread, second pipeline with updated content appends (countEq 1 — no duplicate), memories countGte 2",
+      "steps": 2,
+      "stepTypes": ["pipeline", "pipeline"],
+      "agents": ["intake-triage", "generalist"],
+      "tools": ["classify_content", "create_thread"],
+      "artifacts": {
+        "memories": { "created": 2 },
+        "threads": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["memories tags=intake countGte 1 (step1)", "threads title=Evidence Service Design countEq 1 (step1)", "threads content matches S3 (step1)", "threads title=Evidence Service Design countEq 1 (step2)", "threads content matches retention (step2)", "memories tags=intake countGte 2 (step2)"]
+      },
+      "inputChars": 357,
+      "estimatedTokens": 89
+    },
+    {
+      "file": "scenario-story-10-daily-reset.json",
+      "project": "Story 10 Daily Reset Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Schedule planner creates daily CRON schedules for reconcile-agent and plan-agent, then user queries scheduled activities",
+      "testing": "CRON schedule seeding and retrieval: seeds 2 schedules (reconcile midnight, plan 6AM), verifies GET /api/schedules returns jsonArrayMinSize 2",
+      "steps": 3,
+      "stepTypes": ["seed", "seed", "chat"],
+      "agents": ["controller", "pm", "reviewer"],
+      "tools": [],
+      "artifacts": {
+        "schedules": { "seeded": 2 }
+      },
+      "assertions": {
+        "http": ["GET /api/schedules jsonArrayMinSize 2"]
+      },
+      "inputChars": 73,
+      "estimatedTokens": 18
+    },
+    {
+      "file": "scenario-story-2-alignment.json",
+      "project": "Story 2 Alignment Test",
+      "schemaVersion": 1,
+      "category": "Story",
+      "description": "E2E: Multi-source intake pipeline — Confluence + Jira + Smartsheet through full 7-phase pipeline",
+      "testing": "Multi-source alignment: triage classifies Confluence pages + Jira export + Smartsheet plan, creates threads, tickets, phases, milestones, then reconcile produces delta_pack with 4 deltas (MISSING_EPIC, DATE_DRIFT, OWNER_MISMATCH, ORPHANED_WORK) and blindspot",
+      "steps": 2,
+      "stepTypes": ["context", "chat"],
+      "agents": ["intake-triage", "generalist", "objective-agent", "reconcile-agent", "reviewer"],
+      "tools": ["create_thread", "create_ticket", "create_phase", "create_milestone", "compute_coverage", "read_tickets", "read_objectives", "read_phases", "create_delta_pack", "create_blindspot"],
+      "artifacts": {
+        "threads": { "created": 2 },
+        "tickets": { "created": 4 },
+        "phases": { "created": 2 },
+        "milestones": { "created": 2 },
+        "delta_packs": { "created": 1 },
+        "blindspots": { "created": 1 }
+      },
+      "assertions": {},
+      "inputChars": 1480,
+      "estimatedTokens": 370
+    },
+    {
+      "file": "scenario-story-2-pipeline.json",
+      "project": "Story 2 Pipeline Scenario Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "V2 pipeline scenario: tests full 7-phase intake pipeline with mock LLM responses",
+      "testing": "Same as story-2-alignment but v2 schema with full MongoDB assertions: threads countGte 2, tickets countEq 4, phases countEq 2, milestones countEq 2, delta_packs countGte 1, blindspots countGte 1",
+      "steps": 1,
+      "stepTypes": ["pipeline"],
+      "agents": ["intake-triage", "generalist", "objective-agent", "reconcile-agent", "resource-agent"],
+      "tools": ["classify_content", "create_thread", "create_ticket", "create_phase", "create_milestone", "compute_coverage", "read_tickets", "read_objectives", "read_phases", "create_delta_pack", "create_blindspot", "read_resources", "capacity_report"],
+      "artifacts": {
+        "threads": { "created": 2 },
+        "tickets": { "created": 4 },
+        "phases": { "created": 2 },
+        "milestones": { "created": 2 },
+        "delta_packs": { "created": 1 },
+        "blindspots": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["threads countGte 2 title matches Evidence Service", "threads title matches Onboarding", "tickets countEq 4 title matches J-101", "tickets title matches J-104", "phases countEq 2", "milestones countEq 2", "delta_packs countGte 1", "blindspots countGte 1"]
+      },
+      "inputChars": 890,
+      "estimatedTokens": 223
+    },
+    {
+      "file": "scenario-story-3-sprint-objectives.json",
+      "project": "Story 3 Sprint Objectives Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Objective agent derives sprint objectives from seeded threads and tickets, computes coverage",
+      "testing": "Objective derivation from seeded data: seeds 2 threads + 4 tickets, objective-agent reads and computes coverage, HTTP assertions verify all entities persisted",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "objective-agent", "reviewer"],
+      "tools": ["read_tickets", "read_objectives", "compute_coverage"],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "tickets": { "seeded": 4 }
+      },
+      "assertions": {
+        "mongodb": ["threads countGte 2", "tickets countGte 4"],
+        "http": ["GET /objectives 200", "GET /tickets jsonArrayMinSize 4", "GET /threads jsonArrayMinSize 2 bodyContains Evidence Service"]
+      },
+      "inputChars": 497,
+      "estimatedTokens": 124
+    },
+    {
+      "file": "scenario-story-4-resource-load.json",
+      "project": "Story 4 Resource Load Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Resource agent maps people to tickets to objectives and analyses capacity load",
+      "testing": "Resource load analysis: seeds 2 threads, 4 tickets, 2 objectives, 2 resources, then resource-agent generates capacity_report; HTTP assertions verify all entities",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "resource-agent", "reviewer"],
+      "tools": ["read_resources", "capacity_report"],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "tickets": { "seeded": 4 },
+        "objectives": { "seeded": 2 },
+        "resources": { "seeded": 2 }
+      },
+      "assertions": {
+        "http": ["GET /resources jsonArrayMinSize 2", "GET /tickets jsonArrayMinSize 4", "GET /objectives 200"]
+      },
+      "inputChars": 635,
+      "estimatedTokens": 159
+    },
+    {
+      "file": "scenario-story-5-plan-creation.json",
+      "project": "Story 5 Plan Creation Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Plan agent creates phases and milestones from seeded threads, generates plan artifact",
+      "testing": "Plan creation from threads: seeds 2 threads, plan-agent creates 2 phases + 2 milestones, generates plan artifact; MongoDB and HTTP assertions verify all",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "plan-agent", "reviewer"],
+      "tools": ["create_phase", "create_milestone", "generate_plan_artifact"],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "phases": { "created": 2 },
+        "milestones": { "created": 2 }
+      },
+      "assertions": {
+        "mongodb": ["phases countGte 2 name matches Facade", "milestones countGte 2 name matches Evidence Service"],
+        "http": ["GET /phases jsonArrayMinSize 2", "GET /milestones jsonArrayMinSize 2 bodyContains Onboarding"]
+      },
+      "inputChars": 288,
+      "estimatedTokens": 72
+    },
+    {
+      "file": "scenario-story-6-checklist.json",
+      "project": "Story 6 Checklist Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Checklist agent generates ORR checklist from seeded phases and milestones",
+      "testing": "ORR checklist creation: seeds 2 threads, 2 phases, 2 milestones, then checklist-agent creates ORR checklist with 4 items; MongoDB and HTTP assertions verify",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "checklist-agent", "reviewer"],
+      "tools": ["read_phases", "read_checklists", "create_checklist"],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "phases": { "seeded": 2 },
+        "milestones": { "seeded": 2 },
+        "checklists": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["checklists countGte 1 name matches ORR", "phases countGte 2", "milestones countGte 2"],
+        "http": ["GET /checklists jsonArrayMinSize 1 bodyContains ORR", "GET /phases jsonArrayMinSize 2", "GET /milestones jsonArrayMinSize 2"]
+      },
+      "inputChars": 501,
+      "estimatedTokens": 125
+    },
+    {
+      "file": "scenario-story-7-scheduled-reconcile.json",
+      "project": "Story 7 Scheduled Reconcile Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Scheduler creates CRON schedule for reconcile-agent, triggers immediate execution, then user asks for drift report",
+      "testing": "Scheduled agent execution: seeds project state + CRON schedule, triggers /api/executions/trigger for reconcile-agent, then chat produces delta_pack with MILESTONE_SLIP + ORPHANED_WORK deltas",
+      "steps": 3,
+      "stepTypes": ["seed", "seed", "chat"],
+      "agents": ["controller", "reconcile-agent", "reviewer"],
+      "tools": ["read_tickets", "read_objectives", "read_phases", "create_delta_pack"],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "tickets": { "seeded": 4 },
+        "phases": { "seeded": 2 },
+        "milestones": { "seeded": 2 },
+        "objectives": { "seeded": 2 },
+        "schedules": { "seeded": 1 },
+        "delta_packs": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["delta_packs countGte 1", "threads countGte 2", "tickets countGte 4"],
+        "http": ["GET /api/schedules jsonArrayMinSize 1"]
+      },
+      "inputChars": 703,
+      "estimatedTokens": 176
+    },
+    {
+      "file": "scenario-story-8-ondemand-agents.json",
+      "project": "Story 8 On-Demand Agents Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "On-demand plan and reconcile agents run sequentially from seeded project state",
+      "testing": "On-demand agent dispatch: seeds project state, plan-agent updates phases and generates artifact, reconcile-agent detects DATE_DRIFT and creates delta_pack",
+      "steps": 3,
+      "stepTypes": ["seed", "chat", "chat"],
+      "agents": ["controller", "plan-agent", "reconcile-agent", "reviewer"],
+      "tools": ["read_phases", "generate_plan_artifact", "read_tickets", "read_objectives", "create_delta_pack"],
+      "artifacts": {
+        "threads": { "seeded": 2 },
+        "tickets": { "seeded": 4 },
+        "phases": { "seeded": 2 },
+        "milestones": { "seeded": 2 },
+        "delta_packs": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["phases countGte 2", "delta_packs countGte 1"],
+        "http": ["GET /phases jsonArrayMinSize 2"]
+      },
+      "inputChars": 779,
+      "estimatedTokens": 195
+    },
+    {
+      "file": "scenario-story-9-memory.json",
+      "project": "Story 9 Memory Test",
+      "schemaVersion": 2,
+      "category": "Story",
+      "description": "Distiller agent stores a project decision as memory and then retrieves it on subsequent query",
+      "testing": "Memory persistence: seeds thread, distiller stores 'S3 for evidence storage' decision as memory, then recalls it on follow-up query",
+      "steps": 3,
+      "stepTypes": ["seed", "chat", "chat"],
+      "agents": ["controller", "distiller", "reviewer"],
+      "tools": ["memory"],
+      "artifacts": {
+        "threads": { "seeded": 1 },
+        "memories": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["memories countGte 1"]
+      },
+      "inputChars": 326,
+      "estimatedTokens": 82
+    },
+    {
+      "file": "scenario-thread-agent.json",
+      "project": "Project Alpha",
+      "schemaVersion": 1,
+      "category": "Agent",
+      "description": "Thread agent: create, rename, and attach evidence to threads",
+      "testing": "Thread lifecycle: create_thread (ALPHA-cicd-pipeline-2026-02), rename_thread (thread-001 to ALPHA-db-migration-2026-02)",
+      "steps": 3,
+      "stepTypes": ["context", "chat", "chat"],
+      "agents": ["controller", "thread-agent", "reviewer"],
+      "tools": ["create_thread", "rename_thread"],
+      "artifacts": {
+        "threads": { "created": 1 }
+      },
+      "assertions": {},
+      "inputChars": 205,
+      "estimatedTokens": 51
+    },
+    {
+      "file": "scenario-thread-intake-v2.json",
+      "project": "Q1 Planning",
+      "schemaVersion": 2,
+      "category": "Pipeline",
+      "description": "V2 Thread intake: paste long meeting notes, create named thread, process through full agent chain",
+      "testing": "Named thread creation + message intake: context steps create project and thread, then long sprint planning notes processed by PM agent, creates ticket via create_ticket, MongoDB asserts thread and messages persisted",
+      "steps": 4,
+      "stepTypes": ["context", "context", "message", "message"],
+      "agents": ["controller", "pm", "reviewer"],
+      "tools": ["create_ticket"],
+      "artifacts": {
+        "threads": { "created": 1 },
+        "tickets": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["threads countGte 1", "threads title=Sprint 3 Planning countEq 1", "messages countGte 3"]
+      },
+      "inputChars": 2018,
+      "estimatedTokens": 505
+    },
+    {
+      "file": "scenario-thread-merge.json",
+      "project": "Thread Merge via REST Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Seed 2 threads, ask agent to merge them, verify session completes successfully",
+      "testing": "Thread merge via mocked tool: seeds 2 payment threads, PM agent calls read_threads then merge_threads (mocked to return success), verifies sessionStatus=COMPLETED",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "pm", "reviewer"],
+      "tools": ["read_threads", "merge_threads"],
+      "artifacts": {
+        "threads": { "seeded": 2 }
+      },
+      "assertions": {
+        "sessionStatus": "COMPLETED"
+      },
+      "inputChars": 239,
+      "estimatedTokens": 60
+    },
+    {
+      "file": "scenario-thread-update-on-reintake.json",
+      "project": "Thread Update on Re-intake Test",
+      "schemaVersion": 2,
+      "category": "Pipeline",
+      "description": "Verifies that re-intaking content about an existing thread topic appends content rather than creating a duplicate",
+      "testing": "Thread deduplication on re-intake: first pipeline creates Evidence Service Design thread (content includes S3), second pipeline with updated content appends retention info — thread countEq 1 after both",
+      "steps": 2,
+      "stepTypes": ["pipeline", "pipeline"],
+      "agents": ["intake-triage", "generalist"],
+      "tools": ["classify_content", "create_thread"],
+      "artifacts": {
+        "threads": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["threads title=Evidence Service Design countEq 1 (step1)", "threads content matches S3 (step1)", "threads title=Evidence Service Design countEq 1 (step2)", "threads content matches retention (step2)"]
+      },
+      "inputChars": 418,
+      "estimatedTokens": 105
+    },
+    {
+      "file": "scenario-unallocated-resources.json",
+      "project": "Unallocated Resources Blindspot Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Reconcile agent detects idle resource with no assigned tickets and creates CAPACITY_GAP blindspot",
+      "testing": "Capacity gap detection: seeds 2 resources (Alice with 2 tickets, Bob with 0), reconcile-agent creates CAPACITY_GAP blindspot for Bob",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "reconcile-agent", "reviewer"],
+      "tools": ["read_tickets", "read_resources", "create_blindspot"],
+      "artifacts": {
+        "resources": { "seeded": 2 },
+        "tickets": { "seeded": 2 },
+        "blindspots": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["blindspots category=CAPACITY_GAP countGte 1"]
+      },
+      "inputChars": 222,
+      "estimatedTokens": 56
+    },
+    {
+      "file": "scenario-unassigned-tickets.json",
+      "project": "Unassigned Tickets Blindspot Test",
+      "schemaVersion": 2,
+      "category": "Agent",
+      "description": "Reconcile agent detects unassigned tickets and creates UNASSIGNED_WORK blindspot",
+      "testing": "Unassigned work detection: seeds 3 tickets (1 assigned, 2 unassigned) + 1 resource, reconcile-agent creates UNASSIGNED_WORK blindspot for T-002 and T-003",
+      "steps": 2,
+      "stepTypes": ["seed", "chat"],
+      "agents": ["controller", "reconcile-agent", "reviewer"],
+      "tools": ["read_tickets", "read_resources", "create_blindspot"],
+      "artifacts": {
+        "tickets": { "seeded": 3 },
+        "resources": { "seeded": 1 },
+        "blindspots": { "created": 1 }
+      },
+      "assertions": {
+        "mongodb": ["blindspots category=UNASSIGNED_WORK countGte 1"]
+      },
+      "inputChars": 279,
+      "estimatedTokens": 70
+    }
+  ],
+  "summary": {
+    "byCategory": {
+      "Agent": {
+        "count": 18,
+        "scenarios": [
+          "scenario-agent-merge",
+          "scenario-all-agents-seeded",
+          "scenario-ask-claw-capacity",
+          "scenario-ask-claw-resources",
+          "scenario-ask-claw-sprint-health",
+          "scenario-ask-claw-utilization",
+          "scenario-ask-claw",
+          "scenario-checklist-agent",
+          "scenario-coder",
+          "scenario-general",
+          "scenario-generalist-seeded",
+          "scenario-objective-agent",
+          "scenario-plan-agent",
+          "scenario-pm",
+          "scenario-reconcile-agent",
+          "scenario-resource-agent",
+          "scenario-thread-agent",
+          "scenario-thread-merge",
+          "scenario-unallocated-resources",
+          "scenario-unassigned-tickets"
+        ]
+      },
+      "Tools": {
+        "count": 12,
+        "scenarios": [
+          "scenario-coder-exec",
+          "scenario-excel-weather",
+          "scenario-exec-time",
+          "scenario-fs-tools-v2",
+          "scenario-fs-tools",
+          "scenario-git-tools",
+          "scenario-http",
+          "scenario-jbang-exec",
+          "scenario-memory-v2",
+          "scenario-memory",
+          "scenario-pm-tools-v2",
+          "scenario-pm-tools",
+          "scenario-python-exec"
+        ]
+      },
+      "Pipeline": {
+        "count": 7,
+        "scenarios": [
+          "scenario-extraction-v2",
+          "scenario-file-upload",
+          "scenario-generalist-intake",
+          "scenario-intake-pipeline",
+          "scenario-intake-triage",
+          "scenario-thread-intake-v2",
+          "scenario-thread-update-on-reintake"
+        ]
+      },
+      "Story": {
+        "count": 10,
+        "scenarios": [
+          "scenario-story-1-full-pipeline",
+          "scenario-story-1-intake",
+          "scenario-story-1-reintake",
+          "scenario-story-10-daily-reset",
+          "scenario-story-2-alignment",
+          "scenario-story-2-pipeline",
+          "scenario-story-3-sprint-objectives",
+          "scenario-story-4-resource-load",
+          "scenario-story-5-plan-creation",
+          "scenario-story-6-checklist",
+          "scenario-story-7-scheduled-reconcile",
+          "scenario-story-8-ondemand-agents",
+          "scenario-story-9-memory"
+        ]
+      }
+    },
+    "totalArtifacts": {
+      "threads": { "seeded": 26, "created": 18, "merged": 1 },
+      "tickets": { "seeded": 41, "created": 40 },
+      "resources": { "seeded": 28, "created": 6 },
+      "objectives": { "seeded": 9, "created": 6 },
+      "phases": { "seeded": 9, "created": 12 },
+      "milestones": { "seeded": 8, "created": 8 },
+      "checklists": { "seeded": 1, "created": 8 },
+      "blindspots": { "seeded": 4, "created": 8 },
+      "delta_packs": { "created": 7 },
+      "memories": { "seeded": 4, "created": 10, "deleted": 2 },
+      "reminders": { "created": 1 },
+      "schedules": { "seeded": 3 },
+      "uploads": { "created": 1 },
+      "ideas": { "created": 1 }
+    },
+    "allAgents": [
+      "controller",
+      "reviewer",
+      "generalist",
+      "pm",
+      "coder",
+      "intake-triage",
+      "thread-agent",
+      "thread-extractor",
+      "objective-agent",
+      "plan-agent",
+      "checklist-agent",
+      "reconcile-agent",
+      "resource-agent",
+      "distiller"
+    ],
+    "allTools": [
+      "classify_content",
+      "create_thread",
+      "create_ticket",
+      "create_objective",
+      "create_phase",
+      "create_milestone",
+      "create_checklist",
+      "create_delta_pack",
+      "create_blindspot",
+      "create_reminder",
+      "create_resource",
+      "create_idea",
+      "read_threads",
+      "read_tickets",
+      "read_objectives",
+      "read_phases",
+      "read_resources",
+      "read_checklists",
+      "read_thread_messages",
+      "merge_threads",
+      "rename_thread",
+      "compute_coverage",
+      "capacity_report",
+      "suggest_assignments",
+      "generate_plan_artifact",
+      "checklist_progress",
+      "memory",
+      "excel",
+      "write_file",
+      "read_file",
+      "list_directory",
+      "search_files",
+      "shell_exec",
+      "git_status",
+      "git_diff",
+      "http_get",
+      "jbang_exec",
+      "python_exec"
+    ],
+    "totalInputChars": 22740,
+    "totalEstimatedTokens": 5685,
+    "byGroup": {
+      "1": {
+        "name": "Foundations",
+        "count": 13,
+        "estimatedTokens": 611,
+        "scenarios": [
+          "scenario-general",
+          "scenario-coder",
+          "scenario-pm",
+          "scenario-memory",
+          "scenario-fs-tools",
+          "scenario-git-tools",
+          "scenario-http",
+          "scenario-jbang-exec",
+          "scenario-python-exec",
+          "scenario-exec-time",
+          "scenario-pm-tools",
+          "scenario-intake-triage",
+          "scenario-intake-pipeline"
+        ]
+      },
+      "2": {
+        "name": "Tools & Single Agents",
+        "count": 14,
+        "estimatedTokens": 737,
+        "scenarios": [
+          "scenario-memory-v2",
+          "scenario-fs-tools-v2",
+          "scenario-pm-tools-v2",
+          "scenario-coder-exec",
+          "scenario-excel-weather",
+          "scenario-checklist-agent",
+          "scenario-objective-agent",
+          "scenario-plan-agent",
+          "scenario-reconcile-agent",
+          "scenario-resource-agent",
+          "scenario-thread-agent",
+          "scenario-extraction-v2",
+          "scenario-unallocated-resources",
+          "scenario-unassigned-tickets"
+        ]
+      },
+      "3": {
+        "name": "Pipelines & Multi-Agent",
+        "count": 13,
+        "estimatedTokens": 1565,
+        "scenarios": [
+          "scenario-generalist-intake",
+          "scenario-generalist-seeded",
+          "scenario-all-agents-seeded",
+          "scenario-story-1-intake",
+          "scenario-story-1-reintake",
+          "scenario-thread-update-on-reintake",
+          "scenario-thread-intake-v2",
+          "scenario-file-upload",
+          "scenario-agent-merge",
+          "scenario-thread-merge",
+          "scenario-story-9-memory",
+          "scenario-story-3-sprint-objectives",
+          "scenario-story-4-resource-load"
+        ]
+      },
+      "4": {
+        "name": "E2E Stories & Context Assembly",
+        "count": 13,
+        "estimatedTokens": 2772,
+        "scenarios": [
+          "scenario-story-1-full-pipeline",
+          "scenario-story-2-alignment",
+          "scenario-story-2-pipeline",
+          "scenario-story-5-plan-creation",
+          "scenario-story-6-checklist",
+          "scenario-story-7-scheduled-reconcile",
+          "scenario-story-8-ondemand-agents",
+          "scenario-story-10-daily-reset",
+          "scenario-ask-claw",
+          "scenario-ask-claw-capacity",
+          "scenario-ask-claw-resources",
+          "scenario-ask-claw-sprint-health",
+          "scenario-ask-claw-utilization"
+        ]
+      }
+    }
+  }
+}

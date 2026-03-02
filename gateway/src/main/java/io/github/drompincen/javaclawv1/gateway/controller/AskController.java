@@ -3,6 +3,7 @@ package io.github.drompincen.javaclawv1.gateway.controller;
 import io.github.drompincen.javaclawv1.persistence.document.*;
 import io.github.drompincen.javaclawv1.persistence.repository.*;
 import io.github.drompincen.javaclawv1.protocol.api.ThingCategory;
+import io.github.drompincen.javaclawv1.runtime.agent.LlmUsageTracker;
 import io.github.drompincen.javaclawv1.runtime.agent.graph.AgentState;
 import io.github.drompincen.javaclawv1.runtime.agent.llm.LlmService;
 import io.github.drompincen.javaclawv1.runtime.thing.ThingService;
@@ -25,15 +26,18 @@ public class AskController {
     private final MemoryRepository memoryRepository;
     private final ThingService thingService;
     private final LlmService llmService;
+    private final LlmUsageTracker usageTracker;
 
     public AskController(ThreadRepository threadRepository,
                          MemoryRepository memoryRepository,
                          ThingService thingService,
-                         LlmService llmService) {
+                         LlmService llmService,
+                         LlmUsageTracker usageTracker) {
         this.threadRepository = threadRepository;
         this.memoryRepository = memoryRepository;
         this.thingService = thingService;
         this.llmService = llmService;
+        this.usageTracker = usageTracker;
     }
 
     @PostMapping
@@ -76,10 +80,19 @@ public class AskController {
         state = state.withMessage("user", enrichedPrompt);
 
         // Call LLM
+        int promptTokens = state.getMessages().stream()
+                .mapToInt(m -> m.getOrDefault("content", "").length() / 4)
+                .sum();
         String answer;
+        long startTime = System.currentTimeMillis();
         try {
             answer = llmService.blockingResponse(state);
+            long durationMs = System.currentTimeMillis() - startTime;
+            int completionTokens = answer != null ? answer.length() / 4 : 0;
+            usageTracker.record("generalist", "ask-claw", promptTokens, completionTokens, durationMs, true);
         } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startTime;
+            usageTracker.record("generalist", "ask-claw", promptTokens, 0, durationMs, false);
             log.error("[AskClaw] LLM call failed: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError()
                     .body(Map.of("error", "Failed to get answer: " + e.getMessage()));

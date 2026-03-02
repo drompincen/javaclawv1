@@ -20,6 +20,8 @@ public final class TestResponseGenerator {
         return switch (agentId) {
             case "controller" -> generateControllerResponse(userMsg, messages);
             case "reviewer" -> generateReviewerResponse(messages, hasToolResults);
+            case "intake-triage" -> generateTriageResponse(userMsg);
+            case "generalist" -> generateGeneralistResponse(userMsg, hasToolResults);
             default -> generateSpecialistResponse(agentId, userMsg, hasToolResults);
         };
     }
@@ -112,6 +114,62 @@ public final class TestResponseGenerator {
         }
 
         return "[TEST] Agent %s processed request: %s".formatted(agentId, truncate(userMsg, 200));
+    }
+
+    static String generateTriageResponse(String userMsg) {
+        String lower = userMsg.toLowerCase();
+        boolean hasThreadSignals = lower.contains("discuss") || lower.contains("meeting")
+                || lower.contains("action") || lower.contains("decision")
+                || lower.contains("notes") || lower.contains("conversation");
+        boolean hasTicketSignals = lower.contains("ticket") || lower.contains("bug")
+                || lower.contains("feature") || lower.contains("story")
+                || lower.contains("task") || lower.contains("issue");
+        boolean hasPlanSignals = lower.contains("plan") || lower.contains("sprint")
+                || lower.contains("milestone") || lower.contains("phase")
+                || lower.contains("timeline") || lower.contains("deadline");
+        boolean hasResourceSignals = lower.contains("resource") || lower.contains("team")
+                || lower.contains("assign") || lower.contains("capacity")
+                || lower.contains("availability");
+
+        // Default: at least route to threads so the pipeline creates something
+        if (!hasThreadSignals && !hasTicketSignals && !hasPlanSignals && !hasResourceSignals) {
+            hasThreadSignals = true;
+        }
+
+        return "[TEST] Triage classification:\n\n"
+                + "THREAD: " + (hasThreadSignals ? "yes" : "no") + "\n"
+                + "TICKETS: " + (hasTicketSignals ? "yes" : "no") + "\n"
+                + "PLAN: " + (hasPlanSignals ? "yes" : "no") + "\n"
+                + "RESOURCES: " + (hasResourceSignals ? "yes" : "no") + "\n";
+    }
+
+    static String generateGeneralistResponse(String userMsg, boolean hasToolResults) {
+        if (hasToolResults) {
+            return "[TEST] Generalist completed hydration. All tool calls processed successfully.";
+        }
+
+        // Extract projectId from the prompt (embedded as "projectId": "uuid" or projectId: uuid)
+        String projectId = "unknown";
+        Matcher pidMatcher = Pattern.compile("(?i)\"?projectId\"?\\s*[:=]\\s*\"?([a-f0-9\\-]{36})\"?").matcher(userMsg);
+        if (pidMatcher.find()) {
+            projectId = pidMatcher.group(1);
+        }
+
+        return "I'll create threads from the intake content.\n\n"
+                + "<tool_call>\n"
+                + "{\"name\": \"create_thread\", \"args\": {\"projectId\": \"" + escapeJson(projectId) + "\", "
+                + "\"title\": \"Sprint Planning Action Items\", "
+                + "\"summary\": \"Key action items and decisions from sprint planning meeting\", "
+                + "\"content\": \"Action items discussed during planning. Migrate user service to async. Update deployment scripts.\", "
+                + "\"lifecycle\": \"ACTIVE\"}}\n"
+                + "</tool_call>\n\n"
+                + "<tool_call>\n"
+                + "{\"name\": \"create_thread\", \"args\": {\"projectId\": \"" + escapeJson(projectId) + "\", "
+                + "\"title\": \"Risk Assessment - Q2 Release\", "
+                + "\"summary\": \"Identified risks and mitigation strategies for Q2 release\", "
+                + "\"content\": \"Risks: tight deadline for Q2 release, dependency on external vendor API.\", "
+                + "\"lifecycle\": \"ACTIVE\"}}\n"
+                + "</tool_call>";
     }
 
     static String generateReminderResponse(String userMsg) {

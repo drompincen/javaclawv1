@@ -186,6 +186,13 @@ public class AgentGraphBuilder {
                 AgentState specialistState = state.withAgent(specialist.getAgentId())
                         .withMessage("system", specialist.getSystemPrompt());
 
+                // Inject project context so specialist knows which project to operate on
+                if (state.getProjectId() != null && !state.getProjectId().isBlank()) {
+                    specialistState = specialistState.withMessage("system",
+                            "You are working on project ID: " + state.getProjectId()
+                            + ". Use this projectId for ALL tool calls.");
+                }
+
                 // Inject sub-task so specialist knows what to focus on
                 if (subTaskDesc != null && !"delegated task".equals(subTaskDesc)) {
                     specialistState = specialistState.withMessage("system",
@@ -624,14 +631,14 @@ public class AgentGraphBuilder {
             String result = sb.toString();
             long durationMs = System.currentTimeMillis() - startTime;
             logService.recordLlmInteraction(state.getThreadId(), state.getCurrentAgentId(),
-                    "anthropic", null, state.getMessages().size(), 0,
+                    "anthropic", null, state.getMessages().size(), estimatePromptTokens(state),
                     estimateTokens(result), durationMs, true, null);
             return result;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startTime;
             log.error("LLM call failed for thread {}", state.getThreadId(), e);
             logService.recordLlmInteraction(state.getThreadId(), state.getCurrentAgentId(),
-                    "anthropic", null, state.getMessages().size(), 0, 0,
+                    "anthropic", null, state.getMessages().size(), estimatePromptTokens(state), 0,
                     durationMs, false, e.getMessage());
             logService.logError("AgentGraphBuilder", state.getThreadId(),
                     "LLM call failed: " + e.getMessage(), e, Map.of());
@@ -655,7 +662,7 @@ public class AgentGraphBuilder {
             String result = sb.toString();
             long durationMs = System.currentTimeMillis() - startTime;
             logService.recordLlmInteraction(state.getThreadId(), agent.getAgentId(),
-                    "anthropic", null, state.getMessages().size(), 0,
+                    "anthropic", null, state.getMessages().size(), estimatePromptTokens(state),
                     estimateTokens(result), durationMs, true, null);
             return result;
         } catch (Exception e) {
@@ -663,7 +670,7 @@ public class AgentGraphBuilder {
             log.error("LLM call failed for agent {} in thread {}",
                     agent.getAgentId(), state.getThreadId(), e);
             logService.recordLlmInteraction(state.getThreadId(), agent.getAgentId(),
-                    "anthropic", null, state.getMessages().size(), 0, 0,
+                    "anthropic", null, state.getMessages().size(), estimatePromptTokens(state), 0,
                     durationMs, false, e.getMessage());
             logService.logError("AgentGraphBuilder", state.getThreadId(),
                     "LLM call failed for " + agent.getAgentId() + ": " + e.getMessage(), e, Map.of());
@@ -686,14 +693,14 @@ public class AgentGraphBuilder {
             log.info("[{}] LLM response received ({}ms, {} chars)",
                     agent.getAgentId(), durationMs, result != null ? result.length() : 0);
             logService.recordLlmInteraction(state.getThreadId(), agent.getAgentId(),
-                    "anthropic", null, state.getMessages().size(), 0,
+                    "anthropic", null, state.getMessages().size(), estimatePromptTokens(state),
                     estimateTokens(result), durationMs, true, null);
             return result;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startTime;
             log.error("[{}] LLM call failed ({}ms): {}", agent.getAgentId(), durationMs, e.getMessage());
             logService.recordLlmInteraction(state.getThreadId(), agent.getAgentId(),
-                    "anthropic", null, state.getMessages().size(), 0, 0,
+                    "anthropic", null, state.getMessages().size(), estimatePromptTokens(state), 0,
                     durationMs, false, e.getMessage());
             eventService.emit(state.getThreadId(), EventType.ERROR,
                     Map.of("message", "LLM call failed for " + agent.getAgentId() + ": " + e.getMessage()));
@@ -703,6 +710,12 @@ public class AgentGraphBuilder {
 
     private int estimateTokens(String text) {
         return text != null ? text.length() / 4 : 0;
+    }
+
+    private int estimatePromptTokens(AgentState state) {
+        return state.getMessages().stream()
+                .mapToInt(m -> estimateTokens(m.getOrDefault("content", "")))
+                .sum();
     }
 
     public ToolResult executeTool(AgentState state, String toolName, JsonNode input) {
@@ -829,8 +842,11 @@ public class AgentGraphBuilder {
             JsonNode node = objectMapper.readTree(stripCodeFences(response));
             if (node.has("pass")) return node.get("pass").asBoolean();
         } catch (Exception ignored) {}
-        return !response.toLowerCase().contains("\"pass\": false")
-                && !response.toLowerCase().contains("\"pass\":false");
+        String lower = response.toLowerCase();
+        // Check for explicit fail indicators in both JSON and prose formats
+        if (lower.contains("\"pass\": false") || lower.contains("\"pass\":false")) return false;
+        if (lower.contains("**fail**") || lower.startsWith("fail")) return false;
+        return true;
     }
 
     private String parseCheckSummary(String response) {

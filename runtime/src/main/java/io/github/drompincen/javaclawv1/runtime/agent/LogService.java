@@ -24,10 +24,13 @@ public class LogService {
 
     private final LogRepository logRepository;
     private final LlmInteractionRepository llmInteractionRepository;
+    private final LlmUsageTracker usageTracker;
 
-    public LogService(LogRepository logRepository, LlmInteractionRepository llmInteractionRepository) {
+    public LogService(LogRepository logRepository, LlmInteractionRepository llmInteractionRepository,
+                      LlmUsageTracker usageTracker) {
         this.logRepository = logRepository;
         this.llmInteractionRepository = llmInteractionRepository;
+        this.usageTracker = usageTracker;
     }
 
     public void logInfo(String source, String sessionId, String message, Map<String, Object> metadata) {
@@ -72,6 +75,7 @@ public class LogService {
     public void recordLlmInteraction(String sessionId, String agentId, String provider, String model,
                                       int messageCount, int promptTokens, int completionTokens,
                                       long durationMs, boolean success, String errorMessage) {
+        usageTracker.record(agentId, "agent", promptTokens, completionTokens, durationMs, success);
         try {
             LlmInteractionDocument doc = new LlmInteractionDocument();
             doc.setInteractionId(UUID.randomUUID().toString());

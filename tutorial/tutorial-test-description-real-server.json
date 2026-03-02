@@ -1,0 +1,551 @@
+{
+  "_meta": {
+    "generatedDate": "2026-03-01",
+    "totalTutorials": 8,
+    "totalEstimatedInputTokens": 14825,
+    "totalEstimatedOutputTokens": 7000,
+    "totalEstimatedLlmCalls": 48,
+    "note": "Token estimates include raw content chars/4 plus system prompt overhead (~500-1000 tokens per call). Actual consumption varies with LLM response length and conversation history accumulation. DB is cleaned before each group via DELETE /api/projects/{id}/data.",
+    "serverRequirements": "jbang javaclaw.java --port 18080 (real LLM mode, ANTHROPIC_API_KEY required for all groups)",
+    "testModeGuard": "In live mode, direct POST to domain entity endpoints (threads, tickets, objectives, resources, blindspots, phases, milestones, checklists) returns 403. All entity creation must flow through POST /api/intake/pipeline. In testMode (--testmode), all endpoints are open for scenario testing.",
+    "runner": {
+      "script": "tutorial/run-tutorials.sh",
+      "usage": "bash tutorial/run-tutorials.sh [--group 1|2|1-2] [--port PORT] [--parallel]",
+      "examples": [
+        "bash tutorial/run-tutorials.sh --port 18080 --parallel",
+        "bash tutorial/run-tutorials.sh --group 1 --port 18080",
+        "bash tutorial/run-tutorials.sh --group 2 --port 18080"
+      ],
+      "features": [
+        "Health check before running",
+        "Global LLM usage reset",
+        "Per-group LLM usage tracking (before/after snapshots)",
+        "Parallel group execution with --parallel flag",
+        "Full report with per-tutorial PASS/FAIL, durations, per-group LLM stats",
+        "Exit 0 if all passed, exit 1 if any failed",
+        "Failed tutorial log paths printed on failure"
+      ]
+    },
+    "sampleDataFiles": {
+      "meeting-notes-payments.txt": {"bytes": 1783, "description": "Payment Gateway Architecture Review — 3 topics, 3 attendees"},
+      "meeting-notes-onboarding.txt": {"bytes": 1129, "description": "Merchant Onboarding Design Session — 2 topics"},
+      "jira-export.txt": {"bytes": 881, "description": "Plain text Jira export — 7 tickets (PAY-101 to PAY-107)"},
+      "jira-export.csv": {"bytes": 652, "description": "CSV Jira export — 7 tickets with header row"},
+      "jira-export.json": {"bytes": 2252, "description": "JSON Jira REST API export — 7 tickets with nested fields"},
+      "team-roster.json": {"bytes": 610, "description": "3 team members: Joe Martinez, Alice Chen, Bob Taylor"},
+      "conversation-objectives-resources.txt": {"bytes": 1922, "description": "Sprint 42 planning conversation — 3 objectives, 3 resources, action items"},
+      "conversation-objectives-resources.json": {"bytes": 2431, "description": "Same planning data in structured JSON — objectives, resources, actionItems arrays"}
+    },
+    "projectNames": {
+      "T01": "Tutorial T01 Meeting Notes",
+      "T02": "Tutorial T02 Jira Import",
+      "T03": "Tutorial T03 File Upload",
+      "T04": "Tutorial T04 Conversations",
+      "T05": "Tutorial T05 Ask Claw",
+      "T06": "Tutorial T06 Agent Orch",
+      "T07": "Tutorial T07 Grounded",
+      "T08": "Tutorial T08 Resourcing"
+    },
+    "groups": {
+      "1": {
+        "groupName": "Intake Pipelines & File Upload",
+        "description": "LLM-powered intake pipeline: meeting notes triage, Jira import, CSV file upload, and multi-file upload (CSV+TXT). All entity seeding flows through POST /api/intake/pipeline. Tests the full intake path: submit/upload → triage → generalist hydration → entity persistence.",
+        "llmRequired": true,
+        "count": 4,
+        "estimatedInputTokens": 8500,
+        "estimatedOutputTokens": 3800,
+        "estimatedLlmCalls": 34,
+        "entitiesTested": ["threads", "tickets", "memories", "objectives", "resources", "blindspots", "uploads"],
+        "dbCleanup": "DELETE /api/projects/{id}/data before group start and after each tutorial",
+        "uiAssertions": {
+          "views": ["intake", "threads", "tickets", "objectives", "resources"],
+          "navBadges": {
+            "navThreadsBadge": ">=1",
+            "navTicketsBadge": ">=1",
+            "navObjBadge": ">=1",
+            "navResBadge": ">=1"
+          },
+          "centerTitle": {
+            "intake": "INTAKE",
+            "threads": "THREADS",
+            "tickets": "TICKETS",
+            "objectives": "OBJECTIVES",
+            "resources": "RESOURCES"
+          },
+          "rowCounts": {
+            ".thread-row": ">=1"
+          },
+          "elements": ["#intakeText", "#intakeSend", "#askClawInput"],
+          "runCommand": "node tutorial-ui.test.mjs --group 1 --port 18080"
+        }
+      },
+      "2": {
+        "groupName": "Agent Orchestration & Ask Claw",
+        "description": "Multi-agent sessions with controller→specialist→checker orchestration, and Ask Claw grounded Q&A. All project data seeded via intake pipeline. Tests agent artifact creation (objectives, phases, checklists) and LLM answer quality with keyword validation. Asserts LLM call counts via GET /api/logs/llm-usage.",
+        "llmRequired": true,
+        "count": 4,
+        "estimatedInputTokens": 6500,
+        "estimatedOutputTokens": 3500,
+        "estimatedLlmCalls": 15,
+        "entitiesTested": ["objectives", "phases", "checklists", "sessions", "threads", "tickets", "resources", "blindspots", "milestones"],
+        "dbCleanup": "DELETE /api/projects/{id}/data before group start and after each tutorial",
+        "uiAssertions": {
+          "views": ["objectives", "plans", "checklists", "intake"],
+          "navBadges": {
+            "navObjBadge": ">=1",
+            "navPlansBadge": ">=1",
+            "navChkBadge": ">=1"
+          },
+          "centerTitle": {
+            "objectives": "OBJECTIVES",
+            "plans": "PLANS",
+            "checklists": "CHECKLISTS"
+          },
+          "elements": ["#tokenCount", "#log", ".agent-tile", "#askClawInput"],
+          "tokenUsage": "tokenCount shows non-zero usage",
+          "runCommand": "node tutorial-ui.test.mjs --group 2 --port 18080"
+        }
+      }
+    }
+  },
+  "tutorials": [
+    {
+      "file": "01-intake-meeting-notes.sh",
+      "groupNumber": 1,
+      "groupName": "Intake Pipelines & File Upload",
+      "title": "Intake Meeting Notes",
+      "projectName": "Tutorial T01 Meeting Notes",
+      "llmRequired": true,
+      "description": "Submit meeting notes to intake pipeline; triage classifies topics, generalist creates threads, distiller creates memories",
+      "testing": "Full intake pipeline: submits meeting-notes-payments.txt (1783 chars, 3 topics) via POST /api/intake/pipeline. Polls for threads (up to 60s). Asserts thread count >= 1 and memory count >= 1. Exit 1 on assertion failure.",
+      "endpoints": [
+        "POST /api/projects",
+        "POST /api/intake/pipeline",
+        "GET /api/projects/{id}/threads",
+        "GET /api/memories",
+        "DELETE /api/projects/{id}/data"
+      ],
+      "entitiesCreated": {
+        "threads": "3+ (one per classified topic)",
+        "memories": "1+ (intake memory)"
+      },
+      "assertions": {
+        "http": ["pipeline HTTP 202", "threads >= 1", "memories >= 1"],
+        "llmCalls": "4-6",
+        "thingsByCategory": {
+          "THREAD": ">=1"
+        }
+      },
+      "cleanup": true,
+      "estimatedInputTokens": 2500,
+      "estimatedOutputTokens": 800,
+      "estimatedLlmCalls": 6,
+      "inputChars": 1783,
+      "inputFiles": ["sample-data/meeting-notes-payments.txt"],
+      "uiAssertions": {
+        "views": ["threads"],
+        "navBadges": {"navThreadsBadge": ">=1"},
+        "rowCounts": {".thread-row": ">=1"}
+      }
+    },
+    {
+      "file": "02-intake-jira-import.sh",
+      "groupNumber": 1,
+      "groupName": "Intake Pipelines & File Upload",
+      "title": "Intake: Jira Import",
+      "projectName": "Tutorial T02 Jira Import",
+      "llmRequired": true,
+      "description": "Submit team roster + Jira tickets as a single intake payload; pipeline creates resources, tickets, threads, blindspots, and objectives",
+      "testing": "Single intake pipeline call with structured text containing team roster (3 resources) and Jira backlog (5 tickets). Asserts resources >= 2, tickets >= 3, threads >= 1. Exit 1 on assertion failure.",
+      "endpoints": [
+        "POST /api/projects",
+        "POST /api/intake/pipeline",
+        "GET /api/resources",
+        "GET /api/projects/{id}/tickets",
+        "GET /api/projects/{id}/threads",
+        "GET /api/projects/{id}/blindspots",
+        "GET /api/projects/{id}/objectives",
+        "DELETE /api/projects/{id}/data"
+      ],
+      "entitiesCreated": {
+        "resources": "2+ (from pipeline)",
+        "tickets": "3+ (from pipeline)",
+        "threads": "1+ (from pipeline)",
+        "blindspots": "0+ (capacity overload)",
+        "objectives": "0+ (from pipeline)"
+      },
+      "assertions": {
+        "http": ["pipeline HTTP 202", "resources >= 2", "tickets >= 3", "threads >= 1"],
+        "llmCalls": "8-14",
+        "thingsByCategory": {
+          "RESOURCE": ">=2",
+          "TICKET": ">=3",
+          "THREAD": ">=1"
+        }
+      },
+      "cleanup": true,
+      "estimatedInputTokens": 3000,
+      "estimatedOutputTokens": 1000,
+      "estimatedLlmCalls": 12,
+      "inputChars": 2500,
+      "keyInsight": "Joe assigned 3 of 5 tickets (11 SP) — capacity overload flagged as blindspot",
+      "pollConfig": {"maxAttempts": 45, "intervalMs": 2000, "timeoutSec": 90},
+      "uiAssertions": {
+        "views": ["threads", "tickets", "resources"],
+        "navBadges": {
+          "navThreadsBadge": ">=1",
+          "navTicketsBadge": ">=3",
+          "navResBadge": ">=2"
+        }
+      }
+    },
+    {
+      "file": "03-intake-file-upload.sh",
+      "groupNumber": 1,
+      "groupName": "Intake Pipelines & File Upload",
+      "title": "File Upload: CSV Jira Import",
+      "projectName": "Tutorial T03 File Upload",
+      "llmRequired": true,
+      "description": "Upload Jira CSV via multipart POST, submit to intake pipeline, verify format-agnostic ticket/thread creation",
+      "testing": "Single pipeline run: uploads jira-export.csv via multipart POST, submits to pipeline with file path. Asserts upload count == 1, content type == csv, tickets >= 2, threads >= 1, ticket title contains 'card'. Exit 1 on assertion failure.",
+      "endpoints": [
+        "POST /api/projects",
+        "POST /api/intake/upload",
+        "POST /api/intake/pipeline",
+        "GET /api/projects/{id}/tickets",
+        "GET /api/projects/{id}/threads",
+        "DELETE /api/projects/{id}/data"
+      ],
+      "entitiesCreated": {
+        "uploads": 1,
+        "tickets": "2+ (from CSV pipeline)",
+        "threads": "1+ (from pipeline)"
+      },
+      "assertions": {
+        "http": ["upload count == 1", "CSV content type == csv", "filename contains jira-export.csv", "tickets >= 2", "threads >= 1", "ticket title contains 'card'"],
+        "llmCalls": "10-14",
+        "thingsByCategory": {
+          "TICKET": ">=2"
+        }
+      },
+      "cleanup": true,
+      "estimatedInputTokens": 1500,
+      "estimatedOutputTokens": 700,
+      "estimatedLlmCalls": 12,
+      "inputChars": 652,
+      "inputFiles": ["sample-data/jira-export.csv"],
+      "parts": ["CSV upload only (JSON and TXT parts removed — redundant with T01, T02)"],
+      "pollConfig": {"maxAttempts": 45, "intervalMs": 2000, "timeoutSec": 90},
+      "uiAssertions": {
+        "views": ["threads", "tickets"],
+        "navBadges": {
+          "navThreadsBadge": ">=1",
+          "navTicketsBadge": ">=1"
+        }
+      }
+    },
+    {
+      "file": "04-intake-conversations.sh",
+      "groupNumber": 1,
+      "groupName": "Intake Pipelines & File Upload",
+      "title": "Multi-File Upload: Conversations with Objectives & Resources",
+      "projectName": "Tutorial T04 Conversations",
+      "llmRequired": true,
+      "description": "Upload CSV (Jira tickets) + TXT (sprint planning conversation) together via multi-file multipart POST; verify tickets, objectives, resources, and threads created from cross-domain content",
+      "testing": "Single pipeline run: uploads jira-export.csv + conversation-objectives-resources.txt in one multipart request. Asserts upload count == 2, tickets >= 2, objectives >= 1, resources >= 2, threads >= 1. Exit 1 on assertion failure.",
+      "endpoints": [
+        "POST /api/projects",
+        "POST /api/intake/upload",
+        "POST /api/intake/pipeline",
+        "GET /api/projects/{id}/tickets",
+        "GET /api/projects/{id}/objectives",
+        "GET /api/resources",
+        "GET /api/projects/{id}/threads",
+        "DELETE /api/projects/{id}/data"
+      ],
+      "entitiesCreated": {
+        "uploads": 2,
+        "tickets": "2+ (from CSV)",
+        "objectives": "1+ (from conversation TXT)",
+        "resources": "2+ (from conversation TXT)",
+        "threads": "1+ (from pipeline)"
+      },
+      "assertions": {
+        "http": ["multi-upload count == 2", "tickets >= 2", "objectives >= 1", "resources >= 2", "threads >= 1"],
+        "llmCalls": "10-14",
+        "thingsByCategory": {
+          "TICKET": ">=2",
+          "OBJECTIVE": ">=1",
+          "RESOURCE": ">=2"
+        }
+      },
+      "cleanup": true,
+      "estimatedInputTokens": 1500,
+      "estimatedOutputTokens": 800,
+      "estimatedLlmCalls": 12,
+      "inputChars": 2574,
+      "inputFiles": ["sample-data/jira-export.csv", "sample-data/conversation-objectives-resources.txt"],
+      "parts": ["Multi-file upload only (REST text, TXT upload, JSON upload parts removed — redundant with T01, T02, T03)"],
+      "pollConfig": {"maxAttempts": 60, "intervalMs": 2000, "timeoutSec": 120},
+      "uiAssertions": {
+        "views": ["threads", "tickets", "objectives", "resources"],
+        "navBadges": {
+          "navThreadsBadge": ">=1",
+          "navObjBadge": ">=1",
+          "navResBadge": ">=1"
+        }
+      }
+    },
+    {
+      "file": "05-ask-claw.sh",
+      "groupNumber": 2,
+      "groupName": "Agent Orchestration & Ask Claw",
+      "title": "Ask Claw",
+      "projectName": "Tutorial T05 Ask Claw",
+      "llmRequired": true,
+      "description": "Seed project data via intake pipeline, then ask 3 natural language questions via POST /api/ask and verify non-empty answers",
+      "testing": "Seeds project status data (thread, ticket, risks, objective) via single intake pipeline call. Asserts threads >= 1. Asks 3 questions and asserts each answer is non-empty. Exit 1 on assertion failure.",
+      "endpoints": [
+        "POST /api/projects",
+        "POST /api/intake/pipeline",
+        "GET /api/projects/{id}/threads",
+        "POST /api/ask",
+        "DELETE /api/projects/{id}/data"
+      ],
+      "entitiesCreated": {
+        "threads": "1+ (from pipeline)",
+        "tickets": "0+ (from pipeline)",
+        "blindspots": "0+ (from pipeline)",
+        "objectives": "0+ (from pipeline)"
+      },
+      "assertions": {
+        "http": ["pipeline HTTP 202", "threads >= 1", "ask answer not empty (3 questions)"],
+        "llmCalls": "6-10 (pipeline) + 3 (ask)",
+        "thingsByCategory": {
+          "THREAD": ">=1"
+        }
+      },
+      "cleanup": true,
+      "estimatedInputTokens": 1125,
+      "estimatedOutputTokens": 750,
+      "estimatedLlmCalls": 10,
+      "inputChars": 500,
+      "questions": [
+        "What are the current risks for this project?",
+        "How loaded is Joe? What is he working on?",
+        "What is the status of Sprint 42 objectives?"
+      ],
+      "uiAssertions": {
+        "views": ["objectives"],
+        "navBadges": {"navObjBadge": ">=1"},
+        "elements": ["#askClawInput"]
+      }
+    },
+    {
+      "file": "06-agent-orchestration.sh",
+      "groupNumber": 2,
+      "groupName": "Agent Orchestration & Ask Claw",
+      "title": "Agent Orchestration",
+      "projectName": "Tutorial T06 Agent Orch",
+      "llmRequired": true,
+      "description": "Seed project data via intake pipeline, trigger an agent session, poll for completion, and verify agent-created objectives, phases, and checklists",
+      "testing": "Seeds threads, tickets, and resources via intake pipeline. Posts memory directly (exempt from guard). Creates session, sends query 'Create sprint objectives, a project plan, and a release checklist'. Polls up to 120s for COMPLETED. Asserts objectives >= 1, phases >= 1, checklists >= 1. Exit 1 on assertion failure.",
+      "endpoints": [
+        "POST /api/projects",
+        "POST /api/intake/pipeline",
+        "GET /api/projects/{id}/threads",
+        "GET /api/projects/{id}/tickets",
+        "POST /api/memories",
+        "POST /api/sessions",
+        "POST /api/sessions/{id}/messages",
+        "GET /api/sessions/{id}",
+        "GET /api/projects/{id}/objectives",
+        "GET /api/projects/{id}/phases",
+        "GET /api/projects/{id}/checklists",
+        "DELETE /api/projects/{id}/data"
+      ],
+      "entitiesCreated": {
+        "threads": "1+ (from pipeline)",
+        "tickets": "2+ (from pipeline)",
+        "resources": "2+ (from pipeline)",
+        "memories": 1,
+        "sessions": 1,
+        "objectives": "1+ (agent-created)",
+        "phases": "1+ (agent-created)",
+        "checklists": "1+ (agent-created)"
+      },
+      "assertions": {
+        "http": ["pipeline HTTP 202", "threads >= 1", "tickets >= 2", "session status == COMPLETED", "objectives >= 1", "phases >= 1", "checklists >= 1"],
+        "llmCalls": "10-18 (pipeline + agent session)",
+        "thingsByCategory": {
+          "OBJECTIVE": ">=1",
+          "PHASE": ">=1",
+          "CHECKLIST": ">=1"
+        }
+      },
+      "cleanup": true,
+      "estimatedInputTokens": 3000,
+      "estimatedOutputTokens": 1500,
+      "estimatedLlmCalls": 14,
+      "inputChars": 1500,
+      "pollConfig": {"maxWaitSec": 120, "intervalSec": 3},
+      "uiAssertions": {
+        "views": ["objectives", "plans", "checklists"],
+        "navBadges": {
+          "navObjBadge": ">=1",
+          "navPlansBadge": ">=1",
+          "navChkBadge": ">=1"
+        },
+        "elements": ["#tokenCount", "#log", ".agent-tile"]
+      }
+    },
+    {
+      "file": "07-ask-claw-grounded.sh",
+      "groupNumber": 2,
+      "groupName": "Agent Orchestration & Ask Claw",
+      "title": "Ask Claw: Grounded Answers",
+      "projectName": "Tutorial T07 Grounded",
+      "llmRequired": true,
+      "description": "Seed realistic capacity data via intake pipeline with story points and availability, then ask 3 capacity/workload questions; answers must be non-empty",
+      "testing": "Seeds 3 resources, 5 tickets, and 1 objective via intake pipeline. Asserts resources >= 2, tickets >= 3. Asks 3 questions: (1) 'most capacity' (2) 'overloaded' (3) 'sprint health'. Asserts each answer non-empty. Exit 1 on assertion failure.",
+      "endpoints": [
+        "POST /api/projects",
+        "POST /api/intake/pipeline",
+        "GET /api/resources",
+        "GET /api/projects/{id}/tickets",
+        "POST /api/ask",
+        "DELETE /api/projects/{id}/data"
+      ],
+      "entitiesCreated": {
+        "resources": "2+ (from pipeline)",
+        "tickets": "3+ (from pipeline)",
+        "objectives": "0+ (from pipeline)"
+      },
+      "assertions": {
+        "http": ["pipeline HTTP 202", "resources >= 2", "tickets >= 3", "answer not empty (3 questions)"],
+        "llmCalls": "8-12 (pipeline) + 3 (ask)",
+        "thingsByCategory": {
+          "RESOURCE": ">=2",
+          "TICKET": ">=3"
+        }
+      },
+      "cleanup": true,
+      "estimatedInputTokens": 2500,
+      "estimatedOutputTokens": 1000,
+      "estimatedLlmCalls": 12,
+      "inputChars": 2500,
+      "questions": [
+        {"q": "Which developer has the most available capacity right now?", "expected": "Alice"},
+        {"q": "Who is overloaded? Show me the workload per developer.", "expected": "Joe"},
+        {"q": "How healthy is Sprint 42? Are we on track to deliver?", "expected": "data-driven answer"}
+      ],
+      "uiAssertions": {
+        "views": ["objectives", "resources"],
+        "navBadges": {
+          "navObjBadge": ">=1",
+          "navResBadge": ">=2"
+        }
+      }
+    },
+    {
+      "file": "08-ask-claw-resourcing.sh",
+      "groupNumber": 2,
+      "groupName": "Agent Orchestration & Ask Claw",
+      "title": "Ask Claw: Resources, Utilization, Sprint Health",
+      "projectName": "Tutorial T08 Resourcing",
+      "llmRequired": true,
+      "description": "LLM pre-flight check, seed comprehensive project data via intake pipeline (resources, tickets, objectives, blindspots), ask 3 questions with keyword validation",
+      "testing": "Strict LLM validation: pre-flight checks GET /api/config/provider. Seeds all data via single intake pipeline call. Polls for resources >= 3 and tickets >= 3. Asks 3 questions with ask_and_validate: (1) 'how many resources' → must contain Maria/Kevin/Nadia/Omar (2) 'who is not utilized' → must contain Kevin/Omar (3) 'sprint health' → must contain Sprint 15/Maria/unassigned. Exit 1 on any failure.",
+      "endpoints": [
+        "GET /api/config/provider",
+        "POST /api/projects",
+        "POST /api/intake/pipeline",
+        "GET /api/resources",
+        "GET /api/projects/{id}/tickets",
+        "POST /api/ask"
+      ],
+      "entitiesCreated": {
+        "resources": "3+ (from pipeline)",
+        "tickets": "3+ (from pipeline)",
+        "objectives": "0+ (from pipeline)",
+        "blindspots": "0+ (from pipeline)"
+      },
+      "assertions": {
+        "http": ["provider not empty", "pipeline HTTP 202", "resources >= 3", "tickets >= 3", "answer not empty (3 questions)", "answer does not contain 'No API key'"],
+        "keywordValidation": [
+          {"question": "how many resources on this project", "mustContain": ["Maria", "Kevin", "Nadia", "Omar"]},
+          {"question": "tell me who is not utilized", "mustContain": ["Kevin", "Omar"]},
+          {"question": "give me the sprint health", "mustContain": ["Sprint 15", "Maria", "unassigned"]}
+        ],
+        "llmCalls": "8-12 (pipeline) + 3 (ask)",
+        "thingsByCategory": {
+          "RESOURCE": ">=3",
+          "TICKET": ">=3"
+        }
+      },
+      "cleanup": false,
+      "estimatedInputTokens": 2250,
+      "estimatedOutputTokens": 750,
+      "estimatedLlmCalls": 12,
+      "inputChars": 3000,
+      "preFlightCheck": "GET /api/config/provider — FATAL if no LLM API key configured",
+      "uiAssertions": {
+        "views": ["objectives", "resources", "plans"],
+        "navBadges": {
+          "navObjBadge": ">=1",
+          "navResBadge": ">=3",
+          "navPlansBadge": ">=1"
+        },
+        "elements": ["#tokenCount"]
+      }
+    }
+  ],
+  "summary": {
+    "byGroup": {
+      "1": {
+        "groupName": "Intake Pipelines & File Upload",
+        "count": 4,
+        "tutorials": ["01-intake-meeting-notes", "02-intake-jira-import", "03-intake-file-upload", "04-intake-conversations"],
+        "llmRequired": true,
+        "estimatedInputTokens": 8500,
+        "estimatedOutputTokens": 3300,
+        "estimatedLlmCalls": 42,
+        "entitiesTested": ["threads", "tickets", "memories", "objectives", "resources", "blindspots", "uploads"],
+        "pipelinesReduced": "From 7 pipelines (old T03: 3, old T04: 4) to 4 pipelines (1 per tutorial)"
+      },
+      "2": {
+        "groupName": "Agent Orchestration & Ask Claw",
+        "count": 4,
+        "tutorials": ["05-ask-claw", "06-agent-orchestration", "07-ask-claw-grounded", "08-ask-claw-resourcing"],
+        "llmRequired": true,
+        "estimatedInputTokens": 6500,
+        "estimatedOutputTokens": 3500,
+        "estimatedLlmCalls": 48,
+        "entitiesTested": ["objectives", "phases", "checklists", "sessions", "threads", "tickets", "resources", "blindspots"]
+      }
+    },
+    "allEndpoints": [
+      "GET /api/projects",
+      "POST /api/projects",
+      "DELETE /api/projects/{id}/data",
+      "POST /api/sessions",
+      "GET /api/sessions/{id}",
+      "POST /api/sessions/{id}/messages",
+      "GET /api/projects/{id}/threads",
+      "GET /api/projects/{id}/tickets",
+      "GET /api/resources",
+      "GET /api/projects/{id}/objectives",
+      "GET /api/projects/{id}/blindspots",
+      "GET /api/projects/{id}/phases",
+      "GET /api/projects/{id}/checklists",
+      "POST /api/memories",
+      "GET /api/memories",
+      "POST /api/intake/pipeline",
+      "POST /api/intake/upload",
+      "POST /api/ask",
+      "GET /api/config/provider",
+      "GET /api/logs/llm-usage",
+      "POST /api/logs/llm-usage/reset"
+    ]
+  }
+}

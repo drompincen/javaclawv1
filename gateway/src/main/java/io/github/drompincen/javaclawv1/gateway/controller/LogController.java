@@ -5,6 +5,7 @@ import io.github.drompincen.javaclawv1.persistence.document.LlmInteractionDocume
 import io.github.drompincen.javaclawv1.persistence.repository.LogRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.LlmInteractionRepository;
 import io.github.drompincen.javaclawv1.persistence.repository.MessageRepository;
+import io.github.drompincen.javaclawv1.runtime.agent.LlmUsageTracker;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,12 +21,14 @@ public class LogController {
     private final LogRepository logRepository;
     private final LlmInteractionRepository llmInteractionRepository;
     private final MessageRepository messageRepository;
+    private final LlmUsageTracker usageTracker;
 
     public LogController(LogRepository logRepository, LlmInteractionRepository llmInteractionRepository,
-                         MessageRepository messageRepository) {
+                         MessageRepository messageRepository, LlmUsageTracker usageTracker) {
         this.logRepository = logRepository;
         this.llmInteractionRepository = llmInteractionRepository;
         this.messageRepository = messageRepository;
+        this.usageTracker = usageTracker;
     }
 
     @GetMapping
@@ -52,6 +55,18 @@ public class LogController {
         if (sessionId != null) return llmInteractionRepository.findBySessionId(sessionId);
         if (agentId != null) return llmInteractionRepository.findByAgentId(agentId);
         return llmInteractionRepository.findTop100ByOrderByTimestampDesc();
+    }
+
+    @GetMapping("/llm-usage")
+    public ResponseEntity<Map<String, Object>> llmUsage() {
+        return ResponseEntity.ok(usageTracker.getSnapshot());
+    }
+
+    @PostMapping("/llm-usage/reset")
+    public ResponseEntity<Map<String, Object>> resetLlmUsage() {
+        Map<String, Object> before = usageTracker.getSnapshot();
+        usageTracker.reset();
+        return ResponseEntity.ok(Map.of("reset", true, "before", before));
     }
 
     @GetMapping("/llm-interactions/metrics")
