@@ -106,9 +106,9 @@ while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
   sleep 2
 done
 
-# Wait for downstream agents to finish
-echo "  Waiting for pipeline to fully complete..."
-sleep 15
+# Brief wait for downstream agents
+echo "  Waiting for pipeline to settle..."
+sleep 5
 
 # --- Seed Memories (memories are exempt from guard) ---
 section "6. Seed Memories"

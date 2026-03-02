@@ -100,7 +100,7 @@ assert_gte "Threads" "$T_COUNT" "1"
 
 # Give pipeline time to finish creating objectives/blindspots
 echo "  Waiting for downstream agents..."
-sleep 10
+sleep 5
 
 # --- Ask Questions ---
 ask_claw() {

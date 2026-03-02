@@ -120,7 +120,7 @@ done
 
 # Give pipeline time to finish objectives
 echo "  Waiting for downstream agents..."
-sleep 10
+sleep 5
 
 # --- Assertions on seed data ---
 section "5. Seed Assertions"
