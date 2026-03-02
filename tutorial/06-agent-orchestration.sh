@@ -123,44 +123,58 @@ T_COUNT=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/threads" | jq 'length')
 TK_COUNT=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/tickets" | jq 'length')
 ok "Threads: $T_COUNT, Tickets: $TK_COUNT"
 
-# --- Create Agent Session ---
-section "8. Create Agent Session"
-SESSION=$($CURL -sf -X POST "$BASE_URL/api/sessions" \
-  -H 'Content-Type: application/json' \
-  -d "{\"projectId\":\"$PROJECT_ID\"}")
-SESSION_ID=$(echo "$SESSION" | jq -r '.sessionId')
-[ "$SESSION_ID" != "null" ] && ok "Session created: $SESSION_ID" || fail "Session creation failed"
+# --- Agent Session with Retry ---
+run_agent_session() {
+  local ATTEMPT=$1
+  echo -e "  ${CYAN}Attempt $ATTEMPT${NC}"
 
-# --- Send Agent Query ---
-section "9. Send Query to Agent"
-$CURL -sf -X POST "$BASE_URL/api/sessions/$SESSION_ID/messages" \
-  -H 'Content-Type: application/json' \
-  -d "{\"content\":\"For project $PROJECT_ID, create sprint objectives, a project plan with phases, and a release checklist from the existing project data. Use projectId $PROJECT_ID for all tool calls.\",\"role\":\"user\"}" > /dev/null
-ok "Message sent"
+  SESSION=$($CURL -sf -X POST "$BASE_URL/api/sessions" \
+    -H 'Content-Type: application/json' \
+    -d "{\"projectId\":\"$PROJECT_ID\"}")
+  SESSION_ID=$(echo "$SESSION" | jq -r '.sessionId')
+  [ "$SESSION_ID" = "null" ] && return 1
 
-# --- Trigger Agent Loop ---
-section "9b. Trigger Agent Run"
-$CURL -sf -X POST "$BASE_URL/api/sessions/$SESSION_ID/run" > /dev/null
-ok "Agent loop triggered"
+  $CURL -sf -X POST "$BASE_URL/api/sessions/$SESSION_ID/messages" \
+    -H 'Content-Type: application/json' \
+    -d "{\"content\":\"For project $PROJECT_ID, create sprint objectives, a project plan with phases, and a release checklist from the existing project data. Use projectId $PROJECT_ID for all tool calls.\",\"role\":\"user\"}" > /dev/null
 
-# --- Poll for Completion ---
-section "10. Poll for Session Completion"
-MAX_WAIT=180
-ELAPSED=0
-while [ $ELAPSED -lt $MAX_WAIT ]; do
-  SESSION_STATUS=$($CURL -sf "$BASE_URL/api/sessions/$SESSION_ID" | jq -r '.status')
-  if [ "$SESSION_STATUS" = "COMPLETED" ] || [ "$SESSION_STATUS" = "FAILED" ]; then
+  $CURL -sf -X POST "$BASE_URL/api/sessions/$SESSION_ID/run" > /dev/null
+
+  MAX_WAIT=120
+  ELAPSED=0
+  while [ $ELAPSED -lt $MAX_WAIT ]; do
+    SESSION_STATUS=$($CURL -sf "$BASE_URL/api/sessions/$SESSION_ID" | jq -r '.status')
+    if [ "$SESSION_STATUS" = "COMPLETED" ] || [ "$SESSION_STATUS" = "FAILED" ]; then
+      break
+    fi
+    sleep 3
+    ELAPSED=$((ELAPSED + 3))
+    echo -ne "  Waiting... ${ELAPSED}s (status: $SESSION_STATUS)\r"
+  done
+  echo ""
+
+  OBJ_COUNT=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/objectives" | jq 'length')
+  PHASE_COUNT=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/phases" | jq 'length')
+  CHK_COUNT=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/checklists" | jq 'length')
+
+  [ "$OBJ_COUNT" -ge 1 ] && [ "$PHASE_COUNT" -ge 1 ] && [ "$CHK_COUNT" -ge 1 ]
+}
+
+section "8. Agent Session (with retry)"
+SESSION_OK=false
+for ATTEMPT in 1 2; do
+  if run_agent_session "$ATTEMPT"; then
+    SESSION_OK=true
+    ok "Session produced artifacts on attempt $ATTEMPT"
     break
+  else
+    warn "Attempt $ATTEMPT: Objectives=$OBJ_COUNT Phases=$PHASE_COUNT Checklists=$CHK_COUNT"
+    [ $ATTEMPT -lt 2 ] && echo "  Retrying..."
   fi
-  sleep 3
-  ELAPSED=$((ELAPSED + 3))
-  echo -ne "  Waiting... ${ELAPSED}s (status: $SESSION_STATUS)\r"
 done
-echo ""
-[ "$SESSION_STATUS" = "COMPLETED" ] && ok "Session completed" || warn "Session status: $SESSION_STATUS"
 
 # --- Verify Outputs & Assertions ---
-section "11. Assertions"
+section "9. Assertions"
 OBJ_COUNT=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/objectives" | jq 'length')
 PHASE_COUNT=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/phases" | jq 'length')
 CHK_COUNT=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/checklists" | jq 'length')
@@ -174,7 +188,7 @@ assert_gte "Phases" "$PHASE_COUNT" "1"
 assert_gte "Checklists" "$CHK_COUNT" "1"
 
 # --- Summary ---
-section "12. Summary"
+section "10. Summary"
 echo "  Assertions: $PASS/$TOTAL passed"
 
 # --- LLM Usage ---

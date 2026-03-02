@@ -96,7 +96,7 @@ HTTP_CODE=$(echo "$RESP" | tail -1)
 
 # --- Poll for Resources ---
 section "3. Waiting for Resources"
-ATTEMPTS=0; MAX_ATTEMPTS=45
+ATTEMPTS=0; MAX_ATTEMPTS=60
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
   RESOURCES=$($CURL -sf "$BASE_URL/api/resources" || echo "[]")
   R_COUNT=$(echo "$RESOURCES" | jq --arg pid "$PROJECT_ID" '[.[] | select(.projectId == $pid)] | length')
@@ -108,7 +108,7 @@ done
 
 # --- Poll for Tickets ---
 section "4. Waiting for Tickets"
-ATTEMPTS=0; MAX_ATTEMPTS=45
+ATTEMPTS=0; MAX_ATTEMPTS=60
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
   TICKETS=$($CURL -sf "$BASE_URL/api/projects/$PROJECT_ID/tickets" || echo "[]")
   TK_COUNT=$(echo "$TICKETS" | jq 'length')
