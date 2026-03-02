@@ -1,0 +1,20 @@
+  <h2><span class="sn">16</span> On-Demand & Scheduled Execution</h2>
+  <p class="sub">7 CRON schedules + instant triggers via UI or API</p>
+  <div class="g2" style="margin-bottom:8px">
+    <div class="card"><div class="card-h">On-Demand Trigger</div><div class="card-b" style="font-size:15px"><code>POST /api/executions/trigger</code> &rarr; FutureExecution with <strong>priority=8</strong>. Picked up in next 5s poll. Full project context + memories.</div></div>
+    <div class="card"><div class="card-h">Scheduler Engine</div><div class="card-b" style="font-size:15px"><strong>SchedulePlanner</strong> (60s): CRON &rarr; future_executions with idempotency keys.<br><strong>ExecutionEngine</strong> (5s): poll READY &rarr; acquire lease &rarr; virtual thread &rarr; 2-min backoff on failure.</div></div>
+  </div>
+  <div class="card"><div class="card-h">7 Default Schedules</div><div class="card-b" style="padding:4px 12px">
+    <table class="tbl">
+      <thead><tr><th>Agent</th><th>When</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--accent)">distiller</td><td>1:00 AM daily</td><td>Memory compression + purge contradicted/stale</td></tr>
+        <tr><td style="color:var(--accent)">reconcile-agent</td><td>9:00 AM weekdays</td><td>Drift detection, recurring vs resolved deltas</td></tr>
+        <tr><td style="color:var(--accent)">resource-agent</td><td>9:00 AM weekdays</td><td>Capacity check, chronic overload detection</td></tr>
+        <tr><td style="color:var(--accent)">objective-agent</td><td>9:00 AM weekdays</td><td>Coverage analysis, trend tracking</td></tr>
+        <tr><td style="color:var(--accent)">checklist-agent</td><td>9:00 AM weekdays</td><td>Stale checklist detection</td></tr>
+        <tr><td style="color:var(--accent)">plan-agent</td><td>10:00 AM Mondays</td><td>Weekly milestone/phase status check</td></tr>
+        <tr><td style="color:var(--accent)">thread-extractor</td><td>6:00 PM weekdays</td><td>End-of-day artifact sweep</td></tr>
+      </tbody>
+    </table>
+  </div></div>

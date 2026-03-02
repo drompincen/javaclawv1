@@ -1,0 +1,13 @@
+  <h2><span class="sn">6</span> Agent Orchestration Loop</h2>
+  <p class="sub">Controller &rarr; Specialist &rarr; Checker with isolated forks</p>
+  <div class="orch" style="margin-bottom:14px">
+    <div class="orch-node ct"><div class="ol" style="color:var(--accent)">Controller</div><div class="od">Analyzes intent, picks specialist<br>Fork DISCARDED after routing</div></div>
+    <div class="orch-arrow">&#10132;</div>
+    <div class="orch-node sp"><div class="ol" style="color:var(--warn)">Specialist</div><div class="od">LLM &rarr; tool calls &rarr; results<br>Max 50 steps. Output MERGED.</div></div>
+    <div class="orch-arrow">&#10132;</div>
+    <div class="orch-node ck"><div class="ol" style="color:#5199FF">Checker</div><div class="od">Validates: pass or fail<br>Fail = feedback loop (max 3)</div></div>
+  </div>
+  <div class="g2">
+    <div class="card"><div class="card-h">Interactive Mode</div><div class="card-b" style="font-size:15px">User sends message &rarr; Controller routes &rarr; Specialist executes tools &rarr; Checker validates.<br><strong>Tool flow:</strong> LLM emits tool_call &rarr; allowlist checked &rarr; risk assessed &rarr; execute &rarr; result to LLM.</div></div>
+    <div class="card"><div class="card-h">Pipeline Mode (Forced)</div><div class="card-b" style="font-size:15px">During intake, agents forced via <code>forcedAgentId</code> &mdash; bypasses controller &amp; checker.<br>Lower step limit (5 vs 50). Deterministic artifact creation. Pipeline is quality control.</div></div>
+  </div>

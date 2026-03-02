@@ -1,0 +1,29 @@
+  <h2><span class="sn">9</span> MongoDB: sessions & messages</h2>
+  <p class="sub">Ephemeral execution contexts + ordered conversation history</p>
+  <div class="g2">
+    <div class="coll"><div class="coll-h"><span class="cn">sessions</span><span class="ct">ephemeral</span></div><div class="coll-b">
+      <div class="purpose">Execution contexts for agent conversations. <strong>Deleted on restart</strong> &mdash; transient computation state.</div>
+      <div class="fields"><span class="tag">sessionId</span><span class="tag">threadId</span><span class="tag">projectId</span><span class="tag">status</span><span class="tag">modelConfig</span><span class="tag">toolPolicy</span><span class="tag">currentCheckpointId</span><span class="tag">metadata{}</span></div>
+      <div class="rw"><strong>Read:</strong> WebSocket handler, SessionController, ExecutionEngine, IntakePipeline</div>
+      <div class="rw"><strong>Write:</strong> SessionController (create/pause/resume), agent status updates</div>
+      <div class="idx">Indexes: threadId, projectId, updatedAt (desc)</div>
+    </div></div>
+    <div class="coll"><div class="coll-h"><span class="cn">messages</span><span class="ct">high volume</span></div><div class="coll-b">
+      <div class="purpose">Chat history ordered by monotonic <code>seq</code> per session. Supports multimodal content (text + images).</div>
+      <div class="fields"><span class="tag">messageId</span><span class="tag">sessionId</span><span class="tag">seq</span><span class="tag">role</span><span class="tag">content</span><span class="tag">parts[]</span><span class="tag">agentId</span><span class="tag">durationMs</span><span class="tag">mocked</span></div>
+      <div class="rw"><strong>Read:</strong> AgentLoop (context building), SessionController (UI retrieval)</div>
+      <div class="rw"><strong>Write:</strong> AgentLoop (save LLM responses), IntakePipeline (user intakes)</div>
+      <div class="idx">Compound unique: {sessionId, seq} &mdash; guarantees ordering</div>
+    </div></div>
+  </div>
+  <div class="g2" style="margin-top:16px">
+    <div class="hl" style="margin:0"><strong>WHY ephemeral sessions?</strong> The meaningful data (threads, things, memories) lives in permanent collections. Sessions represent transient computation &mdash; stale sessions would cause confusion about what's "running".</div>
+    <div class="hl blue" style="margin:0"><strong>WHY monotonic seq?</strong> LLMs are sensitive to message ordering. The <code>seq</code> field with a compound unique index guarantees deterministic replay regardless of network timing or concurrent writes.</div>
+  </div>
+  <h3>Session Status Lifecycle</h3>
+  <div class="g4">
+    <div class="tile" style="text-align:center"><div class="nm" style="justify-content:center;color:var(--accent)">CREATED</div><div class="ds">Allocated, no agent activity yet</div></div>
+    <div class="tile" style="text-align:center"><div class="nm" style="justify-content:center;color:var(--good)">RUNNING</div><div class="ds">AgentLoop actively processing</div></div>
+    <div class="tile" style="text-align:center"><div class="nm" style="justify-content:center;color:var(--warn)">PAUSED</div><div class="ds">Interrupted; can be resumed</div></div>
+    <div class="tile" style="text-align:center"><div class="nm" style="justify-content:center;color:var(--muted)">ENDED</div><div class="ds">Completed or failed</div></div>
+  </div>

@@ -1,0 +1,39 @@
+  <h2><span class="sn">20</span> Quick Start</h2>
+  <p class="sub">Get JavaClaw running in 3 steps</p>
+  <div class="g2" style="margin-bottom:10px">
+    <div>
+      <div class="term"><div class="term-bar"><div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div></div><div class="term-body">
+        <div><span class="c"># Step 1: Start MongoDB</span></div>
+        <div><span class="p">$ </span><span class="cmd">docker compose up -d mongodb</span></div>
+        <div style="height:4px"></div>
+        <div><span class="c"># Step 2: Set API key</span></div>
+        <div><span class="p">$ </span><span class="cmd">export ANTHROPIC_API_KEY=sk-ant-...</span></div>
+        <div style="height:4px"></div>
+        <div><span class="c"># Step 3: Launch</span></div>
+        <div><span class="p">$ </span><span class="cmd">jbang javaclaw.java --headless</span></div>
+        <div style="height:4px"></div>
+        <div><span class="c"># Open http://localhost:8080</span></div>
+      </div></div>
+    </div>
+    <div>
+      <div class="card"><div class="card-h">Prerequisites</div><div class="card-b" style="font-size:15px">
+        <div><span style="color:var(--accent)">&#10003;</span> Java 21+ &bull; <span style="color:var(--accent)">&#10003;</span> Docker &bull; <span style="color:var(--accent)">&#10003;</span> JBang</div>
+        <div><span style="color:var(--accent)">&#10003;</span> ANTHROPIC_API_KEY or OPENAI_API_KEY</div>
+      </div></div>
+      <div class="card" style="margin-top:8px"><div class="card-h">Key CLI Flags</div><div class="card-b" style="padding:4px 12px">
+        <table class="tbl" style="font-size:14px">
+          <tbody>
+            <tr><td><code>--headless</code></td><td>REST gateway only</td></tr>
+            <tr><td><code>--testmode</code></td><td>Mock LLM (no API key)</td></tr>
+            <tr><td><code>--scenario &lt;file&gt;</code></td><td>Run E2E scenario</td></tr>
+            <tr><td><code>--port &lt;n&gt;</code></td><td>HTTP port (default: 8080)</td></tr>
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+  </div>
+  <div style="text-align:center;padding:6px 0">
+    <p style="color:var(--accent);font-weight:700;font-size:18px;margin-bottom:4px">Ready to explore?</p>
+    <p style="color:var(--muted);font-size:16px;margin-bottom:8px">Start the server, open the cockpit, paste your first meeting notes.</p>
+    <button class="nav-btn primary" onclick="goHome()" style="font-size:16px;padding:10px 24px">&#8962; Back to Topics</button>
+  </div>

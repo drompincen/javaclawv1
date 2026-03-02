@@ -1,0 +1,60 @@
+  <h2><span class="sn">26</span> LangGraph: Multi-Agent Orchestration</h2>
+  <p class="sub">AgentLoop &rarr; AgentGraphBuilder &rarr; Controller &rarr; Specialist &rarr; Checker</p>
+  <div class="mermaid-wrap diagram-full"><pre class="mermaid">
+sequenceDiagram
+    participant AgentLoop
+    participant GraphBuilder as AgentGraphBuilder
+    participant LockService
+    participant Checkpoint as CheckpointSaver
+    participant LLM as LlmService
+    participant Tools as ToolRegistry
+    participant Events as EventService
+
+    AgentLoop->>LockService: tryAcquire(sessionId)
+    AgentLoop->>Checkpoint: load(sessionId) — resume from checkpoint
+    AgentLoop->>AgentLoop: build AgentState from messages + metadata
+    AgentLoop->>GraphBuilder: runGraph(AgentState)
+
+    rect rgba(255,153,0,0.04)
+    Note over GraphBuilder: Retry Loop (max 3 attempts)
+
+    GraphBuilder->>Events: emit(AGENT_SWITCHED to controller)
+    GraphBuilder->>LLM: blockingResponse(controllerState)
+    Note right of LLM: Silent — no streaming to UI
+    LLM-->>GraphBuilder: JSON {delegate: "pm", subTask: "extract tickets"}
+    Note over GraphBuilder: Controller fork DISCARDED after routing
+
+    GraphBuilder->>Events: emit(AGENT_DELEGATED to specialist)
+    GraphBuilder->>Events: emit(AGENT_SWITCHED to specialist)
+    Note over GraphBuilder: Specialist fork CREATED with system prompt + context
+
+    loop Tool Execution Steps (max 50)
+        GraphBuilder->>Events: emit(AGENT_STEP_STARTED)
+        GraphBuilder->>LLM: streamResponse(specialistState)
+        Note right of LLM: Streaming ON — MODEL_TOKEN_DELTA to UI
+        LLM-->>GraphBuilder: response text + tool_call requests
+        GraphBuilder->>Tools: executeTool(toolName, args)
+        Tools-->>GraphBuilder: ToolResult {success, output}
+        GraphBuilder->>Events: emit(TOOL_RESULT)
+        GraphBuilder->>Checkpoint: save(threadId, stepNo, state)
+    end
+
+    Note over GraphBuilder: Specialist output MERGED to main state
+
+    GraphBuilder->>Events: emit(AGENT_SWITCHED to checker)
+    GraphBuilder->>LLM: blockingResponse(checkerState)
+    Note right of LLM: Silent — reviews specialist work
+    LLM-->>GraphBuilder: {pass: true/false, feedback: "..."}
+
+    alt Check PASSED
+        GraphBuilder->>Events: emit(AGENT_CHECK_PASSED)
+    else Check FAILED and retries remaining
+        GraphBuilder->>Events: emit(AGENT_CHECK_FAILED + feedback)
+        Note over GraphBuilder: Feedback injected — loop retries
+    end
+    end
+
+    GraphBuilder-->>AgentLoop: finalState with all messages
+    AgentLoop->>AgentLoop: persist new assistant messages to MongoDB
+    AgentLoop->>LockService: release(sessionId)
+  </pre></div>

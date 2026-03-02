@@ -1,0 +1,45 @@
+  <h2><span class="sn">27</span> LangGraph: Forced Agent (Pipeline Mode)</h2>
+  <p class="sub">No controller, no checker &mdash; direct specialist execution with 5-step limit</p>
+  <div class="mermaid-wrap diagram-full"><pre class="mermaid">
+sequenceDiagram
+    participant Pipeline as IntakePipelineService
+    participant AgentLoop
+    participant GraphBuilder as AgentGraphBuilder
+    participant LLM as LlmService
+    participant Tools as ToolRegistry
+    participant Events as EventService
+    participant MongoDB
+
+    Pipeline->>Pipeline: createAgentSession(projectId, agentId)
+    Note right of Pipeline: session.metadata["agentId"] = "intake-triage"
+    Pipeline->>Pipeline: seedUserMessage(buildPrompt with context)
+
+    Pipeline->>AgentLoop: startAsync(sessionId)
+    AgentLoop->>AgentLoop: detect forcedAgentId from session metadata
+    AgentLoop->>GraphBuilder: runGraph(state with forcedAgentId)
+
+    rect rgba(255,153,0,0.04)
+    Note over GraphBuilder: runForcedAgent — FAST PATH
+
+    GraphBuilder->>GraphBuilder: skip controller routing
+    GraphBuilder->>GraphBuilder: skip checker validation
+    GraphBuilder->>Events: emit(AGENT_SWITCHED to forced specialist)
+
+    loop Tool Steps (max 5 — pipeline limit)
+        GraphBuilder->>LLM: streamResponse(specialistState)
+        LLM-->>GraphBuilder: response + tool_calls
+        GraphBuilder->>Tools: executeTool(name, args)
+        Tools->>MongoDB: create_thread / create_ticket / save_memory
+        Tools-->>GraphBuilder: ToolResult
+        GraphBuilder->>Events: emit(TOOL_RESULT)
+    end
+    end
+
+    GraphBuilder-->>AgentLoop: finalState
+    AgentLoop->>AgentLoop: persist messages, set status = COMPLETED
+
+    AgentLoop-->>Pipeline: session COMPLETED
+    Pipeline->>Pipeline: read last assistant message
+    Note right of Pipeline: Output becomes next phase's input prompt
+    Pipeline->>Pipeline: proceed to next pipeline phase
+  </pre></div>

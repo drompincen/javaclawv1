@@ -1,0 +1,43 @@
+  <h2><span class="sn">24</span> Gateway: Interactive Chat Flow</h2>
+  <p class="sub">Browser &rarr; REST &rarr; MongoDB &rarr; Change Stream &rarr; WebSocket &rarr; Browser</p>
+  <div class="mermaid-wrap diagram-full"><pre class="mermaid">
+sequenceDiagram
+    participant Browser
+    participant SessionController
+    participant MessageRepository
+    participant EventService
+    participant AgentLoop
+    participant MongoDB
+    participant ChangeStreamTailer
+    participant WebSocketHandler
+
+    Browser->>SessionController: POST /api/sessions (create)
+    SessionController->>MongoDB: save SessionDocument
+    SessionController-->>Browser: SessionDto {sessionId, status}
+
+    Browser->>WebSocketHandler: ws:// SUBSCRIBE_SESSION {sessionId}
+    WebSocketHandler-->>Browser: subscription confirmed
+
+    Browser->>SessionController: POST /sessions/{id}/messages
+    Note right of SessionController: {role: "user", content: "..."}
+    SessionController->>MessageRepository: save MessageDocument (seq, role, content)
+    MessageRepository->>MongoDB: INSERT into messages collection
+    SessionController->>EventService: emit(USER_MESSAGE_RECEIVED)
+    EventService->>MongoDB: INSERT into events collection
+
+    Note over MongoDB,ChangeStreamTailer: MongoDB Change Stream detects INSERT on events
+    MongoDB-->>ChangeStreamTailer: onEvent(EventDocument)
+    ChangeStreamTailer->>WebSocketHandler: broadcast(event)
+    WebSocketHandler-->>Browser: EVENT: USER_MESSAGE_RECEIVED
+
+    Browser->>SessionController: POST /sessions/{id}/run
+    SessionController->>AgentLoop: startAsync(sessionId)
+    Note over AgentLoop: Launches on ExecutorService thread pool
+
+    AgentLoop->>AgentLoop: run(sessionId) — lock, load, graph, persist
+    AgentLoop->>EventService: emit(AGENT_STEP_STARTED, TOOL_RESULT, ...)
+    EventService->>MongoDB: INSERT events
+    MongoDB-->>ChangeStreamTailer: stream events
+    ChangeStreamTailer->>WebSocketHandler: broadcast each event
+    WebSocketHandler-->>Browser: Real-time: agent steps, tool results, final response
+  </pre></div>

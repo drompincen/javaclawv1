@@ -1,0 +1,31 @@
+  <h2><span class="sn">10</span> MongoDB: checkpoints, locks, approvals, testPrompts</h2>
+  <p class="sub">State management, distributed locking, human-in-the-loop, and test recording</p>
+  <div class="g2">
+    <div class="coll"><div class="coll-h"><span class="cn">checkpoints</span><span class="ct">state snapshots</span></div><div class="coll-b">
+      <div class="purpose">Savepoints for long-running sessions. Allows resuming from specific points by replaying events from <code>eventOffset</code>.</div>
+      <div class="fields"><span class="tag">checkpointId</span><span class="tag">sessionId</span><span class="tag">stepNo</span><span class="tag">state{}</span><span class="tag">eventOffset</span></div>
+      <div class="rw"><strong>Read:</strong> CheckpointService (restore), AgentLoop (resume from checkpoint)</div>
+      <div class="rw"><strong>Write:</strong> CheckpointService (after major agent steps)</div>
+      <div class="idx">Compound: {sessionId, stepNo desc} &mdash; fast latest lookup</div>
+    </div></div>
+    <div class="coll"><div class="coll-h"><span class="cn">locks</span><span class="ct"><span class="badge red">TTL 60s</span></span></div><div class="coll-b">
+      <div class="purpose">Distributed session locks. Prevents concurrent modifications. TTL auto-deletes stale locks after 60 seconds.</div>
+      <div class="fields"><span class="tag">lockId</span><span class="tag">sessionId</span><span class="tag">owner</span><span class="tag">expiresAt</span><span class="tag">acquiredAt</span></div>
+      <div class="rw"><strong>Read/Write:</strong> SessionLockService (acquire/release)</div>
+      <div class="idx">TTL index: expiresAt (expireAfterSeconds=0) &mdash; auto-cleanup</div>
+    </div></div>
+    <div class="coll"><div class="coll-h"><span class="cn">approvals</span><span class="ct">human-in-the-loop</span></div><div class="coll-b">
+      <div class="purpose">Tool execution approval requests. Agents pause and poll for human response before executing sensitive tools (WRITE_FILES, EXEC_SHELL).</div>
+      <div class="fields"><span class="tag">approvalId</span><span class="tag">threadId</span><span class="tag">toolName</span><span class="tag">toolInput{}</span><span class="tag">status</span></div>
+      <div class="rw"><strong>Read:</strong> ApprovalService (status check), UI (show pending requests)</div>
+      <div class="rw"><strong>Write:</strong> ApprovalService (create request + record response)</div>
+      <div class="idx">Compound: {threadId, status} &mdash; query pending approvals</div>
+    </div></div>
+    <div class="coll"><div class="coll-h"><span class="cn">testPrompts</span><span class="ct">scenario testing</span></div><div class="coll-b">
+      <div class="purpose">Records LLM interactions during test mode for deterministic replay. Each scenario pre-scripts agent responses matched by agentId.</div>
+      <div class="fields"><span class="tag">id</span><span class="tag">agentId</span><span class="tag">sessionId</span><span class="tag">prompt</span><span class="tag">llmResponse</span><span class="tag">responseFallback</span></div>
+      <div class="rw"><strong>Read:</strong> TestModeLlmService (mock response lookup)</div>
+      <div class="rw"><strong>Write:</strong> TestModeLlmService (record interactions)</div>
+      <div class="idx">Indexes: agentId, sessionId</div>
+    </div></div>
+  </div>

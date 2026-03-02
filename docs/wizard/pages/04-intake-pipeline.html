@@ -1,0 +1,11 @@
+  <h2><span class="sn">4</span> The Intake Pipeline</h2>
+  <p class="sub">7 phases: raw paste &rarr; structured intelligence</p>
+  <div class="pipeline" id="pipelineFlow">
+    <div class="pl-step on" data-phase="0"><div class="pl-lbl">0</div><div class="pl-body"><div class="t">Memory-First Ingest <span class="badge green">ALWAYS</span></div><div class="d">Raw content saved as PROJECT-scoped memory with 7-day TTL</div></div></div>
+    <div class="pl-step" data-phase="1"><div class="pl-lbl">1</div><div class="pl-body"><div class="t">Triage <span class="badge yellow">intake-triage</span></div><div class="d">LLM classifies: THREAD yes/no | TICKETS yes/no | PLAN yes/no | RESOURCES yes/no</div></div></div>
+    <div class="pl-step" data-phase="2"><div class="pl-lbl">2</div><div class="pl-body"><div class="t">Generalist Hydration <span class="badge green">ALWAYS</span></div><div class="d">Creates threads, tickets, resources in a single burst of tool calls</div></div></div>
+    <div class="pl-step" data-phase="3"><div class="pl-lbl">3-4</div><div class="pl-body"><div class="t">Tickets & Plan <span class="badge muted">CONDITIONAL</span></div><div class="d">PM creates tickets (Jira keys preserved). Plan agent creates phases + milestones.</div></div></div>
+    <div class="pl-step" data-phase="5"><div class="pl-lbl">5</div><div class="pl-body"><div class="t">Objective Synthesis <span class="badge muted">CONDITIONAL</span></div><div class="d">Derives sprint objectives from threads + tickets. Computes coverage %.</div></div></div>
+    <div class="pl-step" data-phase="6"><div class="pl-lbl">6</div><div class="pl-body"><div class="t">Reconciliation <span class="badge muted">CONDITIONAL</span></div><div class="d">Detects: MISSING_EPIC, DATE_DRIFT, OWNER_MISMATCH, SCOPE_MISMATCH</div></div></div>
+    <div class="pl-step" data-phase="7"><div class="pl-lbl">7</div><div class="pl-body"><div class="t">Resource Analysis <span class="badge muted">CONDITIONAL</span></div><div class="d">Maps people &rarr; tickets &rarr; objectives. Computes capacity, detects overload.</div></div></div>
+  </div>

@@ -1,0 +1,98 @@
+<h2><span class="sn">5</span> How Agents Communicate</h2>
+<p class="sub">3 distinct mechanisms &mdash; none of them use Change Streams</p>
+
+<div style="background:rgba(255,153,0,0.08);border:2px solid rgba(255,153,0,0.4);border-radius:10px;padding:16px 20px;margin-bottom:18px">
+  <div style="font-size:22px;font-weight:700;color:#FF9900;margin-bottom:6px">&#9888; Key Insight</div>
+  <div style="font-size:20px;line-height:1.5">Change Streams are <b>only</b> used to push events to the browser UI via WebSocket.<br>
+  Agents <b>never</b> communicate through Change Streams. All agent&ndash;to&ndash;agent data flows through one of the 3 paths below.</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px">
+
+  <div class="card" style="border-color:rgba(255,153,0,0.5)">
+    <div class="card-h">&#9312; Intra-Session (In-Memory)</div>
+    <div class="card-b">
+      <div style="font-size:20px;line-height:1.5;margin-bottom:8px"><b>Controller &rarr; Specialist &rarr; Checker</b></div>
+      <div style="font-size:18px;line-height:1.5;color:var(--muted)">
+        All three share an <code>AgentState</code> object in JVM memory.<br><br>
+        Each agent gets an <b>isolated fork</b> of the state. After execution, only the final text is merged back. Forks are discarded.<br><br>
+        <b>No MongoDB reads/writes</b> between controller, specialist, and checker.
+      </div>
+      <div style="margin-top:10px;padding:10px;background:rgba(46,61,79,0.5);border-radius:6px;font-family:monospace;font-size:16px;line-height:1.6;color:var(--text)">
+        controllerState = state.withAgent(ctrl)<br>
+        &nbsp;&nbsp;// fork &rarr; parse JSON &rarr; discard fork<br><br>
+        specialistState = state.withAgent(spec)<br>
+        &nbsp;&nbsp;// fork &rarr; run tools &rarr; merge output<br><br>
+        checkerState = state.withAgent(chk)<br>
+        &nbsp;&nbsp;// fork &rarr; pass/fail &rarr; discard fork
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="border-color:rgba(81,153,255,0.5)">
+    <div class="card-h">&#9313; Inter-Phase (MongoDB Poll)</div>
+    <div class="card-b">
+      <div style="font-size:20px;line-height:1.5;margin-bottom:8px"><b>Pipeline Phase N &rarr; Phase N+1</b></div>
+      <div style="font-size:18px;line-height:1.5;color:var(--muted)">
+        <code>IntakePipelineService</code> orchestrates phases <b>sequentially</b> on a virtual thread.<br><br>
+        After starting a session, it <b>polls MongoDB</b> every 200ms checking <code>session.status</code> for COMPLETED.<br><br>
+        Then reads the <b>last assistant message</b> from <code>messages</code> collection and embeds it in the next phase's prompt.
+      </div>
+      <div style="margin-top:10px;padding:10px;background:rgba(46,61,79,0.5);border-radius:6px;font-family:monospace;font-size:16px;line-height:1.6;color:var(--text)">
+        agentLoop.startAsync(sessionId)<br><br>
+        // poll every 200ms:<br>
+        while (status != COMPLETED)<br>
+        &nbsp;&nbsp;Thread.sleep(200)<br>
+        &nbsp;&nbsp;status = sessionRepo.findById(id)<br><br>
+        output = getLastAssistantMsg(id)<br>
+        seedUserMessage(nextSession, output)
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="border-color:rgba(0,200,150,0.5)">
+    <div class="card-h">&#9314; Shared DB State (Tools)</div>
+    <div class="card-b">
+      <div style="font-size:20px;line-height:1.5;margin-bottom:8px"><b>Agent A writes &rarr; Agent B reads</b></div>
+      <div style="font-size:18px;line-height:1.5;color:var(--muted)">
+        Tools write domain objects to MongoDB collections. The next agent's <b>context prep</b> or <b>read tools</b> load them as prompt context.<br><br>
+        This is <b>indirect communication</b> &mdash; agents never address each other, they share state through the database.
+      </div>
+      <div style="margin-top:10px;padding:10px;background:rgba(46,61,79,0.5);border-radius:6px;font-size:17px;line-height:1.7;color:var(--text)">
+        <b style="color:#FF9900">Generalist writes:</b><br>
+        &nbsp;&nbsp;create_thread &rarr; <code>threads</code><br>
+        &nbsp;&nbsp;create_ticket &rarr; <code>tickets</code><br><br>
+        <b style="color:#5199FF">Reconcile reads:</b><br>
+        &nbsp;&nbsp;read_tickets, read_objectives<br>
+        &nbsp;&nbsp;+ prompt embeds existing threads
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="background:rgba(46,61,79,0.3);border:1px solid var(--line);border-radius:10px;padding:16px 20px">
+    <div style="font-size:22px;font-weight:700;color:#FF9900;margin-bottom:8px">&#128269; Troubleshooting Checklist</div>
+    <div style="font-size:18px;line-height:1.7;color:var(--text)">
+      <b>1.</b> Find pipeline: <code>sessions</code> where <code>metadata.pipelineId</code><br>
+      <b>2.</b> Check each phase's status: <code>session.status</code> (COMPLETED / FAILED)<br>
+      <b>3.</b> Read agent output: <code>messages</code> where <code>sessionId</code>, role = assistant<br>
+      <b>4.</b> Check tool calls: <code>messages</code> where role = tool<br>
+      <b>5.</b> View event timeline: <code>events</code> where <code>sessionId</code> ordered by <code>seq</code><br>
+      <b>6.</b> Check domain state: query <code>threads</code>, <code>tickets</code> by <code>projectId</code>
+    </div>
+  </div>
+  <div style="background:rgba(46,61,79,0.3);border:1px solid var(--line);border-radius:10px;padding:16px 20px">
+    <div style="font-size:22px;font-weight:700;color:#5199FF;margin-bottom:8px">&#128260; What Change Streams Actually Do</div>
+    <div style="font-size:18px;line-height:1.7;color:var(--text)">
+      <code>EventService.emit()</code> &rarr; insert into <code>events</code> collection<br>
+      &rarr; MongoDB Change Stream detects insert<br>
+      &rarr; <code>EventChangeStreamTailer</code> receives event<br>
+      &rarr; <code>JavaClawWebSocketHandler</code> (the <b>only</b> listener)<br>
+      &rarr; WebSocket push to browser<br><br>
+      <b>No agent or pipeline service subscribes.</b><br>
+      Pipeline sync = direct MongoDB polling.
+    </div>
+  </div>
+</div>

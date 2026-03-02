@@ -1,0 +1,27 @@
+  <h2><span class="sn">13</span> MongoDB: things (unified entity store)</h2>
+  <p class="sub">1 collection &bull; 16 entity types &bull; <code>thingCategory</code> discriminator &bull; flexible <code>Map&lt;String,Object&gt; payload</code></p>
+  <div class="coll" style="margin-bottom:10px"><div class="coll-h"><span class="cn">things</span><span class="ct">16 types, polymorphic</span></div><div class="coll-b">
+    <div class="purpose">All domain entities in a single collection. Each has <code>thingCategory</code> + project scope + flexible JSON <code>payload</code>. Enables polymorphic queries and schema evolution.</div>
+    <div class="fields"><span class="tag">id</span><span class="tag">projectId</span><span class="tag">projectName</span><span class="tag">thingCategory</span><span class="tag">payload{}</span><span class="tag">createDate</span><span class="tag">updateDate</span></div>
+    <div class="rw"><strong>Read:</strong> ThingController (UI), all agents via ThingService, ReminderAgentService</div>
+    <div class="rw"><strong>Write:</strong> All creation tools (CreateTicketTool, CreateChecklistTool, etc.)</div>
+    <div class="idx">Compounds: {projectId, thingCategory}, {projectId, thingCategory, payload.status}</div>
+  </div></div>
+  <div class="g4">
+    <div class="tile"><div class="nm" style="color:var(--accent)">TICKET</div><div class="ds">Work items: INITIATIVE &rarr; EPIC &rarr; STORY &rarr; SUBTASK hierarchy. Jira keys preserved.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">OBJECTIVE</div><div class="ds">Sprint goals with computed coverage %. Linked to tickets.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">PHASE</div><div class="ds">Project phases with entry/exit criteria. Ordered execution.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">MILESTONE</div><div class="ds">Delivery milestones with target dates. Linked to phases.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">CHECKLIST</div><div class="ds">ORR / release readiness. Items with check status + progress %.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">RESOURCE</div><div class="ds">Team members: name, skills, capacity, availability, role.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">DELTA_PACK</div><div class="ds">Drift reports: MISSING_EPIC, DATE_DRIFT, OWNER_MISMATCH, etc.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">BLINDSPOT</div><div class="ds">Risk items from reconciliation or resource analysis.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">IDEA</div><div class="ds">Brainstorm items. Promotable to tickets.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">UPLOAD</div><div class="ds">Full-text searchable documents (CSV, JSON, TXT).</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">LINK</div><div class="ds">External URLs categorized by type.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">REMINDER</div><div class="ds">Time/condition triggers. payload.triggerAt + triggered flag.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">INTAKE</div><div class="ds">Incoming intake request records.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">RECONCILIATION</div><div class="ds">Reconciliation run records.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">RESOURCE_ASSIGNMENT</div><div class="ds">Resource &harr; ticket mappings.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">CHECKLIST_TEMPLATE</div><div class="ds">Reusable checklist templates.</div></div>
+  </div>

@@ -1,0 +1,25 @@
+  <h2><span class="sn">11</span> MongoDB: projects & threads</h2>
+  <p class="sub">Project containers and long-form knowledge threads</p>
+  <div class="g2">
+    <div class="coll"><div class="coll-h"><span class="cn">projects</span><span class="ct">root aggregate</span></div><div class="coll-b">
+      <div class="purpose">Top-level organizational container. Groups threads, things, memories, and agent schedules. Status: ACTIVE or ARCHIVED.</div>
+      <div class="fields"><span class="tag">projectId</span><span class="tag">name</span><span class="tag">description</span><span class="tag">status</span><span class="tag">tags[]</span><span class="tag">metadata{}</span></div>
+      <div class="rw"><strong>Read:</strong> All controllers (scope filtering), IntakePipeline (routing), Thing queries</div>
+      <div class="rw"><strong>Write:</strong> ProjectController (create/update/delete)</div>
+      <div class="idx">Indexes: tags (array), updatedAt (desc)</div>
+    </div></div>
+    <div class="coll"><div class="coll-h"><span class="cn">threads</span><span class="ct">knowledge store</span></div><div class="coll-b">
+      <div class="purpose">Long-form conversation containers distilled by topic. Stores summaries, decisions, action items, evidence, extracted ideas. Supports many-to-many project linking and thread merging.</div>
+      <div class="fields"><span class="tag">threadId</span><span class="tag">projectIds[]</span><span class="tag">title</span><span class="tag">summary</span><span class="tag">decisions[]</span><span class="tag">actions[]</span><span class="tag">evidence[]</span><span class="tag">extractedIdeas[]</span><span class="tag">mergedFromThreadIds[]</span></div>
+      <div class="rw"><strong>Read:</strong> ThreadController, ExtractionService, DistillerService, ObjectiveService, MergeThreadsTool</div>
+      <div class="rw"><strong>Write:</strong> ThreadController, ExtractionService (ideas/actions), DistillerService (summaries), MergeThreadsTool</div>
+      <div class="idx">Compound: {projectIds, updatedAt desc} &mdash; project threads by recency</div>
+    </div></div>
+  </div>
+  <h3>Thread Lifecycle</h3>
+  <div class="g4">
+    <div class="tile" style="text-align:center"><div class="nm" style="justify-content:center;color:var(--accent)">Created</div><div class="ds">Thread agent creates from intake content or merges from existing</div></div>
+    <div class="tile" style="text-align:center"><div class="nm" style="justify-content:center;color:var(--accent)">Extracted</div><div class="ds">Thread-extractor pulls actions, ideas, tickets from messages</div></div>
+    <div class="tile" style="text-align:center"><div class="nm" style="justify-content:center;color:var(--accent)">Distilled</div><div class="ds">Distiller compresses conversation into concise summaries</div></div>
+    <div class="tile" style="text-align:center"><div class="nm" style="justify-content:center;color:var(--accent)">Merged</div><div class="ds">Duplicate threads merged &mdash; mergedFromThreadIds tracked</div></div>
+  </div>

@@ -1,0 +1,27 @@
+  <h2><span class="sn">7</span> MongoDB Data Model &mdash; Overview</h2>
+  <p class="sub">18 collections in 4 groups &bull; each detailed in the following pages</p>
+  <div class="g2" style="margin-bottom:10px">
+    <div class="card"><div class="card-h">Core Orchestration (8 collections)</div><div class="card-b" style="font-size:15px">
+      <span class="pill a" style="font-size:13px">agents</span> <span class="pill a" style="font-size:13px">sessions</span> <span class="pill a" style="font-size:13px">messages</span> <span class="pill a" style="font-size:13px">events</span> <span class="pill a" style="font-size:13px">checkpoints</span> <span class="pill a" style="font-size:13px">locks</span> <span class="pill a" style="font-size:13px">approvals</span> <span class="pill a" style="font-size:13px">testPrompts</span>
+      <div style="margin-top:6px;color:var(--muted)">Agent definitions, session contexts, conversation logs, event sourcing, state snapshots, distributed locks, human-in-the-loop approvals, test mock recordings.</div>
+    </div></div>
+    <div class="card"><div class="card-h">Projects, Threads & Knowledge (4 collections)</div><div class="card-b" style="font-size:15px">
+      <span class="pill a" style="font-size:13px">projects</span> <span class="pill a" style="font-size:13px">threads</span> <span class="pill a" style="font-size:13px">memories</span> <span class="pill a" style="font-size:13px">logs</span>
+      <div style="margin-top:6px;color:var(--muted)">Project containers, long-form topic threads, scoped memory (4 scopes, TTL), system logging.</div>
+    </div></div>
+    <div class="card"><div class="card-h">Unified "things" (1 collection, 16 entity types)</div><div class="card-b" style="font-size:15px">
+      <div style="display:flex;flex-wrap:wrap;gap:3px">
+        <span class="tag">TICKET</span><span class="tag">OBJECTIVE</span><span class="tag">PHASE</span><span class="tag">MILESTONE</span><span class="tag">CHECKLIST</span><span class="tag">RESOURCE</span><span class="tag">DELTA_PACK</span><span class="tag">BLINDSPOT</span><span class="tag">IDEA</span><span class="tag">UPLOAD</span><span class="tag">LINK</span><span class="tag">REMINDER</span>
+      </div>
+      <div style="margin-top:6px;color:var(--muted)">Single collection with <code>thingCategory</code> discriminator + flexible <code>Map&lt;String, Object&gt; payload</code>.</div>
+    </div></div>
+    <div class="card"><div class="card-h">Scheduling & Observability (4 collections)</div><div class="card-b" style="font-size:15px">
+      <span class="pill a" style="font-size:13px">agent_schedules</span> <span class="pill a" style="font-size:13px">future_executions</span> <span class="pill a" style="font-size:13px">past_executions</span> <span class="pill a" style="font-size:13px">llm_interactions</span>
+      <div style="margin-top:6px;color:var(--muted)">CRON definitions, pending execution queue with leasing, execution history with metrics, LLM cost tracking.</div>
+    </div></div>
+  </div>
+  <div class="g3">
+    <div class="tile"><div class="nm">Change Streams</div><div class="ds">Real-time event push to UI via WebSocket. No message broker needed.</div></div>
+    <div class="tile"><div class="nm">TTL Indexes</div><div class="ds">Locks auto-expire (60s), memories by scope (24h&ndash;30d).</div></div>
+    <div class="tile"><div class="nm">Text Search</div><div class="ds">Memory recall + upload search via built-in full-text indexes.</div></div>
+  </div>

@@ -1,0 +1,24 @@
+  <h2><span class="sn">10</span> MongoDB: events collection</h2>
+  <p class="sub">Event sourcing &mdash; the canonical source of truth for everything that happened</p>
+  <div class="g2">
+    <div class="coll"><div class="coll-h"><span class="cn">events</span><span class="ct">108 event types</span></div><div class="coll-b">
+      <div class="purpose">Every state change captured as an immutable event. Primary source for WebSocket real-time updates and audit trail.</div>
+      <div class="fields"><span class="tag">eventId</span><span class="tag">sessionId</span><span class="tag">seq</span><span class="tag">type</span><span class="tag">payload{}</span><span class="tag">timestamp</span></div>
+      <div class="rw"><strong>Read:</strong> EventChangeStreamTailer, CheckpointService (replay), all Controllers</div>
+      <div class="rw"><strong>Write:</strong> EventService &mdash; all agents emit via <code>emit(sessionId, type, payload)</code></div>
+      <div class="idx">Compound unique: {sessionId, seq}</div>
+    </div></div>
+    <div>
+      <div class="hl" style="margin-top:0"><strong>WHY event sourcing?</strong> Events provide a <strong>complete audit trail</strong> of every system action. Sessions and messages could be reconstructed from events alone. This enables time-travel debugging, replay, and full accountability.</div>
+      <div class="hl blue"><strong>WHY not just CRUD?</strong> CRUD overwrites state &mdash; you lose the "how we got here". With events, you can answer: <em>"What did the reconcile-agent do at 9:03 AM?"</em> and <em>"Which tool calls created this ticket?"</em></div>
+    </div>
+  </div>
+  <h3>Event Categories (108 types)</h3>
+  <div class="g3">
+    <div class="tile"><div class="nm">Agent Lifecycle</div><div class="ds">AGENT_STEP_STARTED, AGENT_STEP_COMPLETED, AGENT_SWITCHED, AGENT_DELEGATED, AGENT_RESPONSE</div></div>
+    <div class="tile"><div class="nm">Tool Execution</div><div class="ds">TOOL_CALL_STARTED, TOOL_RESULT, TOOL_CALL_DENIED, TOOL_STDOUT_DELTA, TOOL_STDERR_DELTA</div></div>
+    <div class="tile"><div class="nm">Quality Control</div><div class="ds">AGENT_CHECK_PASSED, AGENT_CHECK_FAILED, APPROVAL_REQUESTED, APPROVAL_RESOLVED</div></div>
+    <div class="tile"><div class="nm">Domain Events</div><div class="ds">TICKET_CREATED, OBJECTIVE_*, RECONCILE_*, PHASE_*, MILESTONE_*, CHECKLIST_*</div></div>
+    <div class="tile"><div class="nm">Pipeline Events</div><div class="ds">INTAKE_*, SESSION_STATUS_CHANGED, EXEC_STARTED, EXEC_COMPLETED</div></div>
+    <div class="tile"><div class="nm">System</div><div class="ds">USER_MESSAGE_RECEIVED, MODEL_TOKEN_DELTA, MEMORY_*, THREAD_*, ERROR</div></div>
+  </div>
