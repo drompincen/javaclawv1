@@ -1,0 +1,20 @@
+  <h2><span class="sn">2</span> Architecture</h2>
+  <p class="sub">5 modules, MongoDB replica set, Bloomberg-style web cockpit</p>
+  <div style="max-width:680px;margin:0 auto 12px">
+    <div class="arch" style="border-color:rgba(255,153,0,.4)"><div class="al">Web Cockpit (Bloomberg-style UI)</div><div class="ad">Green-on-black, keyboard-driven &bull; <span class="pill a" style="font-size:12px">HTML/JS/CSS</span> <span class="pill a" style="font-size:12px">WebSocket</span> <span class="pill a" style="font-size:12px">REST</span></div></div>
+    <div class="conn"></div>
+    <div class="arch"><div class="al" style="color:var(--good)">gateway</div><div class="ad">Spring Boot REST + WebSocket &bull; 24 controllers &bull; Static UI</div></div>
+    <div class="conn"></div>
+    <div class="arch" style="border-color:rgba(255,176,32,.4)"><div class="al" style="color:var(--warn)">runtime</div><div class="ad">AgentLoop &bull; IntakePipeline &bull; Scheduler &bull; LLM (Anthropic / OpenAI)</div></div>
+    <div class="conn"></div>
+    <div class="g4">
+      <div class="arch"><div class="al" style="font-size:14px;color:var(--accent)">persistence</div><div class="ad" style="font-size:13px">18 docs, 19 repos</div></div>
+      <div class="arch"><div class="al" style="font-size:14px;color:var(--accent)">protocol</div><div class="ad" style="font-size:13px">DTOs, 40+ Events</div></div>
+      <div class="arch"><div class="al" style="font-size:14px;color:var(--accent)">tools</div><div class="ad" style="font-size:13px">46 SPI tools</div></div>
+      <div class="arch"><div class="al" style="font-size:14px;color:var(--accent)">MongoDB</div><div class="ad" style="font-size:13px">Replica Set, Streams</div></div>
+    </div>
+  </div>
+  <h3>Technology Stack</h3>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:16px">
+    <span class="pill a">Java 21</span><span class="pill a">Spring Boot 3.3</span><span class="pill a">Spring AI 1.0</span><span class="pill a">LangGraph4j 1.8</span><span class="pill a">MongoDB 7+</span><span class="pill a">JBang</span><span class="pill a">Anthropic Claude</span><span class="pill a">OpenAI GPT-4o</span>
+  </div>

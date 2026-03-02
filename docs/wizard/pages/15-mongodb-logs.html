@@ -1,0 +1,21 @@
+  <h2><span class="sn">15</span> MongoDB: logs collection</h2>
+  <p class="sub">Centralized session-aware application logging</p>
+  <div class="g2">
+    <div class="coll"><div class="coll-h"><span class="cn">logs</span><span class="ct">system logging</span></div><div class="coll-b">
+      <div class="purpose">Centralized application logs with levels DEBUG/INFO/WARN/ERROR. Captures session context for troubleshooting. Latest 100 accessible via REST API.</div>
+      <div class="fields"><span class="tag">logId</span><span class="tag">level</span><span class="tag">source</span><span class="tag">sessionId</span><span class="tag">message</span><span class="tag">stackTrace</span><span class="tag">metadata{}</span><span class="tag">timestamp</span></div>
+      <div class="rw"><strong>Read:</strong> LogController (UI cockpit), monitoring/alerting</div>
+      <div class="rw"><strong>Write:</strong> LogService (all application components)</div>
+      <div class="idx">Compounds: {level, timestamp desc}, timestamp desc</div>
+    </div></div>
+    <div>
+      <div class="hl" style="margin-top:0"><strong>WHY logs in MongoDB?</strong> Centralized logging to MongoDB enables <strong>correlation</strong> with sessions and events. A single query can show all activity for a session &mdash; logs, events, and messages together. No need to cross-reference separate log files.</div>
+      <div class="hl blue"><strong>WHY not just file logs?</strong> File logs require SSH access and grep. MongoDB logs are queryable via REST API and visible in the cockpit UI. Filter by level, source, session, or time range &mdash; all from the browser.</div>
+    </div>
+  </div>
+  <h3>How Logs Integrate with Observability</h3>
+  <div class="g3">
+    <div class="tile"><div class="nm" style="color:var(--accent)">logs</div><div class="ds">ERROR/WARN/INFO/DEBUG with session context and stack traces. Last 100 via API.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">events</div><div class="ds">108 event types for audit trail. Every state change captured. Real-time via WebSocket.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--accent)">llm_interactions</div><div class="ds">Token counts, cost estimation, latency per LLM call. Billing and performance.</div></div>
+  </div>

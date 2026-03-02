@@ -1,0 +1,44 @@
+  <h2><span class="sn">25</span> Gateway: Intake Pipeline Flow</h2>
+  <p class="sub">7-phase async orchestration &mdash; raw paste to structured intelligence</p>
+  <div class="mermaid-wrap diagram-full"><pre class="mermaid">
+sequenceDiagram
+    participant Browser
+    participant IntakeController
+    participant PipelineService
+    participant AgentLoop
+    participant EventService
+    participant MongoDB
+    participant WebSocketHandler
+
+    Browser->>IntakeController: POST /api/intake/pipeline
+    Note right of IntakeController: {projectId, content, filePaths}
+    IntakeController->>IntakeController: create source session (metadata type=intake-pipeline)
+    IntakeController->>PipelineService: startPipeline(projectId, content, sourceSessionId)
+    IntakeController-->>Browser: {pipelineId, status: RUNNING}
+
+    rect rgba(255,153,0,0.04)
+    Note over PipelineService: Async Pipeline Execution (virtual thread)
+
+    PipelineService->>MongoDB: Phase 0: save raw content as memory (7-day TTL)
+
+    PipelineService->>PipelineService: Phase 1: createAgentSession(intake-triage, forced)
+    PipelineService->>AgentLoop: startAsync(triageSessionId)
+    AgentLoop-->>PipelineService: waitForCompletion(90s timeout)
+    Note right of PipelineService: Result: {THREAD: yes, TICKETS: yes, PLAN: no}
+
+    PipelineService->>PipelineService: Phase 2: createAgentSession(generalist, forced)
+    PipelineService->>AgentLoop: startAsync(hydrationSessionId)
+    AgentLoop-->>PipelineService: waitForCompletion(300s timeout)
+    Note right of PipelineService: Creates threads + tickets + resources
+
+    PipelineService->>AgentLoop: Phase 5: objective-agent (conditional)
+    PipelineService->>AgentLoop: Phase 6: reconcile-agent (conditional)
+    PipelineService->>AgentLoop: Phase 7: resource-agent (conditional)
+    end
+
+    PipelineService->>MongoDB: save summary to source session
+    PipelineService->>EventService: emit(INTAKE_PIPELINE_COMPLETED)
+    EventService->>MongoDB: INSERT event
+    MongoDB-->>WebSocketHandler: Change Stream push
+    WebSocketHandler-->>Browser: EVENT: INTAKE_PIPELINE_COMPLETED
+  </pre></div>

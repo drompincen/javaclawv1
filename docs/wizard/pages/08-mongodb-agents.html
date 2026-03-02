@@ -1,0 +1,21 @@
+  <h2><span class="sn">8</span> MongoDB: agents collection</h2>
+  <p class="sub">Runtime-configurable agent definitions &mdash; no redeployment needed</p>
+  <div class="g2">
+    <div class="coll"><div class="coll-h"><span class="cn">agents</span><span class="ct">15 documents</span></div><div class="coll-b">
+      <div class="purpose">Every agent's DNA: system prompt, skills, tool allowlist, role, and enabled flag.</div>
+      <div class="fields"><span class="tag">agentId</span><span class="tag">name</span><span class="tag">description</span><span class="tag">systemPrompt</span><span class="tag">skills[]</span><span class="tag">allowedTools[]</span><span class="tag">role</span><span class="tag">enabled</span></div>
+      <div class="rw"><strong>Read:</strong> AgentBootstrapService (startup), AgentLoop, AgentGraphBuilder (routing)</div>
+      <div class="rw"><strong>Write:</strong> Admin API, AgentController</div>
+      <div class="idx">Index: agentId (primary key only)</div>
+    </div></div>
+    <div>
+      <div class="hl" style="margin-top:0"><strong>WHY MongoDB?</strong> Agent definitions stored in MongoDB enable runtime configuration without code changes. You can modify system prompts, add/remove tools from an agent's allowlist, and enable/disable agents &mdash; all through the REST API, no redeployment.</div>
+      <div class="hl blue"><strong>WHY not config files?</strong> Config files require restart. MongoDB documents can be hot-swapped &mdash; the next agent invocation picks up changes immediately.</div>
+    </div>
+  </div>
+  <h3>The 3 Agent Roles</h3>
+  <div class="g3">
+    <div class="tile"><div class="nm" style="color:var(--accent)">CONTROLLER</div><div class="ds">Analyzes user intent, picks the best specialist. Fork is <strong>discarded</strong> after routing decision.</div></div>
+    <div class="tile"><div class="nm" style="color:var(--warn)">SPECIALIST</div><div class="ds">13 domain experts. Each has a focused system prompt and restricted tool allowlist. Output is <strong>merged</strong> to main state.</div></div>
+    <div class="tile"><div class="nm" style="color:#5199FF">CHECKER</div><div class="ds">Validates specialist output. Pass or fail with feedback. Max 3 retries before accepting.</div></div>
+  </div>

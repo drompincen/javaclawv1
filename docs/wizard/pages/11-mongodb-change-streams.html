@@ -1,0 +1,23 @@
+  <h2><span class="sn">11</span> MongoDB: Change Streams</h2>
+  <p class="sub">The database IS the event bus &mdash; no Kafka, no RabbitMQ needed</p>
+  <div class="g2">
+    <div>
+      <div class="cs-flow">
+        <div class="cs-node"><div class="cs-label">Agent emits event</div><div class="cs-desc">EventService.emit() &rarr; saves EventDocument to MongoDB</div></div>
+        <div class="cs-arrow">&#9660;</div>
+        <div class="cs-node highlight"><div class="cs-label">MongoDB Change Stream</div><div class="cs-desc">collection.watch() filters INSERT operations only</div></div>
+        <div class="cs-arrow">&#9660;</div>
+        <div class="cs-node"><div class="cs-label">EventChangeStreamTailer</div><div class="cs-desc">Single daemon thread &bull; fullDocument: UPDATE_LOOKUP</div></div>
+        <div class="cs-arrow">&#9660;</div>
+        <div class="cs-node"><div class="cs-label">JavaClawWebSocketHandler</div><div class="cs-desc">Broadcasts to session &amp; project subscribers</div></div>
+        <div class="cs-arrow">&#9660;</div>
+        <div class="cs-node"><div class="cs-label">Browser UI</div><div class="cs-desc">Real-time updates: agent activity, tool results, new entities</div></div>
+      </div>
+    </div>
+    <div>
+      <div class="hl" style="margin-top:0"><strong>WHY Change Streams over Kafka?</strong> MongoDB Change Streams eliminate a separate message broker. The database IS the event bus. This reduces infrastructure from 3 systems (app + DB + broker) to 2 (app + DB), while providing the same real-time push semantics.</div>
+      <div class="hl blue"><strong>WHY not polling?</strong> Change Streams push events instantly (sub-millisecond latency). Polling would add 200ms+ delay and waste database queries. Change Streams use the MongoDB oplog &mdash; zero additional load.</div>
+      <div class="hl warn"><strong>Fallback:</strong> If the change stream connection drops, EventChangeStreamTailer automatically switches to polling every 200ms with sequence tracking. When the stream reconnects, it resumes from the last known position. <strong>No data loss.</strong></div>
+      <div class="hl"><strong>Requires:</strong> MongoDB Replica Set (even a single-node replica set works). Change Streams read from the oplog which only exists in replica set mode.</div>
+    </div>
+  </div>

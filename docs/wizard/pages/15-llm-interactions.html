@@ -1,0 +1,20 @@
+  <h2><span class="sn">15</span> MongoDB: llm_interactions & observability</h2>
+  <p class="sub">Every LLM API call tracked &bull; cost estimation &bull; performance monitoring</p>
+  <div class="g2" style="margin-bottom:12px">
+    <div class="coll"><div class="coll-h"><span class="cn">llm_interactions</span><span class="ct">high volume</span></div><div class="coll-b">
+      <div class="purpose">Records every call to LLM APIs (Anthropic/OpenAI) for cost tracking, performance analysis, and debugging. Tracks provider, model, tokens, latency, success/failure.</div>
+      <div class="fields"><span class="tag">interactionId</span><span class="tag">sessionId</span><span class="tag">agentId</span><span class="tag">provider</span><span class="tag">model</span><span class="tag">messageCount</span><span class="tag">promptTokens</span><span class="tag">completionTokens</span><span class="tag">durationMs</span><span class="tag">success</span></div>
+      <div class="rw"><strong>Read:</strong> LlmUsageTracker (billing/metrics), MonitoringService, UI token counter</div>
+      <div class="rw"><strong>Write:</strong> DefaultLlmService, TestModeLlmService (log every interaction)</div>
+      <div class="idx">Compound: {sessionId, timestamp desc} &bull; timestamp desc</div>
+    </div></div>
+    <div class="card"><div class="card-h">Observability Stack</div><div class="card-b" style="font-size:15px">
+      <div style="margin-bottom:6px"><strong style="color:var(--accent)">llm_interactions</strong> &mdash; Token counts, cost estimation, latency per call</div>
+      <div style="margin-bottom:6px"><strong style="color:var(--accent)">past_executions</strong> &mdash; Agent success/failure rates, duration, created entities</div>
+      <div style="margin-bottom:6px"><strong style="color:var(--accent)">events</strong> &mdash; 108 event types for audit trail and activity streaming</div>
+      <div style="margin-bottom:6px"><strong style="color:var(--accent)">logs</strong> &mdash; ERROR/WARN/INFO/DEBUG with session context and stack traces</div>
+      <div><strong style="color:var(--accent)">UI footer</strong> &mdash; Live token count, call count, avg latency displayed in cockpit</div>
+    </div></div>
+  </div>
+  <h3>How the UI Token Counter Works</h3>
+  <div class="hl" style="font-size:15px">The cockpit footer shows <code>&#x1FA99; 0 tokens | 0 calls | avg 0ms</code>. This reads from llm_interactions via REST API. LlmUsageTracker aggregates per-session totals. Every LLM call (real or mocked) is recorded, enabling cost estimation per project, per agent, and per execution.</div>

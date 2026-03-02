@@ -1,0 +1,26 @@
+  <h2><span class="sn">14</span> MongoDB: scheduling & execution</h2>
+  <p class="sub">CRON definitions &bull; execution queue with leasing &bull; execution history with metrics</p>
+  <div class="g3">
+    <div class="coll"><div class="coll-h"><span class="cn">agent_schedules</span><span class="ct">CRON/daily/interval</span></div><div class="coll-b">
+      <div class="purpose">Defines when and how agents run. Supports CRON, daily times, and interval schedules. Optimistic locking via <code>@Version</code>.</div>
+      <div class="fields"><span class="tag">scheduleId</span><span class="tag">agentId</span><span class="tag">enabled</span><span class="tag">scheduleType</span><span class="tag">cronExpr</span><span class="tag">timezone</span><span class="tag">priority</span><span class="tag">maxAttempts</span></div>
+      <div class="rw"><strong>Read:</strong> SchedulePlannerService (every 60s reconciliation)</div>
+      <div class="rw"><strong>Write:</strong> ScheduleController (create/update/disable)</div>
+      <div class="idx">Compound unique: {agentId, projectId}</div>
+    </div></div>
+    <div class="coll"><div class="coll-h"><span class="cn">future_executions</span><span class="ct">pending queue</span></div><div class="coll-b">
+      <div class="purpose">Upcoming agent runs. Lease-based claiming: <code>lockOwner</code> + <code>leaseUntil</code> (90s). Idempotency keys prevent duplicates. On-demand triggers get priority=8.</div>
+      <div class="fields"><span class="tag">executionId</span><span class="tag">idempotencyKey</span><span class="tag">agentId</span><span class="tag">scheduledAt</span><span class="tag">execStatus</span><span class="tag">priority</span><span class="tag">lockOwner</span><span class="tag">leaseUntil</span><span class="tag">attempt</span></div>
+      <div class="rw"><strong>Read:</strong> ExecutionEngine (5s poll cycle), SchedulePlanner</div>
+      <div class="rw"><strong>Write:</strong> SchedulePlanner (generate), ExecutionEngine (claim/execute/retry)</div>
+      <div class="idx">{execStatus, scheduledAt} &bull; {dateKey, agentId, projectId} &bull; idempotencyKey (unique)</div>
+    </div></div>
+    <div class="coll"><div class="coll-h"><span class="cn">past_executions</span><span class="ct">history + metrics</span></div><div class="coll-b">
+      <div class="purpose">Completed execution records with LLM metrics (tokens, cost, duration), tool call stats, and references to all created entities.</div>
+      <div class="fields"><span class="tag">pastExecutionId</span><span class="tag">executionId</span><span class="tag">agentId</span><span class="tag">resultStatus</span><span class="tag">durationMs</span><span class="tag">llmMetrics{}</span><span class="tag">toolCallSummary{}</span><span class="tag">responseRefs{}</span></div>
+      <div class="rw"><strong>Read:</strong> ExecutionController (history), reporting/analytics</div>
+      <div class="rw"><strong>Write:</strong> ExecutionEngine (record results after each run)</div>
+      <div class="idx">{agentId, startedAt desc} &bull; {projectId, startedAt desc}</div>
+    </div></div>
+  </div>
+  <div class="hl" style="margin-top:8px;font-size:15px"><strong>Flow:</strong> SchedulePlanner (60s) parses CRON &rarr; creates future_executions with idempotency key &rarr; ExecutionEngine (5s) polls READY items &rarr; acquires lease &rarr; launches virtual thread &rarr; records to past_executions. Retry: 2-min backoff, max 3 attempts.</div>
