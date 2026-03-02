@@ -14,6 +14,7 @@ import io.github.drompincen.javaclawv1.protocol.api.SessionStatus;
 import io.github.drompincen.javaclawv1.runtime.agent.AgentLoop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +23,9 @@ import java.util.*;
 
 @Service
 public class ExecutionEngineService {
+
+    @Value("${javaclaw.scheduler.enabled:true}")
+    private boolean schedulerEnabled = true;
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionEngineService.class);
     private static final long LEASE_DURATION_MS = 90_000;
@@ -51,6 +55,7 @@ public class ExecutionEngineService {
 
     @Scheduled(fixedDelayString = "${javaclaw.scheduler.executor-poll-interval-ms:5000}")
     public void pollAndExecute() {
+        if (!schedulerEnabled) return;
         // Recover stale leases first
         recoverStaleLeases();
 

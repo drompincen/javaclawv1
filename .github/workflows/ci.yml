@@ -26,10 +26,15 @@ jobs:
           path: ~/.embedmongo
           key: embedmongo-7.0.4
 
+      - name: Set up Chrome for UI tests
+        uses: browser-actions/setup-chrome@latest
+        with:
+          chrome-version: stable
+
       - name: Build with Maven
         run: ./mvnw -B compile
 
-      - name: Run tests
+      - name: Run tests (unit + scenario + UI)
         run: ./mvnw -B test
 
       - name: Package

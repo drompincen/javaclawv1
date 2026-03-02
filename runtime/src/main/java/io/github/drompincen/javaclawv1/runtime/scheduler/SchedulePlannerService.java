@@ -8,6 +8,7 @@ import io.github.drompincen.javaclawv1.protocol.api.ExecStatus;
 import io.github.drompincen.javaclawv1.protocol.api.ScheduleType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,9 @@ import java.util.*;
 
 @Service
 public class SchedulePlannerService {
+
+    @Value("${javaclaw.scheduler.enabled:true}")
+    private boolean schedulerEnabled = true;
 
     private static final Logger log = LoggerFactory.getLogger(SchedulePlannerService.class);
     private static final DateTimeFormatter DATE_KEY_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -35,6 +39,7 @@ public class SchedulePlannerService {
 
     @Scheduled(fixedDelayString = "${javaclaw.scheduler.planner-interval-ms:60000}")
     public void reconcileSchedules() {
+        if (!schedulerEnabled) return;
         List<AgentScheduleDocument> changed = scheduleRepository.findByUpdatedAtGreaterThan(lastReconcileAt);
         if (changed.isEmpty()) return;
 

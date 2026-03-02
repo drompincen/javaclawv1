@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.drompincen.javaclawv1.runtime.tools.ToolResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -14,7 +13,6 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 @Component
-@ConditionalOnProperty(name = "javaclaw.scenario.file")
 public class ToolMockRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(ToolMockRegistry.class);

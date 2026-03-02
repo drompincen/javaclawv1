@@ -1,5 +1,5 @@
 #!/bin/bash
-# JavaClaw Tutorial 02 — Intake: Meeting Notes
+# JavaClaw Tutorial 01 — Intake: Meeting Notes
 # Submits meeting notes through the intake pipeline (triage → thread creation → distill).
 # Requires real LLM or will time out — designed for demos and documentation.
 set -euo pipefail
@@ -15,15 +15,39 @@ ok()      { echo -e "${GREEN}  OK${NC} $1"; }
 warn()    { echo -e "${YELLOW}  WARN${NC} $1"; }
 fail()    { echo -e "${RED}  FAIL${NC} $1"; exit 1; }
 
+PASS=0; TOTAL=0
+assert_gte() {
+  TOTAL=$((TOTAL + 1))
+  local label="$1" actual="$2" expected="$3"
+  if [ "$actual" -ge "$expected" ]; then
+    ok "$label: $actual >= $expected"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}  FAIL${NC} $label: expected >= $expected, got $actual"
+  fi
+}
+
+# --- Pre-test Teardown ---
+section "0. Pre-test Teardown"
+PROJECT_NAME="Tutorial T01 Meeting Notes"
+EXISTING_ID=$($CURL -sf "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+  '.[] | select(.name == $name) | .projectId' | head -1 || true)
+if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+  $CURL -sf -X DELETE "$BASE_URL/api/projects/$EXISTING_ID/data" -o $DEVNULL 2>/dev/null || true
+  ok "Cleaned leftover data for project $EXISTING_ID"
+else
+  ok "No leftover data"
+fi
+LLM_BEFORE=$($CURL -sf "$BASE_URL/api/logs/llm-usage" || echo '{}')
+
 # --- Find or Create Project ---
 section "1. Find or Create Project"
-PROJECT_NAME="Tutorial Payment Gateway"
-PROJECT_ID=$($CURL -s "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
+PROJECT_ID=$($CURL -sf "$BASE_URL/api/projects" | jq -r --arg name "$PROJECT_NAME" \
   '.[] | select(.name == $name) | .projectId' | head -1)
 if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-  PROJECT=$($CURL -s -X POST "$BASE_URL/api/projects" \
+  PROJECT=$($CURL -sf -X POST "$BASE_URL/api/projects" \
     -H 'Content-Type: application/json' \
-    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Payment Gateway tutorial project\",\"tags\":[\"tutorial\"]}")
+    -d "{\"name\":\"$PROJECT_NAME\",\"description\":\"Meeting notes tutorial project\",\"tags\":[\"tutorial\"]}")
   PROJECT_ID=$(echo "$PROJECT" | jq -r '.projectId')
   ok "Project created: $PROJECT_ID"
 else
@@ -54,7 +78,7 @@ section "4. Waiting for Pipeline (threads to appear)"
 echo "  The intake pipeline triages content and creates threads..."
 echo "  This may take 30-60 seconds with a real LLM."
 ATTEMPTS=0
-MAX_ATTEMPTS=30
+MAX_ATTEMPTS=60
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
   THREADS=$($CURL -s "$BASE_URL/api/projects/$PROJECT_ID/threads")
   T_COUNT=$(echo "$THREADS" | jq 'length')
@@ -66,7 +90,6 @@ while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
   echo "  ... waiting ($ATTEMPTS/$MAX_ATTEMPTS)"
   sleep 2
 done
-[ "$T_COUNT" -gt 0 ] || warn "No threads created after ${MAX_ATTEMPTS} attempts — LLM may not be running"
 
 # --- Show Created Threads ---
 section "5. Created Threads"
@@ -79,24 +102,38 @@ M_COUNT=$(echo "$MEMORIES" | jq 'length')
 if [ "$M_COUNT" -gt 0 ]; then
   ok "Distiller created $M_COUNT memory(ies)"
   echo "$MEMORIES" | jq -r '.[] | "  [\(.scope)] \(.key): \(.content[:80])..."'
-else
-  warn "No memories yet — distillation may still be running"
 fi
 
+# --- Assertions ---
+section "7. Assertions"
+assert_gte "Threads" "$T_COUNT" "1"
+assert_gte "Memories" "$M_COUNT" "1"
+
 # --- Summary ---
-section "7. Summary"
-echo "  Project:  $PROJECT_ID"
-echo "  Threads:  $T_COUNT"
-echo "  Memories: $M_COUNT"
-echo ""
-echo "  The intake pipeline:"
-echo "    1. Triaged the meeting notes (classified topics)"
-echo "    2. Created a thread per topic"
-echo "    3. Distilled key decisions and actions into memories"
+section "8. Summary"
+echo "  Project:    $PROJECT_ID"
+echo "  Threads:    $T_COUNT"
+echo "  Memories:   $M_COUNT"
+echo "  Assertions: $PASS/$TOTAL passed"
+
+# --- LLM Usage ---
+section "LLM Usage"
+LLM_AFTER=$($CURL -sf "$BASE_URL/api/logs/llm-usage" || echo '{}')
+CALLS_BEFORE=$(echo "$LLM_BEFORE" | jq -r '.totalCalls // 0')
+CALLS_AFTER=$(echo "$LLM_AFTER" | jq -r '.totalCalls // 0')
+TOKENS_BEFORE=$(echo "$LLM_BEFORE" | jq -r '.totalTokens // 0')
+TOKENS_AFTER=$(echo "$LLM_AFTER" | jq -r '.totalTokens // 0')
+echo "  LLM calls:  $((CALLS_AFTER - CALLS_BEFORE))"
+echo "  Tokens:     $((TOKENS_AFTER - TOKENS_BEFORE))"
 
 # --- Teardown ---
 section "Teardown"
-$CURL -s -X DELETE "$BASE_URL/api/projects/$PROJECT_ID/data" -o $DEVNULL
-ok "Cleaned project data for next tutorial"
+$CURL -sf -X DELETE "$BASE_URL/api/projects/$PROJECT_ID/data" -o $DEVNULL 2>/dev/null || true
+ok "Cleaned project data"
 
-echo -e "\n${GREEN}DONE${NC} — Tutorial 02 complete."
+if [ "$PASS" -eq "$TOTAL" ]; then
+  echo -e "\n${GREEN}ALL ASSERTIONS PASSED${NC} — Tutorial 01 complete."
+else
+  echo -e "\n${YELLOW}$((TOTAL - PASS)) assertion(s) failed${NC}"
+  exit 1
+fi

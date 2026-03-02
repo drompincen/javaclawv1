@@ -7,7 +7,6 @@ import org.bson.Document;
 import io.github.drompincen.javaclawv1.persistence.repository.MessageRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -30,7 +29,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Component
-@ConditionalOnProperty(name = "javaclaw.scenario.file")
 public class ScenarioAsserts {
 
     private static final Logger log = LoggerFactory.getLogger(ScenarioAsserts.class);

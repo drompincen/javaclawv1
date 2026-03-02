@@ -573,19 +573,52 @@ Tools implement the `Tool` SPI interface and are discovered via `ServiceLoader`:
 
 Tools with `WRITE_FILES` or `EXEC_SHELL` risk require user approval. Tool output streams in real-time via `ToolStream` callbacks.
 
-## Scenario Test Framework
+## Testing
 
-JavaClaw includes a deterministic E2E test framework where every agent response is pre-scripted. Tests verify the full pipeline: project creation → agent execution → MongoDB state → REST API responses.
+| Layer | Command | Database | LLM | CI | Notes |
+|-------|---------|----------|-----|-----|-------|
+| Unit tests | `./mvnw test` | Embedded MongoDB | Mocked | Yes | Fast, isolated |
+| Scenario tests | `./mvnw test` | Embedded MongoDB | Mock (TestResponseGenerator) | Yes | 53 JSON-driven E2E tests |
+| UI tests | `./mvnw test` | Embedded MongoDB | Mock + headless Chrome | Yes | Selenium ChromeDriver |
+| Tutorial tests | `bash tutorial/run-tutorials.sh` | Docker MongoDB | Real LLM | No — manual | Requires API key |
 
-### Running Scenarios
+### Running All Automated Tests
 
 ```bash
-# Single scenario
-jbang javaclaw.java --headless --scenario runtime/src/test/resources/scenario-pm-tools-v2.json
-
-# All 50 scenarios (single JVM, ~10x faster)
-bash run-scenarios.sh
+./mvnw test   # unit + scenario + UI (no Docker, no API key needed)
 ```
+
+### Selective Test Runs
+
+```bash
+./mvnw test -pl gateway -Dtest=ScenarioIntegrationTest     # scenario tests only
+./mvnw test -pl gateway -Dtest=ScenarioUiIntegrationTest    # UI tests only
+```
+
+### Tutorial Tests (Manual Only)
+
+Tutorial tests require a running Docker MongoDB instance and a real LLM API key. They are not part of `mvn test` or CI.
+
+```bash
+bash tutorial/run-tutorials.sh --port 8080 --parallel --ui
+```
+
+See [tutorial/README.md](tutorial/README.md) for details.
+
+### JBang Scenario Runner (Alternative)
+
+The 53 scenario tests can also be run via JBang with Docker MongoDB (the original approach):
+
+```bash
+bash scenario-testing/run-scenarios.sh              # all scenarios
+bash scenario-testing/run-scenarios.sh --group 1    # group 1 only
+```
+
+See [scenario-testing/README.md](scenario-testing/README.md) for details.
+
+## Scenario Test Framework
+
+JavaClaw includes a deterministic E2E test framework with 53 JSON-driven scenarios where every agent response is pre-scripted. Tests verify the full pipeline: project creation → agent execution → MongoDB state → REST API responses.
 
 ### V2 Scenario Features
 
@@ -595,26 +628,16 @@ The V2 schema (schemaVersion: 2) supports:
 - **Seed actions:** Pre-populate project data via REST POST before running agent steps
 - **Assertion types:** `sessionStatus`, `events` (containsTypes, minCounts), `mongo` (collection queries with countGte/exists), `messages` (anyAssistantContains), `http` (REST API response validation with status, body, jsonPath, jsonArrayMinSize)
 
-### 50 Built-in Scenarios
+### 53 Built-in Scenarios (4 Groups)
 
-| Scenario | What It Tests |
-|---|---|
-| **V1 Basic (13)** | General chat, coder, PM, memory, file tools, git, JBang, Python, HTTP, Excel |
-| **V2 Framework (3)** | PM tools, memory, file tools with V2 assertions |
-| **Agent-Specific (10)** | Thread agent, objective agent, checklist agent, intake triage, plan agent, reconcile agent, resource agent, thread intake, extraction, intake pipeline |
-| **Story E2E (10)** | Stories 2-10: alignment pipeline, sprint objectives, resource load, plan creation, checklist generation, scheduled reconcile, on-demand agents, memory persistence, daily schedule reset |
-| **Tool Coverage (14)** | Per-tool scenario tests for all domain tools: create/read tickets, objectives, resources, phases, milestones, checklists, ideas, blindspots, delta packs, uploads, links, reminders, reconciliations, thread merge |
+| Group | Name | Count | What It Tests |
+|-------|------|-------|---------------|
+| 1 | Foundations | 13 | Basic agent loop, simple tools, no DB assertions |
+| 2 | Tools & Single Agents | 14 | V2 assertions, specialist agents, multi-step tools |
+| 3 | Pipelines & Multi-Agent | 13 | Intake pipelines, agent chaining, re-intake |
+| 4 | E2E Stories & Context Assembly | 13 | Full pipelines, scheduled agents, ask-claw |
 
 Each story scenario seeds prerequisite data, runs agents with mock responses, and asserts both MongoDB state and REST API responses — verifying that the cockpit UI would display the correct data.
-
-### Maven Unit Tests
-
-272 Maven tests across all modules (unit + integration via embedded MongoDB):
-
-```bash
-cmd.exe /c "mvnw.cmd test"   # Windows/WSL
-./mvnw test                   # Linux/Mac
-```
 
 ## Quick Start
 
@@ -644,7 +667,7 @@ Open `http://localhost:8080` in your browser for the web cockpit.
 | Flag | Description | Default |
 |---|---|---|
 | `--headless` | REST gateway only (no desktop UI) | off |
-| `--testmode` | Test mode with deterministic LLM (no API key needed) | off |
+| `--testmode` | Test mode with deterministic LLM (no API key needed). Disables the testMode guard so direct CRUD POST to domain entity endpoints is allowed | off |
 | `--scenario <file>` | Scenario-based E2E test (implies `--testmode`) | off |
 | `--api-key <key>` | Set API key (auto-detects Anthropic vs OpenAI) | none |
 | `--mongo <uri>` | Custom MongoDB connection URI | `mongodb://localhost:27017/javaclaw?replicaSet=rs0` |
@@ -677,14 +700,16 @@ Base URL: `http://localhost:8080`
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/projects/{pid}/threads` | Create a thread |
+| `POST` | `/api/projects/{pid}/threads` | Create a thread (**guarded** — 403 outside testMode) |
 | `GET` | `/api/projects/{pid}/threads` | List threads for project |
 | `POST` | `/api/projects/{pid}/threads/{tid}/messages` | Send message to thread |
 | `POST` | `/api/projects/{pid}/threads/{tid}/run` | Run agent on thread |
 
 ### Tickets, Objectives, Phases, Milestones, Checklists
 
-All follow the same sub-resource pattern under `/api/projects/{pid}/...`:
+All follow the same sub-resource pattern under `/api/projects/{pid}/...`.
+
+**testMode guard:** In live mode (without `--testmode`), POST to threads, tickets, objectives, resources, blindspots, phases, milestones, and checklists returns 403. Entity creation must flow through `POST /api/intake/pipeline`. In testMode, all endpoints are open for scenario testing.
 
 | Resource | Endpoint Pattern | Operations |
 |---|---|---|

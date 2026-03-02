@@ -121,8 +121,8 @@ public class javaclaw {
                         } else {
                             System.setProperty("javaclaw.scenario.files", scenarioArg);
                         }
-                        // Set single-file property for @ConditionalOnProperty activation
                         System.setProperty("javaclaw.scenario.file", scenarioArg);
+                        System.setProperty("javaclaw.scenario.autorun", "true");
                         System.setProperty("javaclaw.llm.provider", "test"); // scenario implies test mode
                     }
                 }

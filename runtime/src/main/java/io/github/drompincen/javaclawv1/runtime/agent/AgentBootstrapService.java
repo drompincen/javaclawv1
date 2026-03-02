@@ -30,7 +30,7 @@ public class AgentBootstrapService {
     public static final Map<String, String> AGENT_DESCRIPTIONS = Map.ofEntries(
             Map.entry("coder", "Handles coding tasks: writing code, running/executing code via jbang or python, debugging, code review, 'run it' requests, creating tools/scripts/programs"),
             Map.entry("pm", "Handles project management: sprint planning, tickets, milestones, backlog, resource allocation, deadlines"),
-            Map.entry("generalist", "Handles general questions: life advice, brainstorming, knowledge questions, writing help, anything that doesn't fit other agents"),
+            Map.entry("generalist", "Handles general questions AND creates project artifacts (threads, tickets, objectives, phases, milestones, checklists, resources). Use for multi-domain creation requests that span multiple specialist areas, or general knowledge questions"),
             Map.entry("reminder", "Handles reminders and scheduling: setting reminders, recurring tasks, schedule optimization"),
             Map.entry("thread-extractor", "Handles thread content extraction: reads thread messages and extracts reminders, TODOs, checklists, tickets, and ideas from conversations"),
             Map.entry("thread-agent", "Handles thread organization: creating, renaming, merging threads based on topic and continuity; attaching evidence; promoting ideas"),
@@ -126,6 +126,36 @@ public class AgentBootstrapService {
         updateIfNeeded("checklist-agent", CHECKLIST_AGENT_PROMPT);
         updateIfNeeded("resource-agent", RESOURCE_AGENT_PROMPT);
         updateIfNeeded("generalist", GENERALIST_PROMPT);
+
+        // Sync descriptions from AGENT_DESCRIPTIONS for routing accuracy
+        AGENT_DESCRIPTIONS.forEach((agentId, description) -> {
+            agentRepository.findById(agentId).ifPresent(agent -> {
+                if (!description.equals(agent.getDescription())) {
+                    agent.setDescription(description);
+                    agent.setUpdatedAt(Instant.now());
+                    agentRepository.save(agent);
+                    log.info("Synced description for agent: {}", agentId);
+                }
+            });
+        });
+
+        // Sync allowedTools for agents that gained new tool permissions
+        syncAllowedTools("generalist", List.of("memory", "read_file", "create_thread", "create_ticket",
+                "create_objective", "create_phase", "create_milestone", "create_checklist",
+                "create_resource", "read_tickets", "read_objectives", "read_phases",
+                "read_checklists", "read_resources", "excel", "classify_content"));
+    }
+
+    private void syncAllowedTools(String agentId, List<String> expectedTools) {
+        agentRepository.findById(agentId).ifPresent(agent -> {
+            List<String> current = agent.getAllowedTools();
+            if (current == null || !new java.util.HashSet<>(current).containsAll(expectedTools)) {
+                agent.setAllowedTools(expectedTools);
+                agent.setUpdatedAt(Instant.now());
+                agentRepository.save(agent);
+                log.info("Synced allowedTools for agent: {}", agentId);
+            }
+        });
     }
 
     private void updateIfNeeded(String agentId, String richPrompt) {
@@ -211,7 +241,22 @@ public class AgentBootstrapService {
 
     private static final String CONTROLLER_PROMPT = """
             You are a routing controller that delegates tasks to specialist agents.
-            You decide which agent should handle each user request.""";
+            You decide which agent should handle each user request.
+
+            You MUST respond with a JSON object in one of these formats:
+
+            To delegate to a specialist:
+            {"delegate": "agent-id", "subTask": "description of what the specialist should do"}
+
+            To respond directly (only for simple greetings or clarifications):
+            {"respond": "your response text"}
+
+            RULES:
+            1. ALWAYS output valid JSON — never prose or markdown
+            2. For ANY task involving project data, tools, or artifact creation — DELEGATE
+            3. Choose the specialist whose description best matches the task
+            4. If a task spans multiple domains, delegate to "generalist" which can create all artifact types
+            5. Include a clear subTask description so the specialist knows what to do""";
 
     private static final String CODER_PROMPT = """
             You are a senior software engineer with the ability to READ FILES, WRITE FILES, and EXECUTE CODE.
@@ -247,14 +292,20 @@ public class AgentBootstrapService {
             Be concise and provide working code. Use markdown formatting.""";
 
     private static final String REVIEWER_PROMPT = """
-            You are a quality reviewer. Review the specialist agent's response and decide:
-            - PASS: The response fully addresses the user's request
-            - FAIL: The response is incomplete, wrong, or misses the point
-            - OPTIONS: The response was partial (e.g., listed files but didn't read them). Offer the user numbered options.
-            When reviewing, consider the FULL user request, not just the literal response.
-            For example, if the user asked to read files and the agent only listed a directory, that's incomplete — suggest reading the files.
-            Respond with one of: PASS, FAIL, or OPTIONS followed by numbered choices.
-            Use markdown formatting.""";
+            You are a quality reviewer. Review the specialist agent's response and decide if it \
+            fully addresses the user's request.
+
+            You MUST respond with a JSON object:
+            {"pass": true, "summary": "brief summary of what was done"}
+            or
+            {"pass": false, "summary": "what was wrong", "feedback": "specific instructions to fix it"}
+
+            RULES:
+            1. ALWAYS output valid JSON — never prose or markdown
+            2. pass=true if the specialist created/did what the user asked
+            3. pass=false if the specialist only described what it would do without actually doing it
+            4. pass=false if the specialist missed parts of the user's request
+            5. When the user asked to CREATE artifacts, verify the specialist used tool calls""";
 
     private static final String PM_PROMPT = """
             You are a project manager and assistant. Your skills include:
@@ -268,7 +319,7 @@ public class AgentBootstrapService {
             + TOOL_CALL_INSTRUCTIONS;
 
     private static final String GENERALIST_PROMPT = """
-            You are a versatile AI assistant with two modes:
+            You are a versatile AI assistant with three modes:
 
             **Conversation Mode** (default): Answer questions, brainstorm, summarize, advise.
             Your skills include:
@@ -277,6 +328,15 @@ public class AgentBootstrapService {
             - Brainstorming ideas and creative problem-solving
             - Summarizing information and explaining complex topics simply
             - Helping with writing, communication, and decision-making
+
+            **Project Action Mode** (when asked to create, modify, or manage project artifacts):
+            When asked to create objectives, plans, checklists, tickets, or other project artifacts:
+            1. First use read_tickets, read_objectives, read_phases, read_checklists, read_resources \
+            to understand existing project data
+            2. Then use create_objective, create_phase, create_milestone, create_checklist, \
+            create_ticket, create_resource to build the requested artifacts
+            3. Always use tool calls — never describe what you would create in prose
+            4. Output ALL tool calls immediately. Do not explain first.
 
             **Intake Hydration Mode** (when given raw content + triage classification):
             You receive raw content in ANY format (CSV, JSON, XML, TXT, meeting notes, Jira exports,
