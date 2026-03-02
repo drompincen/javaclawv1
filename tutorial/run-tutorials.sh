@@ -1,18 +1,21 @@
 #!/bin/bash
 # JavaClaw Tutorial Runner — Orchestrates all 8 tutorials with parallel group support.
-# Usage: bash tutorial/run-tutorials.sh [--group 1|2|1-2] [--port PORT] [--parallel]
+# Usage: bash tutorial/run-tutorials.sh [--group 1|2|1-2] [--port PORT] [--parallel] [--ui]
+# --ui: Also run ChromeDriver UI tests after each group (requires chromium + chromedriver)
 set -euo pipefail
 
 # ── Defaults ──
 GROUPS="1-2"
 PORT=8080
 PARALLEL=false
+RUN_UI=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --group)   GROUPS="$2"; shift 2 ;;
     --port)    PORT="$2"; shift 2 ;;
     --parallel) PARALLEL=true; shift ;;
+    --ui)      RUN_UI=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -87,6 +90,27 @@ run_group() {
   echo "$((CALLS_AFTER - CALLS_BEFORE)) $((TOKENS_AFTER - TOKENS_BEFORE))" > "$LLM_FILE"
 }
 
+# ── Run UI tests for a group (ChromeDriver/Selenium) ──
+run_ui_tests() {
+  local GROUP_NUM="$1"
+  local UI_SCRIPT="$SCRIPT_DIR/run-tutorial-ui-tests.sh"
+  local UI_RESULTS_FILE="$LOG_DIR/group-${GROUP_NUM}-ui.results"
+
+  if [ ! -f "$UI_SCRIPT" ]; then
+    echo "0 0 ui-tests-group-${GROUP_NUM} MISSING" > "$UI_RESULTS_FILE"
+    return
+  fi
+
+  local START_TIME
+  START_TIME=$(date +%s)
+  local EXIT_CODE=0
+  bash "$UI_SCRIPT" --group "$GROUP_NUM" --port "$PORT" > "$LOG_DIR/ui-group-${GROUP_NUM}.log" 2>&1 || EXIT_CODE=$?
+  local END_TIME
+  END_TIME=$(date +%s)
+  local DURATION=$((END_TIME - START_TIME))
+  echo "$EXIT_CODE $DURATION ui-tests-group-${GROUP_NUM}" > "$UI_RESULTS_FILE"
+}
+
 # ── Determine which groups to run ──
 RUN_GROUP1=false
 RUN_GROUP2=false
@@ -108,14 +132,22 @@ if $RUN_GROUP1 && $RUN_GROUP2 && $PARALLEL; then
   PID2=$!
   wait $PID1 || true
   wait $PID2 || true
+  # UI tests run after API tests (need data from tutorials)
+  if $RUN_UI; then
+    echo -e "\n${BOLD}Running UI tests for both groups...${NC}"
+    run_ui_tests 1
+    run_ui_tests 2
+  fi
 else
   if $RUN_GROUP1; then
     echo -e "\n${BOLD}Running Group 1: $GROUP1_NAME${NC}"
     run_group 1
+    $RUN_UI && run_ui_tests 1
   fi
   if $RUN_GROUP2; then
     echo -e "\n${BOLD}Running Group 2: $GROUP2_NAME${NC}"
     run_group 2
+    $RUN_UI && run_ui_tests 2
   fi
 fi
 
@@ -173,6 +205,22 @@ print_group_report() {
     read -r LLM_CALLS LLM_TOKENS < "$LLM_FILE"
   fi
 
+  # UI test results for this group
+  local UI_RESULTS_FILE="$LOG_DIR/group-${GROUP_NUM}-ui.results"
+  if [ -f "$UI_RESULTS_FILE" ]; then
+    while IFS=' ' read -r EXIT_CODE DURATION NAME REST; do
+      G_TOTAL=$((G_TOTAL + 1))
+      G_TIME=$((G_TIME + DURATION))
+      if [ "$EXIT_CODE" -eq 0 ]; then
+        G_PASS=$((G_PASS + 1))
+        printf "   ${GREEN}PASS${NC}  %-35s %6s\n" "$NAME" "$(format_duration "$DURATION")"
+      else
+        G_FAIL=$((G_FAIL + 1))
+        printf "   ${RED}FAIL${NC}  %-35s %6s\n" "$NAME" "$(format_duration "$DURATION")"
+      fi
+    done < "$UI_RESULTS_FILE"
+  fi
+
   echo "   ──────────────────────────────────────"
   printf "   Group %d: %d/%d passed | %s | %d LLM calls | %s tokens\n" \
     "$GROUP_NUM" "$G_PASS" "$G_TOTAL" "$(format_duration $G_TIME)" "$LLM_CALLS" \
@@ -210,13 +258,16 @@ if [ "$TOTAL_FAIL" -gt 0 ]; then
   echo ""
   echo -e "${YELLOW}Failed tutorial logs:${NC}"
   for GN in 1 2; do
-    RESULTS_FILE="$LOG_DIR/group-${GN}.results"
-    [ -f "$RESULTS_FILE" ] || continue
-    while IFS=' ' read -r EXIT_CODE DURATION NAME REST; do
-      if [ "$EXIT_CODE" -ne 0 ]; then
-        echo "  $LOG_DIR/${NAME}.log"
-      fi
-    done < "$RESULTS_FILE"
+    for RFILE in "$LOG_DIR/group-${GN}.results" "$LOG_DIR/group-${GN}-ui.results"; do
+      [ -f "$RFILE" ] || continue
+      while IFS=' ' read -r EXIT_CODE DURATION NAME REST; do
+        if [ "$EXIT_CODE" -ne 0 ]; then
+          local LOGFILE="$LOG_DIR/${NAME}.log"
+          [ -f "$LOGFILE" ] || LOGFILE="$LOG_DIR/ui-group-${GN}.log"
+          echo "  $LOGFILE"
+        fi
+      done < "$RFILE"
+    done
   done
 fi
 
